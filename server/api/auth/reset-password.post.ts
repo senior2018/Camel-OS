@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { consola } from 'consola'
 import { eq } from 'drizzle-orm'
 
-import { authAccounts, passwordResetTokens } from '@@/server/database/schema'
+import { authAccounts, passwordResetTokens, users } from '@@/server/database/schema'
 import { findUserById } from '@@/server/utils/user'
 import { findAuthAccountByUserIdAndProvider } from '@@/server/utils/auth-account'
 import { useDrizzle } from '@@/server/utils/drizzle'
@@ -62,6 +62,12 @@ export default defineEventHandler(async (event) => {
         .update(passwordResetTokens)
         .set({ usedAt: now })
         .where(eq(passwordResetTokens.id, resetToken.id))
+
+      // Clear any lockout so the user can log in immediately after reset
+      await tx
+        .update(users)
+        .set({ failedLoginAttempts: 0, lockedUntil: null })
+        .where(eq(users.id, user.id))
     })
 
     await clearUserSession(event)
