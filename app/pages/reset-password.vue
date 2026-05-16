@@ -35,7 +35,8 @@ async function onSubmit(payload: FormSubmitEvent<Schema>) {
       },
     })
     success.value = true
-    setTimeout(() => navigateTo('/login'), 3000)
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+    await navigateTo('/login')
   } catch (err: unknown) {
     const msg = (err as { data?: { statusMessage?: string } })?.data?.statusMessage
     error.value = msg ?? 'Something went wrong. Please try again.'
