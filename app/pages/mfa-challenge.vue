@@ -8,6 +8,7 @@ definePageMeta({
 
 const route = useRoute()
 const toast = useToast()
+const { fetch: refreshSession } = useUserSession()
 
 const token = computed(() => {
   const t = route.query.token
@@ -37,6 +38,7 @@ async function onSubmit(payload: FormSubmitEvent<Schema>) {
       method: 'POST',
       body: { mfaChallengeToken: token.value, code: payload.data.code },
     })
+    await refreshSession()
     await navigateTo(redirectTo.value)
   } catch (err: unknown) {
     const msg =
