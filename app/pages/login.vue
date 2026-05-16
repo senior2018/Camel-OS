@@ -76,6 +76,7 @@ async function onSubmit(payload: FormSubmitEvent<Schema>) {
         :providers="providers"
         title="Welcome back!"
         icon="i-lucide-lock"
+        :loading-auto="true"
         @submit="onSubmit"
       >
         <template #description>
