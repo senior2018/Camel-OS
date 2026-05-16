@@ -21,18 +21,16 @@ const schema = z
 
 type Schema = z.output<typeof schema>
 
+const state = reactive({ password: '', confirmPassword: '' })
 const error = ref<string | null>(null)
 const success = ref(false)
 
-async function onSubmit(payload: FormSubmitEvent<Schema>) {
+async function onSubmit(_payload: FormSubmitEvent<Schema>) {
   error.value = null
   try {
     await $fetch('/api/auth/reset-password', {
       method: 'POST',
-      body: {
-        token: token.value,
-        password: payload.data.password,
-      },
+      body: { token: token.value, password: state.password },
     })
     success.value = true
     await new Promise((resolve) => setTimeout(resolve, 2000))
@@ -67,10 +65,10 @@ async function onSubmit(payload: FormSubmitEvent<Schema>) {
 
         <UAlert v-if="error" color="error" variant="subtle" :description="error" />
 
-        <UForm :schema="schema" class="flex flex-col gap-4" @submit="onSubmit">
+        <UForm :schema="schema" :state="state" class="flex flex-col gap-4" @submit="onSubmit">
           <UFormField label="New password" name="password" required>
             <UInput
-              name="password"
+              v-model="state.password"
               type="password"
               placeholder="At least 8 characters"
               size="lg"
@@ -80,7 +78,7 @@ async function onSubmit(payload: FormSubmitEvent<Schema>) {
 
           <UFormField label="Confirm password" name="confirmPassword" required>
             <UInput
-              name="confirmPassword"
+              v-model="state.confirmPassword"
               type="password"
               placeholder="Repeat your password"
               size="lg"
