@@ -12,8 +12,8 @@ export default defineNuxtConfig({
     databaseUrl: process.env.DATABASE_URL,
     authEncryptionKey: process.env.NUXT_AUTH_ENCRYPTION_KEY,
     redisUrl: process.env.REDIS_URL,
-    resendApiKey: process.env.RESEND_API_KEY,
-    resendFromEmail: process.env.RESEND_FROM_EMAIL,
+    brevoApiKey: process.env.BREVO_API_KEY,
+    brevoFromEmail: process.env.BREVO_FROM_EMAIL,
     appUrl: process.env.APP_URL,
     public: {
       supabaseUrl: process.env.SUPABASE_URL,

@@ -1,25 +1,25 @@
-import { Resend } from 'resend'
+import { BrevoClient } from '@getbrevo/brevo'
 
-let _resend: Resend | null = null
+let _client: BrevoClient | null = null
 
-function getResend(): Resend {
-  if (_resend) return _resend
-  const apiKey = useRuntimeConfig().resendApiKey as string
-  if (!apiKey) throw new Error('RESEND_API_KEY is not configured')
-  _resend = new Resend(apiKey)
-  return _resend
+function getClient(): BrevoClient {
+  if (_client) return _client
+  const apiKey = useRuntimeConfig().brevoApiKey as string
+  if (!apiKey) throw new Error('BREVO_API_KEY is not configured')
+  _client = new BrevoClient({ apiKey })
+  return _client
 }
 
 function getFromEmail(): string {
-  return (useRuntimeConfig().resendFromEmail as string) || 'Camel OS <noreply@camel-os.com>'
+  return (useRuntimeConfig().brevoFromEmail as string) || 'noreply@camel-os.com'
 }
 
 export async function sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
-  await getResend().emails.send({
-    from: getFromEmail(),
-    to,
+  await getClient().transactionalEmails.sendTransacEmail({
+    sender: { name: 'Camel OS', email: getFromEmail() },
+    to: [{ email: to }],
     subject: 'Reset your Camel OS password',
-    html: `
+    htmlContent: `
       <p>Hi,</p>
       <p>You requested a password reset for your Camel OS account.</p>
       <p><a href="${resetUrl}">Click here to reset your password</a></p>
