@@ -6,6 +6,7 @@ const PUBLIC_ROUTES = new Set([
   '/reset-password',
   '/verify-email',
   '/verify-email-sent',
+  '/mfa-challenge',
 ])
 
 export default defineNuxtRouteMiddleware(async (to) => {
