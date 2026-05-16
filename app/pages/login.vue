@@ -76,6 +76,11 @@ async function onSubmit(payload: FormSubmitEvent<Schema>) {
             <ULink to="/register" class="font-medium text-primary">Create an account</ULink>.
           </p>
         </template>
+        <template #password-hint>
+          <ULink to="/forgot-password" class="text-sm font-medium text-primary">
+            Forgot password?
+          </ULink>
+        </template>
         <template #footer>
           By signing in, you agree to our
           <ULink to="#" class="font-medium text-primary">Terms of Service</ULink>.
