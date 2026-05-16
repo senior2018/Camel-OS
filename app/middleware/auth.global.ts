@@ -1,3 +1,13 @@
+const PUBLIC_ROUTES = new Set([
+  '/',
+  '/login',
+  '/register',
+  '/forgot-password',
+  '/reset-password',
+  '/verify-email',
+  '/verify-email-sent',
+])
+
 export default defineNuxtRouteMiddleware(async (to) => {
   const { loggedIn, fetch, ready } = useUserSession()
 
@@ -6,9 +16,15 @@ export default defineNuxtRouteMiddleware(async (to) => {
   }
 
   const isAuthenticated = loggedIn.value
-  const isPublicAuthRoute = to.path === '/login' || to.path === '/register'
+  const isPublicRoute = PUBLIC_ROUTES.has(to.path)
 
-  if (isAuthenticated && (isPublicAuthRoute || to.path === '/')) {
+  // Redirect authenticated users away from public/auth pages
+  if (isAuthenticated && (to.path === '/' || to.path === '/login' || to.path === '/register')) {
     return navigateTo('/dashboard')
+  }
+
+  // Redirect unauthenticated users to login for protected routes
+  if (!isAuthenticated && !isPublicRoute) {
+    return navigateTo(`/login?redirect=${encodeURIComponent(to.path)}`)
   }
 })
