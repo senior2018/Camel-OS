@@ -8,6 +8,7 @@ import { findAuthAccountByUserIdAndProvider } from '@@/server/utils/auth-account
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { checkRateLimit, RATE_LIMITS } from '@@/server/utils/rate-limit'
 import { logAuditEvent } from '@@/server/utils/audit'
+import { encrypt } from '@@/server/utils/crypto'
 
 const MAX_FAILED_ATTEMPTS = 5
 const LOCKOUT_MS = 15 * 60 * 1000 // 15 minutes
@@ -113,6 +114,25 @@ export default defineEventHandler(async (event) => {
       .update(users)
       .set({ failedLoginAttempts: 0, lockedUntil: null })
       .where(eq(users.id, existingUser.id))
+
+    // If MFA is enabled, issue a short-lived challenge token instead of a full session
+    if (existingAuthAccount.mfaEnabled) {
+      const challengePayload = JSON.stringify({
+        userId: existingUser.id,
+        expiresAt: now.getTime() + 10 * 60 * 1000, // 10 minutes
+      })
+      const mfaChallengeToken = encrypt(challengePayload)
+
+      await logAuditEvent({
+        organizationId: existingUser.organizationId,
+        userId: existingUser.id,
+        resource: 'auth',
+        action: 'mfa_challenge_issued',
+        meta: { ip },
+      })
+
+      return { mfaRequired: true, mfaChallengeToken }
+    }
 
     // Track session in DB
     await db.insert(userSessions).values({

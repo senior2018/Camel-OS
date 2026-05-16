@@ -53,10 +53,16 @@ const toast = useToast()
 
 async function onSubmit(payload: FormSubmitEvent<Schema>) {
   try {
-    await $fetch('/api/auth/login', {
-      method: 'POST',
-      body: payload.data,
-    })
+    const result = await $fetch<{ mfaRequired?: boolean; mfaChallengeToken?: string }>(
+      '/api/auth/login',
+      { method: 'POST', body: payload.data }
+    )
+    if (result.mfaRequired && result.mfaChallengeToken) {
+      await navigateTo(
+        `/mfa-challenge?token=${encodeURIComponent(result.mfaChallengeToken)}&redirect=${encodeURIComponent(redirectTo.value)}`
+      )
+      return
+    }
     await navigateTo(redirectTo.value)
   } catch (err: unknown) {
     const msg =
