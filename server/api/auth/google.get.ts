@@ -1,12 +1,11 @@
 import { consola } from 'consola'
 
 import type { User } from '@@/server/database/schema'
-import {
-  createGoogleAuthAccount,
-  findAuthAccountByProviderAndProviderUserId,
-} from '@@/server/utils/auth-account'
-import { createDefaultWorkspaceForUser } from '@@/server/utils/workspace'
-import { createUserAccount, findUserByEmail, findUserById } from '@@/server/utils/user'
+import { authAccounts, organizationMembers, organizations, users } from '@@/server/database/schema'
+import { findAuthAccountByProviderAndProviderUserId } from '@@/server/utils/auth-account'
+import { findUserByEmail, findUserById } from '@@/server/utils/user'
+import { useDrizzle } from '@@/server/utils/drizzle'
+import { generateOrgSlug } from '@@/server/utils/workspace'
 
 export default defineOAuthGoogleEventHandler({
   config: {
@@ -39,10 +38,7 @@ export default defineOAuthGoogleEventHandler({
       }
 
       if (emailVerified === false) {
-        throw createError({
-          statusCode: 403,
-          statusMessage: 'Email not verified by Google',
-        })
+        throw createError({ statusCode: 403, statusMessage: 'Email not verified by Google' })
       }
 
       let appUser: User | null = null
@@ -74,37 +70,50 @@ export default defineOAuthGoogleEventHandler({
           })
         }
 
-        appUser = await createUserAccount({
-          email,
-          firstName,
-          lastName,
-          avatarUrl,
-        })
+        appUser = await useDrizzle().transaction(async (tx) => {
+          const orgName = `${firstName} ${lastName}'s Workspace`
 
-        if (!appUser) {
-          throw createError({
-            statusCode: 500,
-            statusMessage: 'Failed to create user account',
+          const [org] = await tx
+            .insert(organizations)
+            .values({ name: orgName, slug: generateOrgSlug(orgName), plan: 'free' })
+            .returning()
+
+          if (!org) throw new Error('Failed to create organization')
+
+          const [createdUser] = await tx
+            .insert(users)
+            .values({
+              organizationId: org.id,
+              email,
+              firstName,
+              lastName,
+              avatarUrl,
+              status: 'active',
+              role: 'member',
+              emailVerifiedAt: new Date(),
+            })
+            .returning()
+
+          if (!createdUser) throw new Error('Failed to create user')
+
+          await tx.insert(organizationMembers).values({
+            organizationId: org.id,
+            userId: createdUser.id,
+            role: 'owner',
           })
-        }
 
-        const createdGoogleAccount = await createGoogleAuthAccount({
-          userId: appUser.id,
-          providerUserId: googleId,
-        })
-
-        if (!createdGoogleAccount) {
-          throw createError({
-            statusCode: 500,
-            statusMessage: 'Failed to create Google auth account',
+          await tx.insert(authAccounts).values({
+            userId: createdUser.id,
+            provider: 'google',
+            providerUserId: googleId,
           })
-        }
 
-        await createDefaultWorkspaceForUser({
-          id: appUser.id,
-          firstName: appUser.firstName,
-          lastName: appUser.lastName,
+          return createdUser
         })
+      }
+
+      if (!appUser) {
+        throw createError({ statusCode: 500, statusMessage: 'Authentication failed' })
       }
 
       await clearUserSession(event)
@@ -120,15 +129,9 @@ export default defineOAuthGoogleEventHandler({
 
       return sendRedirect(event, '/dashboard')
     } catch (error) {
-      if (typeof error === 'object' && error !== null && 'statusCode' in error) {
-        throw error
-      }
-
+      if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
       consola.error('Auth error using Google:', error)
-      throw createError({
-        statusCode: 500,
-        statusMessage: 'Authentication failed',
-      })
+      throw createError({ statusCode: 500, statusMessage: 'Authentication failed' })
     }
   },
 })

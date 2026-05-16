@@ -3,12 +3,15 @@ import { and, eq } from 'drizzle-orm'
 import { authAccounts } from '../database/schema'
 import { useDrizzle } from './drizzle'
 
-export type NewEmailAuthAccount = {
+export type NewLocalAuthAccount = {
   userId: string
   passwordHash: string
 }
 
-export function findAuthAccountByUserIdAndProvider(userId: string, provider: 'email' | 'google') {
+export function findAuthAccountByUserIdAndProvider(
+  userId: string,
+  provider: 'local' | 'google' | 'microsoft'
+) {
   return useDrizzle()
     .select()
     .from(authAccounts)
@@ -17,23 +20,25 @@ export function findAuthAccountByUserIdAndProvider(userId: string, provider: 'em
 }
 
 export function findAuthAccountByProviderAndProviderUserId(
-  provider: 'email' | 'google',
+  provider: 'local' | 'google' | 'microsoft',
   providerUserId: string
 ) {
   return useDrizzle()
     .select()
     .from(authAccounts)
-    .where(and(eq(authAccounts.provider, provider), eq(authAccounts.providerUserId, providerUserId)))
+    .where(
+      and(eq(authAccounts.provider, provider), eq(authAccounts.providerUserId, providerUserId))
+    )
     .limit(1)
 }
 
-export async function createEmailAuthAccount(authAccount: NewEmailAuthAccount) {
+export async function createLocalAuthAccount(authAccount: NewLocalAuthAccount) {
   const [insertedAuthAccount] = await useDrizzle()
     .insert(authAccounts)
     .values({
       userId: authAccount.userId,
-      provider: 'email',
-      passwordHash: authAccount.passwordHash
+      provider: 'local',
+      passwordHash: authAccount.passwordHash,
     })
     .returning()
 
@@ -49,7 +54,7 @@ export async function createGoogleAuthAccount(authAccount: {
     .values({
       userId: authAccount.userId,
       provider: 'google',
-      providerUserId: authAccount.providerUserId
+      providerUserId: authAccount.providerUserId,
     })
     .returning()
 

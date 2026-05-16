@@ -29,7 +29,7 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    const [existingAuthAccount] = await findAuthAccountByUserIdAndProvider(existingUser.id, 'email')
+    const [existingAuthAccount] = await findAuthAccountByUserIdAndProvider(existingUser.id, 'local')
 
     if (!existingAuthAccount?.passwordHash) {
       throw createError({
@@ -38,7 +38,10 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    const isPasswordValid = await verifyPassword(existingAuthAccount.passwordHash, parsed.data.password)
+    const isPasswordValid = await verifyPassword(
+      existingAuthAccount.passwordHash,
+      parsed.data.password
+    )
 
     if (!isPasswordValid) {
       throw createError({
