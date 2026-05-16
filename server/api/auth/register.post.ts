@@ -5,9 +5,21 @@ import { authAccounts, organizationMembers, organizations, users } from '@@/serv
 import { findUserByEmail } from '@@/server/utils/user'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { generateOrgSlug } from '@@/server/utils/workspace'
+import { checkRateLimit, RATE_LIMITS } from '@@/server/utils/rate-limit'
 
 export default defineEventHandler(async (event) => {
   try {
+    const ip = getRequestIP(event, { xForwardedFor: true }) ?? 'unknown'
+    const rl = await checkRateLimit(`rl:register:${ip}`, RATE_LIMITS.register)
+
+    if (!rl.allowed) {
+      setResponseHeader(event, 'Retry-After', rl.retryAfter)
+      throw createError({
+        statusCode: 429,
+        statusMessage: 'Too many registration attempts. Please try again later.',
+      })
+    }
+
     const schema = z.object({
       email: z.email('Valid email required').trim(),
       password: z.string().min(8, 'Password must be at least 8 characters'),
