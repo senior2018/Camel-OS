@@ -49,13 +49,21 @@ const redirectTo = computed(() => {
   return typeof redirect === 'string' && redirect.length > 0 ? redirect : '/dashboard'
 })
 
-async function onSubmit(payload: FormSubmitEvent<Schema>) {
-  await $fetch('/api/auth/login', {
-    method: 'POST',
-    body: payload.data,
-  })
+const toast = useToast()
 
-  await navigateTo(redirectTo.value)
+async function onSubmit(payload: FormSubmitEvent<Schema>) {
+  try {
+    await $fetch('/api/auth/login', {
+      method: 'POST',
+      body: payload.data,
+    })
+    await navigateTo(redirectTo.value)
+  } catch (err: unknown) {
+    const msg =
+      (err as { data?: { statusMessage?: string } })?.data?.statusMessage ??
+      'An error occurred. Please try again.'
+    toast.add({ title: 'Login failed', description: msg, color: 'error' })
+  }
 }
 </script>
 
