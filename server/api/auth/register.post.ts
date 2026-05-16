@@ -1,15 +1,16 @@
 import { z } from 'zod'
-import { authAccounts, users } from '@@/server/database/schema'
-import { createDefaultWorkspaceForUser } from '@@/server/utils/workspace'
+import { consola } from 'consola'
+
+import { authAccounts, organizationMembers, organizations, users } from '@@/server/database/schema'
 import { findUserByEmail } from '@@/server/utils/user'
 import { useDrizzle } from '@@/server/utils/drizzle'
-import { consola } from 'consola'
+import { generateOrgSlug } from '@@/server/utils/workspace'
 
 export default defineEventHandler(async (event) => {
   try {
     const schema = z.object({
-      email: z.email('Email is required').trim(),
-      password: z.string().min(6, 'Password must be at least 6 characters'),
+      email: z.email('Valid email required').trim(),
+      password: z.string().min(8, 'Password must be at least 8 characters'),
       firstName: z.string().trim().min(1, 'First name is required'),
       lastName: z.string().trim().min(1, 'Last name is required'),
     })
@@ -18,64 +19,58 @@ export default defineEventHandler(async (event) => {
     const parsed = schema.safeParse(body)
 
     if (!parsed.success) {
-      throw createError({
-        statusCode: 400,
-        statusMessage: 'Invalid registration payload',
-      })
+      throw createError({ statusCode: 400, statusMessage: 'Invalid registration payload' })
     }
 
-    const [existingUser] = await findUserByEmail(parsed.data.email)
+    const { email, password, firstName, lastName } = parsed.data
+    const normalizedEmail = email.trim().toLowerCase()
+
+    const [existingUser] = await findUserByEmail(normalizedEmail)
 
     if (existingUser) {
-      throw createError({
-        statusCode: 409,
-        statusMessage: 'User with this email already exists',
-      })
+      throw createError({ statusCode: 409, statusMessage: 'User with this email already exists' })
     }
 
-    const passwordHash = await hashPassword(parsed.data.password)
+    const passwordHash = await hashPassword(password)
 
     const insertedUser = await useDrizzle().transaction(async (tx) => {
+      const orgName = `${firstName} ${lastName}'s Workspace`
+
+      const [org] = await tx
+        .insert(organizations)
+        .values({ name: orgName, slug: generateOrgSlug(orgName), plan: 'free' })
+        .returning()
+
+      if (!org) throw new Error('Failed to create organization')
+
       const [createdUser] = await tx
         .insert(users)
         .values({
-          email: parsed.data.email,
-          firstName: parsed.data.firstName,
-          lastName: parsed.data.lastName,
+          organizationId: org.id,
+          email: normalizedEmail,
+          firstName,
+          lastName,
           avatarUrl: null,
+          status: 'pending_verification',
+          role: 'member',
         })
         .returning()
 
-      if (!createdUser) {
-        throw createError({
-          statusCode: 500,
-          statusMessage: 'Failed to create user',
-        })
-      }
+      if (!createdUser) throw new Error('Failed to create user')
 
-      const [createdAuthAccount] = await tx
-        .insert(authAccounts)
-        .values({
-          userId: createdUser.id,
-          provider: 'email',
-          passwordHash,
-        })
-        .returning()
+      await tx.insert(organizationMembers).values({
+        organizationId: org.id,
+        userId: createdUser.id,
+        role: 'owner',
+      })
 
-      if (!createdAuthAccount) {
-        throw createError({
-          statusCode: 500,
-          statusMessage: 'Failed to create auth account',
-        })
-      }
+      await tx.insert(authAccounts).values({
+        userId: createdUser.id,
+        provider: 'local',
+        passwordHash,
+      })
 
       return createdUser
-    })
-
-    await createDefaultWorkspaceForUser({
-      id: insertedUser.id,
-      firstName: insertedUser.firstName,
-      lastName: insertedUser.lastName,
     })
 
     await clearUserSession(event)
@@ -102,14 +97,8 @@ export default defineEventHandler(async (event) => {
       },
     }
   } catch (error) {
-    if (typeof error === 'object' && error !== null && 'statusCode' in error) {
-      throw error
-    }
-
+    if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
     consola.error('Error registering user', error)
-    throw createError({
-      statusCode: 500,
-      statusMessage: 'Internal server error',
-    })
+    throw createError({ statusCode: 500, statusMessage: 'Internal server error' })
   }
 })
