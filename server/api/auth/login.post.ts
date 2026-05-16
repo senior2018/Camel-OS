@@ -1,18 +1,21 @@
 import { z } from 'zod'
 import { consola } from 'consola'
 import { eq } from 'drizzle-orm'
+import { randomBytes } from 'node:crypto'
 
-import { users, userSessions } from '@@/server/database/schema'
+import { users, userSessions, passwordResetTokens } from '@@/server/database/schema'
 import { findUserByEmail } from '@@/server/utils/user'
 import { findAuthAccountByUserIdAndProvider } from '@@/server/utils/auth-account'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { checkRateLimit, RATE_LIMITS } from '@@/server/utils/rate-limit'
 import { logAuditEvent } from '@@/server/utils/audit'
-import { encrypt } from '@@/server/utils/crypto'
+import { encrypt, sha256 } from '@@/server/utils/crypto'
+import { sendPasswordResetEmail } from '@@/server/utils/mailer'
 
 const MAX_FAILED_ATTEMPTS = 5
-const LOCKOUT_MS = 15 * 60 * 1000 // 15 minutes
-const SESSION_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
+const LOCKOUT_MS = 24 * 60 * 60 * 1000 // 24 hours — cleared by password reset
+const RESET_TTL_MS = 24 * 60 * 60 * 1000
+const SESSION_MS = 7 * 24 * 60 * 60 * 1000
 
 export default defineEventHandler(async (event) => {
   try {
@@ -45,11 +48,9 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 401, statusMessage: 'Please check your email or password' })
     }
 
-    // Check account lockout
+    // Already locked — tell the user to reset via email
     const now = new Date()
     if (existingUser.lockedUntil && existingUser.lockedUntil > now) {
-      const retryAfterSecs = Math.ceil((existingUser.lockedUntil.getTime() - now.getTime()) / 1000)
-      setResponseHeader(event, 'Retry-After', retryAfterSecs)
       await logAuditEvent({
         organizationId: existingUser.organizationId,
         userId: existingUser.id,
@@ -58,8 +59,8 @@ export default defineEventHandler(async (event) => {
         meta: { ip, reason: 'account_locked' },
       })
       throw createError({
-        statusCode: 429,
-        statusMessage: 'Account temporarily locked. Please try again later.',
+        statusCode: 423,
+        statusMessage: 'Account locked. Please reset your password using the link we sent to your email.',
       })
     }
 
@@ -103,6 +104,26 @@ export default defineEventHandler(async (event) => {
           resource: 'auth',
           action: 'account_locked',
           meta: { ip, attempts: newAttempts },
+        })
+
+        // Send password reset email so the user can unlock immediately
+        try {
+          const rawToken = randomBytes(32).toString('hex')
+          const tokenHash = sha256(rawToken)
+          await db.insert(passwordResetTokens).values({
+            userId: existingUser.id,
+            tokenHash,
+            expiresAt: new Date(now.getTime() + RESET_TTL_MS),
+          })
+          const appUrl = (useRuntimeConfig().appUrl as string) || 'http://localhost:3000'
+          await sendPasswordResetEmail(existingUser.email, `${appUrl}/reset-password?token=${rawToken}`)
+        } catch (emailErr) {
+          consola.error('Failed to send lockout reset email', emailErr)
+        }
+
+        throw createError({
+          statusCode: 423,
+          statusMessage: 'Account locked. We\'ve sent a password reset link to your email.',
         })
       }
 
