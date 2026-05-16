@@ -6,6 +6,7 @@ import { findAuthAccountByProviderAndProviderUserId } from '@@/server/utils/auth
 import { findUserByEmail, findUserById } from '@@/server/utils/user'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { generateOrgSlug } from '@@/server/utils/workspace'
+import { logAuditEvent } from '@@/server/utils/audit'
 
 export default defineOAuthGoogleEventHandler({
   config: {
@@ -41,7 +42,9 @@ export default defineOAuthGoogleEventHandler({
         throw createError({ statusCode: 403, statusMessage: 'Email not verified by Google' })
       }
 
+      const ip = getRequestIP(event, { xForwardedFor: true }) ?? 'unknown'
       let appUser: User | null = null
+      let isNewUser = false
 
       const [existingGoogleAccount] = await findAuthAccountByProviderAndProviderUserId(
         'google',
@@ -108,6 +111,7 @@ export default defineOAuthGoogleEventHandler({
             providerUserId: googleId,
           })
 
+          isNewUser = true
           return createdUser
         })
       }
@@ -125,6 +129,15 @@ export default defineOAuthGoogleEventHandler({
           lastName: appUser.lastName,
           avatarUrl: appUser.avatarUrl,
         },
+      })
+
+      await logAuditEvent({
+        organizationId: appUser.organizationId,
+        userId: appUser.id,
+        resource: 'auth',
+        action: isNewUser ? 'register' : 'login',
+        resourceId: appUser.id,
+        meta: { ip, provider: 'google' },
       })
 
       return sendRedirect(event, '/dashboard')

@@ -4,6 +4,7 @@ import { consola } from 'consola'
 import { findUserByEmail } from '@@/server/utils/user'
 import { findAuthAccountByUserIdAndProvider } from '@@/server/utils/auth-account'
 import { checkRateLimit, RATE_LIMITS } from '@@/server/utils/rate-limit'
+import { logAuditEvent } from '@@/server/utils/audit'
 
 export default defineEventHandler(async (event) => {
   try {
@@ -48,6 +49,13 @@ export default defineEventHandler(async (event) => {
     )
 
     if (!isPasswordValid) {
+      await logAuditEvent({
+        organizationId: existingUser.organizationId,
+        userId: existingUser.id,
+        resource: 'auth',
+        action: 'login_failed',
+        meta: { ip, reason: 'invalid_credentials' },
+      })
       throw createError({ statusCode: 401, statusMessage: 'Please check your email or password' })
     }
 
@@ -60,6 +68,15 @@ export default defineEventHandler(async (event) => {
         lastName: existingUser.lastName,
         avatarUrl: existingUser.avatarUrl,
       },
+    })
+
+    await logAuditEvent({
+      organizationId: existingUser.organizationId,
+      userId: existingUser.id,
+      resource: 'auth',
+      action: 'login',
+      resourceId: existingUser.id,
+      meta: { ip, provider: 'local' },
     })
 
     return {

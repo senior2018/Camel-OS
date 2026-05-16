@@ -6,6 +6,7 @@ import { findUserByEmail } from '@@/server/utils/user'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { generateOrgSlug } from '@@/server/utils/workspace'
 import { checkRateLimit, RATE_LIMITS } from '@@/server/utils/rate-limit'
+import { logAuditEvent } from '@@/server/utils/audit'
 
 export default defineEventHandler(async (event) => {
   try {
@@ -94,6 +95,15 @@ export default defineEventHandler(async (event) => {
         lastName: insertedUser.lastName,
         avatarUrl: insertedUser.avatarUrl,
       },
+    })
+
+    await logAuditEvent({
+      organizationId: insertedUser.organizationId,
+      userId: insertedUser.id,
+      resource: 'auth',
+      action: 'register',
+      resourceId: insertedUser.id,
+      meta: { ip, provider: 'local' },
     })
 
     consola.info(`New user registered: ${insertedUser.email} (ID: ${insertedUser.id})`)
