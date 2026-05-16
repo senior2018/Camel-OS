@@ -15,15 +15,20 @@ function getFromEmail(): string {
 }
 
 export async function sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
-  await getClient().transactionalEmails.sendTransacEmail({
-    sender: { name: 'Camel OS', email: getFromEmail() },
-    to: [{ email: to }],
-    subject: 'Reset your Camel OS password',
-    htmlContent: `
-      <p>Hi,</p>
-      <p>You requested a password reset for your Camel OS account.</p>
-      <p><a href="${resetUrl}">Click here to reset your password</a></p>
-      <p>This link expires in <strong>1 hour</strong>. If you didn't request this, you can safely ignore this email.</p>
-    `,
-  })
+  try {
+    await getClient().transactionalEmails.sendTransacEmail({
+      sender: { name: 'Camel OS', email: getFromEmail() },
+      to: [{ email: to }],
+      subject: 'Reset your Camel OS password',
+      htmlContent: `
+        <p>Hi,</p>
+        <p>You requested a password reset for your Camel OS account.</p>
+        <p><a href="${resetUrl}">Click here to reset your password</a></p>
+        <p>This link expires in <strong>1 hour</strong>. If you didn't request this, you can safely ignore this email.</p>
+      `,
+    })
+  } catch (err) {
+    // Strip provider-specific error shape so statusCode doesn't leak to the client
+    throw new Error(`Failed to send email: ${(err as Error).message}`)
+  }
 }
