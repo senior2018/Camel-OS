@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@bubblesortt/nuxt-es-toolkit": "1.0.10",
+    "@getbrevo/brevo": "^5.0.4",
     "@iconify-json/lucide": "^1.2.100",
     "@iconify-json/simple-icons": "^1.2.75",
     "@nuxt/image": "2.0.0",
@@ -30,7 +31,6 @@
     "nuxt": "^4.4.2",
     "nuxt-auth-utils": "0.5.29",
     "postgres": "^3.4.7",
-    "resend": "^6.12.3",
     "tailwindcss": "^4.2.2",
     "zod": "^4.3.6"
   },
