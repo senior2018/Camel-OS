@@ -1,12 +1,24 @@
 import { z } from 'zod'
 import { consola } from 'consola'
 
-import { authAccounts, organizationMembers, organizations, users } from '@@/server/database/schema'
+import { randomBytes } from 'node:crypto'
+
+import {
+  authAccounts,
+  emailVerificationTokens,
+  organizationMembers,
+  organizations,
+  users,
+} from '@@/server/database/schema'
 import { findUserByEmail } from '@@/server/utils/user'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { generateOrgSlug } from '@@/server/utils/workspace'
+import { sha256 } from '@@/server/utils/crypto'
 import { checkRateLimit, RATE_LIMITS } from '@@/server/utils/rate-limit'
 import { logAuditEvent } from '@@/server/utils/audit'
+import { sendEmailVerificationEmail } from '@@/server/utils/mailer'
+
+const VERIFY_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 
 export default defineEventHandler(async (event) => {
   try {
@@ -105,6 +117,27 @@ export default defineEventHandler(async (event) => {
       resourceId: insertedUser.id,
       meta: { ip, provider: 'local' },
     })
+
+    // Send verification email — best-effort, never fails registration
+    try {
+      const rawToken = randomBytes(32).toString('hex')
+      const tokenHash = sha256(rawToken)
+      const expiresAt = new Date(Date.now() + VERIFY_TTL_MS)
+
+      await useDrizzle().insert(emailVerificationTokens).values({
+        userId: insertedUser.id,
+        tokenHash,
+        expiresAt,
+      })
+
+      const appUrl = (useRuntimeConfig().appUrl as string) || 'http://localhost:3000'
+      await sendEmailVerificationEmail(
+        insertedUser.email,
+        `${appUrl}/verify-email?token=${rawToken}`
+      )
+    } catch (emailErr) {
+      consola.error('Failed to send verification email', emailErr)
+    }
 
     consola.info(`New user registered: ${insertedUser.email} (ID: ${insertedUser.id})`)
 

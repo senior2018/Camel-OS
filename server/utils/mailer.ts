@@ -14,6 +14,24 @@ function getFromEmail(): string {
   return (useRuntimeConfig().brevoFromEmail as string) || 'noreply@camel-os.com'
 }
 
+export async function sendEmailVerificationEmail(to: string, verifyUrl: string): Promise<void> {
+  try {
+    await getClient().transactionalEmails.sendTransacEmail({
+      sender: { name: 'Camel OS', email: getFromEmail() },
+      to: [{ email: to }],
+      subject: 'Verify your Camel OS email',
+      htmlContent: `
+        <p>Hi,</p>
+        <p>Thanks for signing up! Please verify your email address to activate your account.</p>
+        <p><a href="${verifyUrl}">Click here to verify your email</a></p>
+        <p>This link expires in <strong>24 hours</strong>. If you didn't create an account, you can safely ignore this email.</p>
+      `,
+    })
+  } catch (err) {
+    throw new Error(`Failed to send email: ${(err as Error).message}`)
+  }
+}
+
 export async function sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
   try {
     await getClient().transactionalEmails.sendTransacEmail({

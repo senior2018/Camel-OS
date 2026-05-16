@@ -71,7 +71,7 @@ async function onSubmit(payload: FormSubmitEvent<Schema>) {
       body: payload.data,
     })
 
-    await navigateTo('/dashboard')
+    await navigateTo('/verify-email-sent')
   } catch (error) {
     console.log(error)
     const fetchError = error as FetchError
