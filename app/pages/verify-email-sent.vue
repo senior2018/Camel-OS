@@ -34,8 +34,8 @@ async function resend() {
       <h1 class="text-2xl font-semibold tracking-tight text-default">Check your inbox</h1>
       <p class="text-sm text-muted">
         We sent a verification link to
-        <span class="font-medium text-default">{{ user?.email }}</span>.
-        Click the link to activate your account.
+        <span class="font-medium text-default">{{ user?.email }}</span
+        >. Click the link to activate your account.
       </p>
     </div>
 
@@ -57,7 +57,14 @@ async function resend() {
     />
 
     <div class="flex w-full flex-col gap-3">
-      <UButton :loading="resending" variant="outline" size="lg" block icon="i-lucide-refresh-cw" @click="resend">
+      <UButton
+        :loading="resending"
+        variant="outline"
+        size="lg"
+        block
+        icon="i-lucide-refresh-cw"
+        @click="resend"
+      >
         Resend verification email
       </UButton>
       <UButton to="/dashboard" variant="ghost" size="lg" block trailing-icon="i-lucide-arrow-right">
@@ -66,7 +73,10 @@ async function resend() {
     </div>
 
     <p class="text-xs text-muted">
-      Wrong email? <ULink to="/login" class="font-medium text-primary hover:underline">Sign in with a different account</ULink>.
+      Wrong email?
+      <ULink to="/login" class="font-medium text-primary hover:underline"
+        >Sign in with a different account</ULink
+      >.
     </p>
   </div>
 </template>

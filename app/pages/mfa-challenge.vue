@@ -3,7 +3,7 @@ import * as z from 'zod'
 import type { FormSubmitEvent } from '@nuxt/ui'
 
 definePageMeta({
-  layout: 'auth'
+  layout: 'auth',
 })
 
 useHead({ title: 'Two-factor authentication — Camel OS' })
@@ -27,7 +27,9 @@ const useRecovery = ref(false)
 const schema = computed(() =>
   useRecovery.value
     ? z.object({ code: z.string().min(1, 'Recovery code is required') })
-    : z.object({ code: z.string().length(6, 'Enter the 6-digit code').regex(/^\d+$/, 'Digits only') })
+    : z.object({
+        code: z.string().length(6, 'Enter the 6-digit code').regex(/^\d+$/, 'Digits only'),
+      })
 )
 
 const state = reactive({ code: '' })
@@ -63,11 +65,15 @@ function toggleMode() {
         <UIcon name="i-lucide-shield-check" class="size-8 text-primary" />
       </div>
       <div>
-        <h1 class="text-2xl font-semibold tracking-tight text-default">Two-factor authentication</h1>
+        <h1 class="text-2xl font-semibold tracking-tight text-default">
+          Two-factor authentication
+        </h1>
         <p class="mt-2 text-sm text-muted">
-          {{ useRecovery
-            ? 'Enter one of your saved recovery codes.'
-            : 'Enter the 6-digit code from your authenticator app.' }}
+          {{
+            useRecovery
+              ? 'Enter one of your saved recovery codes.'
+              : 'Enter the 6-digit code from your authenticator app.'
+          }}
         </p>
       </div>
     </div>
@@ -84,7 +90,13 @@ function toggleMode() {
         />
       </UFormField>
 
-      <UButton type="submit" size="lg" block :loading-auto="true" trailing-icon="i-lucide-arrow-right">
+      <UButton
+        type="submit"
+        size="lg"
+        block
+        :loading-auto="true"
+        trailing-icon="i-lucide-arrow-right"
+      >
         Verify
       </UButton>
     </UForm>

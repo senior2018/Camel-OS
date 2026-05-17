@@ -3,7 +3,7 @@ import * as z from 'zod'
 import type { AuthFormField, FormSubmitEvent } from '@nuxt/ui'
 
 definePageMeta({
-  layout: 'auth'
+  layout: 'auth',
 })
 
 useHead({ title: 'Sign in — Camel OS' })
@@ -17,7 +17,7 @@ const fields: AuthFormField[] = [
     label: 'Email',
     placeholder: 'you@company.com',
     required: true,
-    size: 'lg'
+    size: 'lg',
   },
   {
     name: 'password',
@@ -25,8 +25,8 @@ const fields: AuthFormField[] = [
     type: 'password',
     placeholder: 'Enter your password',
     required: true,
-    size: 'lg'
-  }
+    size: 'lg',
+  },
 ]
 
 const providers = [
@@ -35,13 +35,13 @@ const providers = [
     icon: 'devicon:google',
     onClick: () => {
       window.location.href = '/api/auth/google'
-    }
-  }
+    },
+  },
 ]
 
 const schema = z.object({
   email: z.email('Invalid email'),
-  password: z.string('Password is required').min(8, 'Must be at least 8 characters')
+  password: z.string('Password is required').min(8, 'Must be at least 8 characters'),
 })
 
 type Schema = z.output<typeof schema>
@@ -90,11 +90,15 @@ async function resendReset() {
   try {
     await $fetch('/api/auth/forgot-password', {
       method: 'POST',
-      body: { email: lockedEmail.value }
+      body: { email: lockedEmail.value },
     })
     resent.value = true
   } catch {
-    toast.add({ title: 'Failed to resend', description: 'Please try again in a moment.', color: 'error' })
+    toast.add({
+      title: 'Failed to resend',
+      description: 'Please try again in a moment.',
+      color: 'error',
+    })
   } finally {
     resending.value = false
   }
@@ -111,8 +115,9 @@ async function resendReset() {
     <div class="flex flex-col gap-2">
       <h1 class="text-2xl font-semibold tracking-tight text-default">Account locked</h1>
       <p class="text-sm text-muted">
-        Your account was locked after too many failed login attempts.
-        We've sent a password reset link to <span class="font-medium text-default">{{ lockedEmail }}</span>.
+        Your account was locked after too many failed login attempts. We've sent a password reset
+        link to <span class="font-medium text-default">{{ lockedEmail }}</span
+        >.
       </p>
     </div>
 
@@ -146,9 +151,7 @@ async function resendReset() {
   <div v-else>
     <div class="mb-8 text-center lg:text-left">
       <h1 class="text-3xl font-semibold tracking-tight text-default">Welcome back</h1>
-      <p class="mt-2 text-sm text-muted">
-        Sign in to your workspace to continue.
-      </p>
+      <p class="mt-2 text-sm text-muted">Sign in to your workspace to continue.</p>
     </div>
 
     <UAuthForm

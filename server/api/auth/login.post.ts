@@ -60,7 +60,8 @@ export default defineEventHandler(async (event) => {
       })
       throw createError({
         statusCode: 423,
-        statusMessage: 'Account locked. Please reset your password using the link we sent to your email.',
+        statusMessage:
+          'Account locked. Please reset your password using the link we sent to your email.',
       })
     }
 
@@ -116,14 +117,17 @@ export default defineEventHandler(async (event) => {
             expiresAt: new Date(now.getTime() + RESET_TTL_MS),
           })
           const appUrl = (useRuntimeConfig().appUrl as string) || 'http://localhost:3000'
-          await sendPasswordResetEmail(existingUser.email, `${appUrl}/reset-password?token=${rawToken}`)
+          await sendPasswordResetEmail(
+            existingUser.email,
+            `${appUrl}/reset-password?token=${rawToken}`
+          )
         } catch (emailErr) {
           consola.error('Failed to send lockout reset email', emailErr)
         }
 
         throw createError({
           statusCode: 423,
-          statusMessage: 'Account locked. We\'ve sent a password reset link to your email.',
+          statusMessage: "Account locked. We've sent a password reset link to your email.",
         })
       }
 

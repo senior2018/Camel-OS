@@ -28,7 +28,10 @@ export default defineEventHandler(async (event) => {
     const sessionUser = session.user as { id: string }
 
     const schema = z.object({
-      code: z.string().length(6, 'TOTP code must be 6 digits').regex(/^\d+$/, 'TOTP code must be numeric'),
+      code: z
+        .string()
+        .length(6, 'TOTP code must be 6 digits')
+        .regex(/^\d+$/, 'TOTP code must be numeric'),
     })
 
     const body = await readBody(event)

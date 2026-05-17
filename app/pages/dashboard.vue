@@ -1,6 +1,6 @@
 <script setup lang="ts">
 definePageMeta({
-  layout: 'dashboard'
+  layout: 'dashboard',
 })
 
 useHead({ title: 'Dashboard — Camel OS' })
@@ -23,32 +23,54 @@ const stats = [
   { label: 'Active engagements', value: '—', icon: 'i-lucide-briefcase', hint: 'Available soon' },
   { label: 'Open grant cycles', value: '—', icon: 'i-lucide-banknote', hint: 'Available soon' },
   { label: 'Team members', value: '1', icon: 'i-lucide-users', hint: 'Just you for now' },
-  { label: 'Impact records', value: '—', icon: 'i-lucide-line-chart', hint: 'Available soon' }
+  { label: 'Impact records', value: '—', icon: 'i-lucide-line-chart', hint: 'Available soon' },
 ]
 
 const quickActions = [
-  { title: 'Set up two-factor auth', description: 'Add a second layer of security to your account.', icon: 'i-lucide-shield', to: '/mfa-setup', disabled: false, hideIf: () => mfaStatus.value?.mfaEnabled },
-  { title: 'Invite teammates', description: 'Bring your colleagues into the workspace.', icon: 'i-lucide-user-plus', to: '#', disabled: true },
-  { title: 'Create your first engagement', description: 'Start tracking a project from end to end.', icon: 'i-lucide-plus-circle', to: '#', disabled: true }
+  {
+    title: 'Set up two-factor auth',
+    description: 'Add a second layer of security to your account.',
+    icon: 'i-lucide-shield',
+    to: '/mfa-setup',
+    disabled: false,
+    hideIf: () => mfaStatus.value?.mfaEnabled,
+  },
+  {
+    title: 'Invite teammates',
+    description: 'Bring your colleagues into the workspace.',
+    icon: 'i-lucide-user-plus',
+    to: '#',
+    disabled: true,
+  },
+  {
+    title: 'Create your first engagement',
+    description: 'Start tracking a project from end to end.',
+    icon: 'i-lucide-plus-circle',
+    to: '#',
+    disabled: true,
+  },
 ]
 
-const visibleQuickActions = computed(() =>
-  quickActions.filter((a) => !a.hideIf?.())
-)
+const visibleQuickActions = computed(() => quickActions.filter((a) => !a.hideIf?.()))
 
 async function disableMfa() {
   disabling.value = true
   try {
     await $fetch('/api/auth/mfa/disable', {
       method: 'POST',
-      body: { code: disableCode.value }
+      body: { code: disableCode.value },
     })
     showDisableModal.value = false
     disableCode.value = ''
     await refreshMfa()
-    toast.add({ title: 'MFA disabled', description: 'Two-factor authentication has been turned off.', color: 'success' })
+    toast.add({
+      title: 'MFA disabled',
+      description: 'Two-factor authentication has been turned off.',
+      color: 'success',
+    })
   } catch (err: unknown) {
-    const msg = (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Invalid code.'
+    const msg =
+      (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Invalid code.'
     toast.add({ title: 'Failed to disable MFA', description: msg, color: 'error' })
   } finally {
     disabling.value = false
@@ -78,17 +100,15 @@ async function disableMfa() {
 
     <!-- Stats -->
     <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <UCard
-        v-for="stat in stats"
-        :key="stat.label"
-        :ui="{ body: 'p-5' }"
-      >
+      <UCard v-for="stat in stats" :key="stat.label" :ui="{ body: 'p-5' }">
         <div class="flex items-start justify-between">
           <div>
             <p class="text-sm text-muted">{{ stat.label }}</p>
             <p class="mt-2 text-2xl font-semibold text-default">{{ stat.value }}</p>
           </div>
-          <div class="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <div
+            class="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary"
+          >
             <UIcon :name="stat.icon" class="size-5" />
           </div>
         </div>
@@ -113,7 +133,9 @@ async function disableMfa() {
               :key="action.title"
               class="flex items-center gap-4 py-4 first:pt-0 last:pb-0"
             >
-              <div class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <div
+                class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
+              >
                 <UIcon :name="action.icon" class="size-5" />
               </div>
               <div class="min-w-0 flex-1">
@@ -177,13 +199,17 @@ async function disableMfa() {
         </template>
 
         <div class="divide-y divide-default">
-          <div class="flex flex-col gap-4 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+          <div
+            class="flex flex-col gap-4 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+          >
             <div>
               <p class="text-sm font-medium text-default">Two-factor authentication</p>
               <p class="mt-1 text-xs text-muted">
-                {{ mfaStatus?.mfaEnabled
-                  ? 'Your account is protected with an authenticator app.'
-                  : 'Add an extra layer of security to your account.' }}
+                {{
+                  mfaStatus?.mfaEnabled
+                    ? 'Your account is protected with an authenticator app.'
+                    : 'Add an extra layer of security to your account.'
+                }}
               </p>
             </div>
 
@@ -216,7 +242,9 @@ async function disableMfa() {
             </div>
           </div>
 
-          <div class="flex flex-col gap-4 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+          <div
+            class="flex flex-col gap-4 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+          >
             <div>
               <p class="text-sm font-medium text-default">Password</p>
               <p class="mt-1 text-xs text-muted">Change your account password.</p>
