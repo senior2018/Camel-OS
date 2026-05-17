@@ -7,7 +7,7 @@ definePageMeta({
   layout: 'auth'
 })
 
-useHead({ title: 'Create your workspace — Sahara Consult' })
+useHead({ title: 'Create your workspace — Camel OS' })
 
 const fields: AuthFormField[] = [
   {

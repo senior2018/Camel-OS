@@ -3,7 +3,7 @@ definePageMeta({
   layout: 'dashboard'
 })
 
-useHead({ title: 'Dashboard — Sahara Consult' })
+useHead({ title: 'Dashboard — Camel OS' })
 
 const { user } = useUserSession()
 const toast = useToast()

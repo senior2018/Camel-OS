@@ -1,7 +1,7 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'auth' })
 
-useHead({ title: 'Verify your email — Sahara Consult' })
+useHead({ title: 'Verify your email — Camel OS' })
 
 const { user } = useUserSession()
 const resending = ref(false)

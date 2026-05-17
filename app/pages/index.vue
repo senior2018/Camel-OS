@@ -1,6 +1,6 @@
 <script setup lang="ts">
 useHead({
-  title: 'Sahara Consult — The operating platform for impact-driven consulting',
+  title: 'Camel OS — The operating platform for impact-driven consulting',
   meta: [
     {
       name: 'description',
@@ -84,7 +84,7 @@ const steps = [
   {
     n: '01',
     title: 'Connect your workspace',
-    description: 'Invite your team, set up roles, and bring your engagements and programs into Sahara Consult.'
+    description: 'Invite your team, set up roles, and bring your engagements and programs into Camel OS.'
   },
   {
     n: '02',
@@ -199,7 +199,7 @@ const steps = [
             Everything your firm runs on, in one place
           </h2>
           <p class="mt-4 text-pretty text-muted">
-            Sahara Consult brings engagements, grants, and impact under a single roof — so your teams
+            Camel OS brings engagements, grants, and impact under a single roof — so your teams
             spend less time on spreadsheets and more time on outcomes.
           </p>
         </div>
@@ -231,7 +231,7 @@ const steps = [
           </h2>
           <p class="mt-4 text-pretty text-muted">
             Whether you're a consulting firm, a grant program, or a development organization —
-            Sahara Consult adapts to how your teams deliver impact.
+            Camel OS adapts to how your teams deliver impact.
           </p>
         </div>
 

@@ -15,7 +15,7 @@ const { loggedIn } = useUserSession()
   <div class="min-h-screen bg-default">
     <UHeader :ui="{ container: 'max-w-7xl' }">
       <template #left>
-        <NuxtLink to="/" aria-label="Sahara Consult home">
+        <NuxtLink to="/" aria-label="Camel OS home">
           <AppLogo />
         </NuxtLink>
       </template>
@@ -80,7 +80,7 @@ const { loggedIn } = useUserSession()
         </div>
 
         <div class="mt-12 flex flex-col items-start justify-between gap-4 border-t border-default pt-8 sm:flex-row sm:items-center">
-          <p class="text-xs text-muted">© {{ new Date().getFullYear() }} Sahara Consult. All rights reserved.</p>
+          <p class="text-xs text-muted">© {{ new Date().getFullYear() }} Camel OS. All rights reserved.</p>
           <p class="text-xs text-muted">Built for impact-driven consulting firms.</p>
         </div>
       </div>

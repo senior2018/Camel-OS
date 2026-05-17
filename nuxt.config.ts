@@ -1,4 +1,6 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+const isDev = process.env.NODE_ENV !== 'production'
+
 export default defineNuxtConfig({
   modules: ['@nuxt/eslint', '@nuxt/ui', 'nuxt-auth-utils', 'nuxt-security'],
 
@@ -11,7 +13,7 @@ export default defineNuxtConfig({
   app: {
     head: {
       titleTemplate: '%s',
-      title: 'Sahara Consult — The operating platform for impact-driven consulting',
+      title: 'Camel OS — The operating platform for impact-driven consulting',
       link: [
         { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' },
         { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/favicon-32x32.png' },
@@ -76,15 +78,22 @@ export default defineNuxtConfig({
       // Content Security Policy — tuned for Nuxt UI v4 + Tailwind
       contentSecurityPolicy: {
         'default-src': ["'none'"],
-        'script-src': ["'self'", "'nonce-{{nonce}}'", "'strict-dynamic'"],
+        // Dev: allow Vite HMR / devtools inline scripts. Prod: nonce + strict-dynamic.
+        'script-src': isDev
+          ? ["'self'", "'unsafe-inline'", "'unsafe-eval'"]
+          : ["'self'", "'nonce-{{nonce}}'", "'strict-dynamic'"],
         'style-src': ["'self'", "'unsafe-inline'"],
         'img-src': ["'self'", 'data:', 'https:'],
         'font-src': ["'self'", 'data:'],
-        'connect-src': ["'self'", process.env.SUPABASE_URL ?? ''],
+        'connect-src': isDev
+          ? ["'self'", 'ws:', 'wss:', process.env.SUPABASE_URL ?? '']
+          : ["'self'", process.env.SUPABASE_URL ?? ''],
         'frame-ancestors': ["'none'"],
+        'frame-src': isDev ? ["'self'"] : ["'none'"],
+        'worker-src': isDev ? ["'self'", 'blob:'] : ["'self'"],
         'base-uri': ["'self'"],
         'form-action': ["'self'"],
-        'upgrade-insecure-requests': true,
+        'upgrade-insecure-requests': !isDev,
       },
 
       // Disable features the app doesn't need

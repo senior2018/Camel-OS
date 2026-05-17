@@ -5,7 +5,7 @@ interface Props {
 
 withDefaults(defineProps<Props>(), {
   testimonial: () => ({
-    quote: 'Sahara Consult brought our engagements, grants, and impact reporting into one place. Our team ships outcomes faster — and our funders see it in real time.',
+    quote: 'Camel OS brought our engagements, grants, and impact reporting into one place. Our team ships outcomes faster — and our funders see it in real time.',
     author: 'Amina K.',
     role: 'Program Director'
   })
@@ -26,14 +26,14 @@ withDefaults(defineProps<Props>(), {
 
       <!-- Top: Logo -->
       <NuxtLink to="/" class="relative flex items-center gap-2.5">
-        <NuxtImg
+        <img
           src="/logo.png"
-          alt="Sahara Consult"
+          alt="Camel OS"
           width="40"
           height="40"
           class="size-9 rounded-lg shrink-0 ring-1 ring-white/30"
-        />
-        <span class="text-base font-semibold tracking-tight">Sahara Consult</span>
+        >
+        <span class="text-base font-semibold tracking-tight">Camel OS</span>
       </NuxtLink>
 
       <!-- Middle: Headline -->
@@ -67,7 +67,7 @@ withDefaults(defineProps<Props>(), {
     <main class="flex flex-1 flex-col">
       <!-- Mobile top bar with logo -->
       <header class="flex items-center justify-between border-b border-default px-6 py-4 lg:hidden">
-        <NuxtLink to="/" aria-label="Sahara Consult home">
+        <NuxtLink to="/" aria-label="Camel OS home">
           <AppLogo />
         </NuxtLink>
         <UButton to="/" variant="ghost" color="neutral" size="sm" icon="i-lucide-arrow-left" label="Home" />
@@ -80,7 +80,7 @@ withDefaults(defineProps<Props>(), {
       </div>
 
       <footer class="border-t border-default px-6 py-4 text-center text-xs text-muted lg:text-left">
-        <p>© {{ new Date().getFullYear() }} Sahara Consult. All rights reserved.</p>
+        <p>© {{ new Date().getFullYear() }} Camel OS. All rights reserved.</p>
       </footer>
     </main>
   </div>

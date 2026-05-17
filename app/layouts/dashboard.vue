@@ -42,7 +42,7 @@ async function logout() {
     <!-- Sidebar (desktop) -->
     <aside class="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-default bg-default lg:flex">
       <div class="flex h-16 items-center border-b border-default px-6">
-        <NuxtLink to="/dashboard" aria-label="Sahara Consult home">
+        <NuxtLink to="/dashboard" aria-label="Camel OS home">
           <AppLogo />
         </NuxtLink>
       </div>
