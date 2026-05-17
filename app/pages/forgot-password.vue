@@ -6,7 +6,7 @@ definePageMeta({
   layout: 'auth'
 })
 
-useHead({ title: 'Reset your password — Sahara Consult' })
+useHead({ title: 'Reset your password — Camel OS' })
 
 const submitted = ref(false)
 const submittedEmail = ref('')

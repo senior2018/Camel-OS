@@ -6,7 +6,7 @@ definePageMeta({
   layout: 'auth'
 })
 
-useHead({ title: 'Sign in — Sahara Consult' })
+useHead({ title: 'Sign in — Camel OS' })
 
 const route = useRoute()
 

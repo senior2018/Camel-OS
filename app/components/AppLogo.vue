@@ -8,18 +8,18 @@ withDefaults(defineProps<Props>(), { variant: 'full' })
 
 <template>
   <div class="flex items-center gap-2.5">
-    <NuxtImg
+    <img
       src="/logo.png"
-      alt="Sahara Consult"
+      alt="Camel OS"
       width="40"
       height="40"
       class="size-9 rounded-lg shrink-0"
-    />
+    >
     <span
       v-if="variant === 'full'"
       class="text-base font-semibold tracking-tight text-default"
     >
-      Sahara <span class="text-primary">Consult</span>
+      Camel <span class="text-primary">OS</span>
     </span>
   </div>
 </template>

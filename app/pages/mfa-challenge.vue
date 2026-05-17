@@ -6,7 +6,7 @@ definePageMeta({
   layout: 'auth'
 })
 
-useHead({ title: 'Two-factor authentication — Sahara Consult' })
+useHead({ title: 'Two-factor authentication — Camel OS' })
 
 const route = useRoute()
 const toast = useToast()
