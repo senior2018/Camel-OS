@@ -1,0 +1,208 @@
+<script setup lang="ts">
+const route = useRoute()
+const { user, clear } = useUserSession()
+
+const navItems = computed(() => [
+  { label: 'Overview', to: '/dashboard', icon: 'i-lucide-layout-dashboard', active: route.path === '/dashboard' },
+  { label: 'Engagements', to: '#', icon: 'i-lucide-briefcase', disabled: true },
+  { label: 'Grants', to: '#', icon: 'i-lucide-banknote', disabled: true },
+  { label: 'Impact', to: '#', icon: 'i-lucide-line-chart', disabled: true },
+  { label: 'Team', to: '#', icon: 'i-lucide-users', disabled: true }
+])
+
+const settingsItems = computed(() => [
+  { label: 'Security', to: '/dashboard#security', icon: 'i-lucide-shield' },
+  { label: 'Workspace', to: '#', icon: 'i-lucide-building-2', disabled: true },
+  { label: 'Billing', to: '#', icon: 'i-lucide-credit-card', disabled: true }
+])
+
+const userInitials = computed(() => {
+  if (!user.value) return '?'
+  const first = (user.value as { firstName?: string }).firstName ?? ''
+  const last = (user.value as { lastName?: string }).lastName ?? ''
+  return (first.charAt(0) + last.charAt(0)).toUpperCase() || (user.value as { email?: string }).email?.charAt(0).toUpperCase() || '?'
+})
+
+const fullName = computed(() => {
+  if (!user.value) return ''
+  const u = user.value as { firstName?: string; lastName?: string; email?: string }
+  return [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email || ''
+})
+
+const mobileNavOpen = ref(false)
+
+async function logout() {
+  await clear()
+  await navigateTo('/login')
+}
+</script>
+
+<template>
+  <div class="flex min-h-screen bg-elevated/30">
+    <!-- Sidebar (desktop) -->
+    <aside class="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-default bg-default lg:flex">
+      <div class="flex h-16 items-center border-b border-default px-6">
+        <NuxtLink to="/dashboard" aria-label="Sahara Consult home">
+          <AppLogo />
+        </NuxtLink>
+      </div>
+
+      <nav class="flex-1 overflow-y-auto px-3 py-6">
+        <p class="px-3 text-xs font-semibold uppercase tracking-wider text-muted">Workspace</p>
+        <ul class="mt-3 space-y-1">
+          <li v-for="item in navItems" :key="item.label">
+            <ULink
+              :to="item.disabled ? undefined : item.to"
+              :class="[
+                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+                item.active
+                  ? 'bg-primary/10 text-primary font-medium'
+                  : item.disabled
+                    ? 'text-muted/60 cursor-not-allowed'
+                    : 'text-default hover:bg-elevated/60'
+              ]"
+            >
+              <UIcon :name="item.icon" class="size-4 shrink-0" />
+              <span>{{ item.label }}</span>
+              <UBadge v-if="item.disabled" variant="subtle" color="neutral" size="xs" label="Soon" class="ml-auto" />
+            </ULink>
+          </li>
+        </ul>
+
+        <p class="mt-8 px-3 text-xs font-semibold uppercase tracking-wider text-muted">Settings</p>
+        <ul class="mt-3 space-y-1">
+          <li v-for="item in settingsItems" :key="item.label">
+            <ULink
+              :to="item.disabled ? undefined : item.to"
+              :class="[
+                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+                item.disabled
+                  ? 'text-muted/60 cursor-not-allowed'
+                  : 'text-default hover:bg-elevated/60'
+              ]"
+            >
+              <UIcon :name="item.icon" class="size-4 shrink-0" />
+              <span>{{ item.label }}</span>
+              <UBadge v-if="item.disabled" variant="subtle" color="neutral" size="xs" label="Soon" class="ml-auto" />
+            </ULink>
+          </li>
+        </ul>
+      </nav>
+
+      <!-- User card -->
+      <div class="border-t border-default p-3">
+        <UDropdownMenu
+          :items="[
+            [{ label: 'Account settings', icon: 'i-lucide-user', to: '/dashboard#security' }],
+            [{ label: 'Sign out', icon: 'i-lucide-log-out', onSelect: logout, color: 'error' }]
+          ]"
+          :ui="{ content: 'w-56' }"
+        >
+          <button
+            type="button"
+            class="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-elevated/60"
+          >
+            <div class="flex size-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+              {{ userInitials }}
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-medium text-default">{{ fullName }}</p>
+              <p class="truncate text-xs text-muted">{{ user?.email }}</p>
+            </div>
+            <UIcon name="i-lucide-chevrons-up-down" class="size-4 shrink-0 text-muted" />
+          </button>
+        </UDropdownMenu>
+      </div>
+    </aside>
+
+    <!-- Main column -->
+    <div class="flex flex-1 flex-col lg:pl-64">
+      <!-- Topbar -->
+      <header class="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-default bg-default/80 px-4 backdrop-blur sm:px-6 lg:px-8">
+        <!-- Mobile: logo + menu -->
+        <div class="flex items-center gap-3 lg:hidden">
+          <UButton
+            variant="ghost"
+            color="neutral"
+            icon="i-lucide-menu"
+            aria-label="Open menu"
+            @click="mobileNavOpen = true"
+          />
+          <NuxtLink to="/dashboard"><AppLogo variant="mark" /></NuxtLink>
+        </div>
+
+        <div class="hidden flex-1 lg:block">
+          <h1 class="text-lg font-semibold text-default">{{ $route.meta.title ?? 'Dashboard' }}</h1>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <UButton
+            variant="ghost"
+            color="neutral"
+            icon="i-lucide-bell"
+            aria-label="Notifications"
+            class="hidden sm:inline-flex"
+          />
+          <UButton
+            variant="ghost"
+            color="neutral"
+            icon="i-lucide-life-buoy"
+            aria-label="Help"
+            class="hidden sm:inline-flex"
+          />
+          <UDropdownMenu
+            :items="[
+              [{ label: 'Account settings', icon: 'i-lucide-user', to: '/dashboard#security' }],
+              [{ label: 'Sign out', icon: 'i-lucide-log-out', onSelect: logout, color: 'error' }]
+            ]"
+          >
+            <button
+              type="button"
+              class="flex size-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary lg:hidden"
+              aria-label="Account menu"
+            >
+              {{ userInitials }}
+            </button>
+          </UDropdownMenu>
+        </div>
+      </header>
+
+      <main class="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <slot />
+      </main>
+    </div>
+
+    <!-- Mobile nav drawer -->
+    <USlideover v-model:open="mobileNavOpen" side="left" :ui="{ content: 'max-w-xs' }">
+      <template #body>
+        <div class="flex h-full flex-col">
+          <div class="flex h-16 items-center border-b border-default px-6">
+            <AppLogo />
+          </div>
+          <nav class="flex-1 overflow-y-auto px-3 py-6">
+            <ul class="space-y-1">
+              <li v-for="item in navItems" :key="item.label">
+                <ULink
+                  :to="item.disabled ? undefined : item.to"
+                  :class="[
+                    'flex items-center gap-3 rounded-lg px-3 py-2 text-sm',
+                    item.active
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : item.disabled
+                        ? 'text-muted/60'
+                        : 'text-default hover:bg-elevated/60'
+                  ]"
+                  @click="mobileNavOpen = false"
+                >
+                  <UIcon :name="item.icon" class="size-4" />
+                  {{ item.label }}
+                  <UBadge v-if="item.disabled" variant="subtle" color="neutral" size="xs" label="Soon" class="ml-auto" />
+                </ULink>
+              </li>
+            </ul>
+          </nav>
+        </div>
+      </template>
+    </USlideover>
+  </div>
+</template>

@@ -3,8 +3,10 @@ import * as z from 'zod'
 import type { AuthFormField, FormSubmitEvent } from '@nuxt/ui'
 
 definePageMeta({
-  layout: false,
+  layout: 'auth'
 })
+
+useHead({ title: 'Sign in — Sahara Consult' })
 
 const route = useRoute()
 
@@ -13,9 +15,9 @@ const fields: AuthFormField[] = [
     name: 'email',
     type: 'email',
     label: 'Email',
-    placeholder: 'Enter your email',
+    placeholder: 'you@company.com',
     required: true,
-    size: 'lg',
+    size: 'lg'
   },
   {
     name: 'password',
@@ -23,23 +25,23 @@ const fields: AuthFormField[] = [
     type: 'password',
     placeholder: 'Enter your password',
     required: true,
-    size: 'lg',
-  },
+    size: 'lg'
+  }
 ]
 
 const providers = [
   {
-    label: 'Google',
+    label: 'Continue with Google',
     icon: 'devicon:google',
     onClick: () => {
       window.location.href = '/api/auth/google'
-    },
-  },
+    }
+  }
 ]
 
 const schema = z.object({
   email: z.email('Invalid email'),
-  password: z.string('Password is required').min(8, 'Must be at least 8 characters'),
+  password: z.string('Password is required').min(8, 'Must be at least 8 characters')
 })
 
 type Schema = z.output<typeof schema>
@@ -88,7 +90,7 @@ async function resendReset() {
   try {
     await $fetch('/api/auth/forgot-password', {
       method: 'POST',
-      body: { email: lockedEmail.value },
+      body: { email: lockedEmail.value }
     })
     resent.value = true
   } catch {
@@ -100,78 +102,79 @@ async function resendReset() {
 </script>
 
 <template>
-  <div class="flex min-h-screen flex-col items-center justify-center gap-4 p-4">
-    <UPageCard class="w-full max-w-md">
+  <!-- Account locked state -->
+  <div v-if="accountLocked" class="flex flex-col items-center gap-6 text-center">
+    <div class="flex size-16 items-center justify-center rounded-full bg-error/10">
+      <UIcon name="i-lucide-lock" class="size-8 text-error" />
+    </div>
 
-      <!-- Account locked state -->
-      <div v-if="accountLocked" class="flex flex-col items-center gap-6 p-6 text-center">
-        <div class="flex size-16 items-center justify-center rounded-full bg-error/10">
-          <UIcon name="i-lucide-lock" class="size-8 text-error" />
-        </div>
+    <div class="flex flex-col gap-2">
+      <h1 class="text-2xl font-semibold tracking-tight text-default">Account locked</h1>
+      <p class="text-sm text-muted">
+        Your account was locked after too many failed login attempts.
+        We've sent a password reset link to <span class="font-medium text-default">{{ lockedEmail }}</span>.
+      </p>
+    </div>
 
-        <div class="flex flex-col gap-2">
-          <h2 class="text-xl font-bold">Account locked</h2>
-          <p class="text-sm text-muted">
-            Your account was locked after too many failed login attempts.
-            We've sent a password reset link to your email address.
-          </p>
-          <p class="text-sm font-medium">Please check your inbox and follow the link to reset your password.</p>
-        </div>
-
-        <div class="flex w-full flex-col gap-3">
-          <UButton
-            v-if="!resent"
-            variant="outline"
-            block
-            :loading="resending"
-            icon="i-lucide-mail"
-            @click="resendReset"
-          >
-            Resend reset email
-          </UButton>
-          <div v-else class="flex items-center justify-center gap-2 text-sm text-success">
-            <UIcon name="i-lucide-circle-check" class="size-4" />
-            Reset email sent — check your inbox
-          </div>
-
-          <UButton variant="ghost" block @click="accountLocked = false">
-            Back to login
-          </UButton>
-        </div>
-
-        <p class="text-xs text-muted">
-          Once you've reset your password, you can sign in normally.
-        </p>
+    <div class="flex w-full flex-col gap-3">
+      <UButton
+        v-if="!resent"
+        variant="outline"
+        size="lg"
+        block
+        :loading="resending"
+        icon="i-lucide-mail"
+        @click="resendReset"
+      >
+        Resend reset email
+      </UButton>
+      <div
+        v-else
+        class="flex items-center justify-center gap-2 rounded-lg bg-success/10 px-3 py-2.5 text-sm text-success"
+      >
+        <UIcon name="i-lucide-circle-check" class="size-4" />
+        Reset email sent — check your inbox
       </div>
 
-      <!-- Normal login form -->
-      <UAuthForm
-        v-else
-        :schema="schema"
-        :fields="fields"
-        :providers="providers"
-        title="Welcome back!"
-        icon="i-lucide-lock"
-        :loading-auto="true"
-        @submit="onSubmit"
-      >
-        <template #description>
-          <p class="text-sm">
-            New here?
-            <ULink to="/register" class="font-medium text-primary">Create an account</ULink>.
-          </p>
-        </template>
-        <template #password-hint>
-          <ULink to="/forgot-password" class="text-sm font-medium text-primary">
-            Forgot password?
-          </ULink>
-        </template>
-        <template #footer>
-          By signing in, you agree to our
-          <ULink to="#" class="font-medium text-primary">Terms of Service</ULink>.
-        </template>
-      </UAuthForm>
+      <UButton variant="ghost" size="lg" block @click="accountLocked = false">
+        Back to sign in
+      </UButton>
+    </div>
+  </div>
 
-    </UPageCard>
+  <!-- Normal login -->
+  <div v-else>
+    <div class="mb-8 text-center lg:text-left">
+      <h1 class="text-3xl font-semibold tracking-tight text-default">Welcome back</h1>
+      <p class="mt-2 text-sm text-muted">
+        Sign in to your workspace to continue.
+      </p>
+    </div>
+
+    <UAuthForm
+      :schema="schema"
+      :fields="fields"
+      :providers="providers"
+      :loading-auto="true"
+      @submit="onSubmit"
+    >
+      <template #password-hint>
+        <ULink to="/forgot-password" class="text-sm font-medium text-primary hover:underline">
+          Forgot password?
+        </ULink>
+      </template>
+    </UAuthForm>
+
+    <p class="mt-8 text-center text-sm text-muted">
+      Don't have an account?
+      <ULink to="/register" class="font-medium text-primary hover:underline">Create one</ULink>
+    </p>
+
+    <p class="mt-4 text-center text-xs text-muted">
+      By signing in, you agree to our
+      <ULink to="#" class="font-medium text-default hover:text-primary">Terms</ULink>
+      and
+      <ULink to="#" class="font-medium text-default hover:text-primary">Privacy Policy</ULink>.
+    </p>
   </div>
 </template>

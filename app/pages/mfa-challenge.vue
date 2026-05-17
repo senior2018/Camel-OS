@@ -3,8 +3,10 @@ import * as z from 'zod'
 import type { FormSubmitEvent } from '@nuxt/ui'
 
 definePageMeta({
-  layout: false,
+  layout: 'auth'
 })
+
+useHead({ title: 'Two-factor authentication — Sahara Consult' })
 
 const route = useRoute()
 const toast = useToast()
@@ -55,44 +57,46 @@ function toggleMode() {
 </script>
 
 <template>
-  <div class="flex min-h-screen flex-col items-center justify-center gap-4 p-4">
-    <UPageCard class="w-full max-w-md">
-      <div class="flex flex-col gap-6 p-4">
-        <div class="flex flex-col items-center gap-2 text-center">
-          <UIcon name="i-lucide-shield-check" class="size-10 text-primary" />
-          <h1 class="text-2xl font-bold">Two-Factor Authentication</h1>
-          <p class="text-sm text-muted">
-            {{ useRecovery ? 'Enter one of your recovery codes.' : 'Enter the 6-digit code from your authenticator app.' }}
-          </p>
-        </div>
-
-        <UForm :schema="schema" :state="state" class="flex flex-col gap-4" @submit="onSubmit">
-          <UFormField :label="useRecovery ? 'Recovery code' : 'Authentication code'" name="code">
-            <UInput
-              v-model="state.code"
-              :placeholder="useRecovery ? 'XXXXXX-XXXXXX-XXXXXX' : '000000'"
-              :maxlength="useRecovery ? undefined : 6"
-              autocomplete="one-time-code"
-              size="lg"
-              class="w-full"
-            />
-          </UFormField>
-
-          <UButton type="submit" size="lg" block :loading-auto="true">
-            Verify
-          </UButton>
-        </UForm>
-
-        <div class="text-center">
-          <UButton variant="ghost" size="sm" @click="toggleMode">
-            {{ useRecovery ? 'Use authenticator app instead' : 'Use a recovery code instead' }}
-          </UButton>
-        </div>
-
-        <p class="text-center text-sm text-muted">
-          <ULink to="/login" class="font-medium text-primary">Back to login</ULink>
+  <div class="flex flex-col gap-6">
+    <div class="flex flex-col items-center gap-4 text-center">
+      <div class="flex size-16 items-center justify-center rounded-full bg-primary/10">
+        <UIcon name="i-lucide-shield-check" class="size-8 text-primary" />
+      </div>
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight text-default">Two-factor authentication</h1>
+        <p class="mt-2 text-sm text-muted">
+          {{ useRecovery
+            ? 'Enter one of your saved recovery codes.'
+            : 'Enter the 6-digit code from your authenticator app.' }}
         </p>
       </div>
-    </UPageCard>
+    </div>
+
+    <UForm :schema="schema" :state="state" class="flex flex-col gap-4" @submit="onSubmit">
+      <UFormField :label="useRecovery ? 'Recovery code' : 'Authentication code'" name="code">
+        <UInput
+          v-model="state.code"
+          :placeholder="useRecovery ? 'XXXXXX-XXXXXX-XXXXXX' : '000000'"
+          :maxlength="useRecovery ? undefined : 6"
+          autocomplete="one-time-code"
+          size="lg"
+          class="w-full"
+        />
+      </UFormField>
+
+      <UButton type="submit" size="lg" block :loading-auto="true" trailing-icon="i-lucide-arrow-right">
+        Verify
+      </UButton>
+    </UForm>
+
+    <div class="text-center">
+      <UButton variant="ghost" size="sm" @click="toggleMode">
+        {{ useRecovery ? 'Use authenticator app instead' : 'Use a recovery code instead' }}
+      </UButton>
+    </div>
+
+    <p class="text-center text-sm text-muted">
+      <ULink to="/login" class="font-medium text-primary hover:underline">Back to sign in</ULink>
+    </p>
   </div>
 </template>
