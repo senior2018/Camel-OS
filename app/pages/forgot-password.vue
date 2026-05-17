@@ -3,7 +3,7 @@ import * as z from 'zod'
 import type { AuthFormField, FormSubmitEvent } from '@nuxt/ui'
 
 definePageMeta({
-  layout: 'auth'
+  layout: 'auth',
 })
 
 useHead({ title: 'Reset your password — Camel OS' })
@@ -18,12 +18,12 @@ const fields: AuthFormField[] = [
     label: 'Email',
     placeholder: 'you@company.com',
     required: true,
-    size: 'lg'
-  }
+    size: 'lg',
+  },
 ]
 
 const schema = z.object({
-  email: z.email('Invalid email')
+  email: z.email('Invalid email'),
 })
 
 type Schema = z.output<typeof schema>
@@ -31,7 +31,7 @@ type Schema = z.output<typeof schema>
 async function onSubmit(payload: FormSubmitEvent<Schema>) {
   await $fetch('/api/auth/forgot-password', {
     method: 'POST',
-    body: payload.data
+    body: payload.data,
   })
 
   submittedEmail.value = payload.data.email
@@ -49,8 +49,8 @@ async function onSubmit(payload: FormSubmitEvent<Schema>) {
       <h1 class="text-2xl font-semibold tracking-tight text-default">Check your inbox</h1>
       <p class="text-sm text-muted">
         If an account exists for
-        <span class="font-medium text-default">{{ submittedEmail }}</span>,
-        you'll receive a password reset link shortly.
+        <span class="font-medium text-default">{{ submittedEmail }}</span
+        >, you'll receive a password reset link shortly.
       </p>
     </div>
 
@@ -63,8 +63,8 @@ async function onSubmit(payload: FormSubmitEvent<Schema>) {
         class="font-medium text-primary hover:underline"
         @click="submitted = false"
       >
-        try again
-      </button>.
+        try again</button
+      >.
     </p>
   </div>
 

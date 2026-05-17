@@ -47,7 +47,10 @@ export default defineEventHandler(async (event) => {
     }
 
     if (Date.now() > challengePayload.expiresAt) {
-      throw createError({ statusCode: 400, statusMessage: 'MFA challenge has expired. Please log in again.' })
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'MFA challenge has expired. Please log in again.',
+      })
     }
 
     const { userId } = challengePayload
@@ -83,7 +86,10 @@ export default defineEventHandler(async (event) => {
           action: 'mfa_challenge_failed',
           meta: { ip, reason: 'invalid_recovery_code' },
         })
-        throw createError({ statusCode: 401, statusMessage: 'Invalid or already used recovery code' })
+        throw createError({
+          statusCode: 401,
+          statusMessage: 'Invalid or already used recovery code',
+        })
       }
 
       await db
@@ -104,11 +110,7 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    const [existingUser] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1)
+    const [existingUser] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
 
     if (!existingUser) {
       throw createError({ statusCode: 404, statusMessage: 'User not found' })

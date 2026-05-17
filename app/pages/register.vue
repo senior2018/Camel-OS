@@ -4,7 +4,7 @@ import type { FormSubmitEvent, AuthFormField } from '@nuxt/ui'
 import type { FetchError } from 'ofetch'
 
 definePageMeta({
-  layout: 'auth'
+  layout: 'auth',
 })
 
 useHead({ title: 'Create your workspace — Camel OS' })
@@ -16,7 +16,7 @@ const fields: AuthFormField[] = [
     label: 'First name',
     placeholder: 'Jane',
     required: true,
-    size: 'lg'
+    size: 'lg',
   },
   {
     name: 'lastName',
@@ -24,7 +24,7 @@ const fields: AuthFormField[] = [
     label: 'Last name',
     placeholder: 'Doe',
     required: true,
-    size: 'lg'
+    size: 'lg',
   },
   {
     name: 'email',
@@ -32,7 +32,7 @@ const fields: AuthFormField[] = [
     label: 'Work email',
     placeholder: 'you@company.com',
     required: true,
-    size: 'lg'
+    size: 'lg',
   },
   {
     name: 'password',
@@ -40,8 +40,8 @@ const fields: AuthFormField[] = [
     type: 'password',
     placeholder: 'At least 8 characters',
     required: true,
-    size: 'lg'
-  }
+    size: 'lg',
+  },
 ]
 
 const providers = [
@@ -50,15 +50,15 @@ const providers = [
     icon: 'devicon:google',
     onClick: () => {
       window.location.href = '/api/auth/google'
-    }
-  }
+    },
+  },
 ]
 
 const schema = z.object({
   firstName: z.string('First name is required').min(2, 'Must be at least 2 characters'),
   lastName: z.string('Last name is required').min(2, 'Must be at least 2 characters'),
   email: z.email('Invalid email'),
-  password: z.string('Password is required').min(8, 'Must be at least 8 characters')
+  password: z.string('Password is required').min(8, 'Must be at least 8 characters'),
 })
 
 type Schema = z.output<typeof schema>
@@ -69,7 +69,7 @@ async function onSubmit(payload: FormSubmitEvent<Schema>) {
   try {
     await $fetch('/api/auth/register', {
       method: 'POST',
-      body: payload.data
+      body: payload.data,
     })
 
     await navigateTo('/verify-email-sent')
@@ -80,7 +80,7 @@ async function onSubmit(payload: FormSubmitEvent<Schema>) {
       toast.add({
         title: 'Registration failed',
         description: fetchError.data?.statusMessage || 'An error occurred during registration',
-        color: 'error'
+        color: 'error',
       })
     }
   }
@@ -91,9 +91,7 @@ async function onSubmit(payload: FormSubmitEvent<Schema>) {
   <div>
     <div class="mb-8 text-center lg:text-left">
       <h1 class="text-3xl font-semibold tracking-tight text-default">Create your workspace</h1>
-      <p class="mt-2 text-sm text-muted">
-        Start your free workspace — no credit card required.
-      </p>
+      <p class="mt-2 text-sm text-muted">Start your free workspace — no credit card required.</p>
     </div>
 
     <UAuthForm

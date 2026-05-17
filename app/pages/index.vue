@@ -5,9 +5,9 @@ useHead({
     {
       name: 'description',
       content:
-        'Run engagements, manage grants, and prove impact from a single secure platform built for modern consulting firms.'
-    }
-  ]
+        'Run engagements, manage grants, and prove impact from a single secure platform built for modern consulting firms.',
+    },
+  ],
 })
 
 const features = [
@@ -15,87 +15,88 @@ const features = [
     icon: 'i-lucide-briefcase',
     title: 'Engagement workspace',
     description:
-      'Plan, staff, and bill every engagement from a unified workspace. Real-time utilization, scope, and burn — without spreadsheets.'
+      'Plan, staff, and bill every engagement from a unified workspace. Real-time utilization, scope, and burn — without spreadsheets.',
   },
   {
     icon: 'i-lucide-banknote',
     title: 'Grant program management',
     description:
-      'Track grant applications, milestones, disbursements, and reporting against funder requirements end-to-end.'
+      'Track grant applications, milestones, disbursements, and reporting against funder requirements end-to-end.',
   },
   {
     icon: 'i-lucide-line-chart',
     title: 'Impact measurement',
     description:
-      'Capture outcomes against targets, run M&E workflows, and produce funder-ready reports in minutes, not weeks.'
+      'Capture outcomes against targets, run M&E workflows, and produce funder-ready reports in minutes, not weeks.',
   },
   {
     icon: 'i-lucide-users',
     title: 'Multi-tenant by design',
     description:
-      'Isolate clients, partners, and programs with org-level data boundaries and granular role-based access.'
+      'Isolate clients, partners, and programs with org-level data boundaries and granular role-based access.',
   },
   {
     icon: 'i-lucide-shield-check',
     title: 'Enterprise-grade security',
     description:
-      'Argon2id passwords, encrypted MFA secrets, hash-chained audit log, and account lockout protection out of the box.'
+      'Argon2id passwords, encrypted MFA secrets, hash-chained audit log, and account lockout protection out of the box.',
   },
   {
     icon: 'i-lucide-workflow',
     title: 'Built for collaboration',
     description:
-      'Invite teammates, assign roles, comment on records, and keep stakeholders aligned — across geographies and time zones.'
-  }
+      'Invite teammates, assign roles, comment on records, and keep stakeholders aligned — across geographies and time zones.',
+  },
 ]
 
 const stats = [
   { value: '70+', label: 'Partner organizations' },
   { value: '500k+', label: 'People reached' },
   { value: '12', label: 'Countries served' },
-  { value: '99.9%', label: 'Platform uptime' }
+  { value: '99.9%', label: 'Platform uptime' },
 ]
 
 const solutions = [
   {
     icon: 'i-lucide-building-2',
     title: 'For consulting firms',
-    description:
-      'A single source of truth across engagements, finances, and client deliverables.',
-    bullets: ['Resource planning', 'Time & billing', 'Client portals']
+    description: 'A single source of truth across engagements, finances, and client deliverables.',
+    bullets: ['Resource planning', 'Time & billing', 'Client portals'],
   },
   {
     icon: 'i-lucide-globe-2',
     title: 'For grant programs',
     description:
       'Manage grant pipelines, applications, and impact tracking with funder-grade controls.',
-    bullets: ['Application workflows', 'Disbursement tracking', 'Compliance reports']
+    bullets: ['Application workflows', 'Disbursement tracking', 'Compliance reports'],
   },
   {
     icon: 'i-lucide-graduation-cap',
     title: 'For development orgs',
-    description:
-      'Run programs that deliver measurable outcomes — and prove them to funders.',
-    bullets: ['M&E frameworks', 'Beneficiary tracking', 'Funder dashboards']
-  }
+    description: 'Run programs that deliver measurable outcomes — and prove them to funders.',
+    bullets: ['M&E frameworks', 'Beneficiary tracking', 'Funder dashboards'],
+  },
 ]
 
 const steps = [
   {
     n: '01',
     title: 'Connect your workspace',
-    description: 'Invite your team, set up roles, and bring your engagements and programs into Camel OS.'
+    description:
+      'Invite your team, set up roles, and bring your engagements and programs into Camel OS.',
   },
   {
     n: '02',
     title: 'Run your operations',
-    description: 'Plan resources, track grant pipelines, and capture outcomes from day-to-day work.'
+    description:
+      'Plan resources, track grant pipelines, and capture outcomes from day-to-day work.',
   },
   {
     n: '03',
     title: 'Report your impact',
-    description: 'Generate funder-ready reports and dashboards that turn data into measurable impact.'
-  }
+    description:
+      'Generate funder-ready reports and dashboards that turn data into measurable impact.',
+  },
 ]
 </script>
 
@@ -105,7 +106,9 @@ const steps = [
     <section class="relative overflow-hidden">
       <!-- Background accents -->
       <div class="pointer-events-none absolute inset-0 -z-10">
-        <div class="absolute -top-24 left-1/2 size-160 -translate-x-1/2 rounded-full bg-primary/10 blur-3xl" />
+        <div
+          class="absolute -top-24 left-1/2 size-160 -translate-x-1/2 rounded-full bg-primary/10 blur-3xl"
+        />
         <div class="absolute right-0 top-1/3 size-96 rounded-full bg-primary/5 blur-3xl" />
       </div>
 
@@ -116,7 +119,9 @@ const steps = [
             <span class="ml-1.5">The operating platform for consulting firms</span>
           </UBadge>
 
-          <h1 class="text-balance text-4xl font-semibold tracking-tight text-default sm:text-5xl lg:text-6xl">
+          <h1
+            class="text-balance text-4xl font-semibold tracking-tight text-default sm:text-5xl lg:text-6xl"
+          >
             Turn community challenges into
             <span class="text-primary">measurable impact</span>
           </h1>
@@ -158,11 +163,7 @@ const steps = [
                 <span class="ml-3 text-xs text-muted">consult.saharaventures.com</span>
               </div>
               <div class="grid gap-4 p-6 sm:grid-cols-3">
-                <div
-                  v-for="stat in stats"
-                  :key="stat.label"
-                  class="rounded-lg bg-elevated/50 p-4"
-                >
+                <div v-for="stat in stats" :key="stat.label" class="rounded-lg bg-elevated/50 p-4">
                   <p class="text-2xl font-semibold text-default">{{ stat.value }}</p>
                   <p class="mt-1 text-xs text-muted">{{ stat.label }}</p>
                 </div>
@@ -182,7 +183,9 @@ const steps = [
         <p class="text-center text-sm font-medium text-muted">
           Trusted by consulting firms working with leading funders
         </p>
-        <div class="mt-6 grid grid-cols-2 items-center gap-8 opacity-60 sm:grid-cols-3 lg:grid-cols-6">
+        <div
+          class="mt-6 grid grid-cols-2 items-center gap-8 opacity-60 sm:grid-cols-3 lg:grid-cols-6"
+        >
           <div v-for="i in 6" :key="i" class="flex items-center justify-center">
             <div class="h-7 w-28 rounded bg-muted" />
           </div>
@@ -211,7 +214,9 @@ const steps = [
             class="group transition-all hover:-translate-y-0.5 hover:shadow-lg"
             :ui="{ body: 'p-6' }"
           >
-            <div class="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-inverted">
+            <div
+              class="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-inverted"
+            >
               <UIcon :name="feature.icon" class="size-5" />
             </div>
             <h3 class="mt-5 text-lg font-semibold text-default">{{ feature.title }}</h3>
@@ -230,8 +235,8 @@ const steps = [
             Built for the way you work
           </h2>
           <p class="mt-4 text-pretty text-muted">
-            Whether you're a consulting firm, a grant program, or a development organization —
-            Camel OS adapts to how your teams deliver impact.
+            Whether you're a consulting firm, a grant program, or a development organization — Camel
+            OS adapts to how your teams deliver impact.
           </p>
         </div>
 
@@ -242,13 +247,19 @@ const steps = [
             class="transition-all hover:-translate-y-0.5 hover:shadow-lg"
             :ui="{ body: 'p-6' }"
           >
-            <div class="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <div
+              class="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary"
+            >
               <UIcon :name="s.icon" class="size-5" />
             </div>
             <h3 class="mt-5 text-lg font-semibold text-default">{{ s.title }}</h3>
             <p class="mt-2 text-sm text-muted">{{ s.description }}</p>
             <ul class="mt-4 space-y-2">
-              <li v-for="b in s.bullets" :key="b" class="flex items-center gap-2 text-sm text-default">
+              <li
+                v-for="b in s.bullets"
+                :key="b"
+                class="flex items-center gap-2 text-sm text-default"
+              >
                 <UIcon name="i-lucide-check" class="size-4 text-primary" />
                 {{ b }}
               </li>

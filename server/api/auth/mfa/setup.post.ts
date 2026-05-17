@@ -22,7 +22,10 @@ export default defineEventHandler(async (event) => {
 
     const [localAccount] = await findAuthAccountByUserIdAndProvider(sessionUser.id, 'local')
     if (!localAccount) {
-      throw createError({ statusCode: 400, statusMessage: 'MFA is only available for local accounts' })
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'MFA is only available for local accounts',
+      })
     }
 
     if (localAccount.mfaEnabled) {

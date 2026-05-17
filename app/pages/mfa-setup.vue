@@ -26,10 +26,9 @@ const verifyState = reactive({ code: '' })
 onMounted(async () => {
   loading.value = true
   try {
-    const result = await $fetch<{ qrDataUrl: string; secret: string }>(
-      '/api/auth/mfa/setup',
-      { method: 'POST' }
-    )
+    const result = await $fetch<{ qrDataUrl: string; secret: string }>('/api/auth/mfa/setup', {
+      method: 'POST',
+    })
     qrDataUrl.value = result.qrDataUrl
     manualSecret.value = result.secret
     step.value = 'qr'
@@ -45,10 +44,10 @@ onMounted(async () => {
 
 async function onVerify(payload: FormSubmitEvent<VerifySchema>) {
   try {
-    const result = await $fetch<{ recoveryCodes: string[] }>(
-      '/api/auth/mfa/verify-setup',
-      { method: 'POST', body: { code: payload.data.code } }
-    )
+    const result = await $fetch<{ recoveryCodes: string[] }>('/api/auth/mfa/verify-setup', {
+      method: 'POST',
+      body: { code: payload.data.code },
+    })
     recoveryCodes.value = result.recoveryCodes
     step.value = 'recovery'
   } catch (err: unknown) {
@@ -92,9 +91,7 @@ async function copyRecoveryCodes() {
           </UBadge>
         </div>
 
-        <UButton size="lg" block @click="step = 'verify'">
-          Next: Verify code
-        </UButton>
+        <UButton size="lg" block @click="step = 'verify'"> Next: Verify code </UButton>
       </template>
     </UPageCard>
 
@@ -105,7 +102,12 @@ async function copyRecoveryCodes() {
         <p class="text-sm text-muted">Enter the 6-digit code shown in your app.</p>
       </div>
 
-      <UForm :schema="verifySchema" :state="verifyState" class="flex flex-col gap-4" @submit="onVerify">
+      <UForm
+        :schema="verifySchema"
+        :state="verifyState"
+        class="flex flex-col gap-4"
+        @submit="onVerify"
+      >
         <UFormField label="Authentication code" name="code">
           <UInput
             v-model="verifyState.code"
@@ -140,11 +142,7 @@ async function copyRecoveryCodes() {
       </div>
 
       <div class="grid grid-cols-2 gap-2 rounded-lg bg-elevated p-4">
-        <span
-          v-for="code in recoveryCodes"
-          :key="code"
-          class="font-mono text-sm"
-        >{{ code }}</span>
+        <span v-for="code in recoveryCodes" :key="code" class="font-mono text-sm">{{ code }}</span>
       </div>
 
       <div class="flex gap-3">
@@ -157,9 +155,7 @@ async function copyRecoveryCodes() {
         >
           {{ copied ? 'Copied!' : 'Copy all codes' }}
         </UButton>
-        <UButton size="lg" class="flex-1" @click="navigateTo('/dashboard')">
-          Done
-        </UButton>
+        <UButton size="lg" class="flex-1" @click="navigateTo('/dashboard')"> Done </UButton>
       </div>
     </UPageCard>
   </div>

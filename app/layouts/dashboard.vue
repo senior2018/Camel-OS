@@ -3,24 +3,33 @@ const route = useRoute()
 const { user, clear } = useUserSession()
 
 const navItems = computed(() => [
-  { label: 'Overview', to: '/dashboard', icon: 'i-lucide-layout-dashboard', active: route.path === '/dashboard' },
+  {
+    label: 'Overview',
+    to: '/dashboard',
+    icon: 'i-lucide-layout-dashboard',
+    active: route.path === '/dashboard',
+  },
   { label: 'Engagements', to: '#', icon: 'i-lucide-briefcase', disabled: true },
   { label: 'Grants', to: '#', icon: 'i-lucide-banknote', disabled: true },
   { label: 'Impact', to: '#', icon: 'i-lucide-line-chart', disabled: true },
-  { label: 'Team', to: '#', icon: 'i-lucide-users', disabled: true }
+  { label: 'Team', to: '#', icon: 'i-lucide-users', disabled: true },
 ])
 
 const settingsItems = computed(() => [
   { label: 'Security', to: '/dashboard#security', icon: 'i-lucide-shield' },
   { label: 'Workspace', to: '#', icon: 'i-lucide-building-2', disabled: true },
-  { label: 'Billing', to: '#', icon: 'i-lucide-credit-card', disabled: true }
+  { label: 'Billing', to: '#', icon: 'i-lucide-credit-card', disabled: true },
 ])
 
 const userInitials = computed(() => {
   if (!user.value) return '?'
   const first = (user.value as { firstName?: string }).firstName ?? ''
   const last = (user.value as { lastName?: string }).lastName ?? ''
-  return (first.charAt(0) + last.charAt(0)).toUpperCase() || (user.value as { email?: string }).email?.charAt(0).toUpperCase() || '?'
+  return (
+    (first.charAt(0) + last.charAt(0)).toUpperCase() ||
+    (user.value as { email?: string }).email?.charAt(0).toUpperCase() ||
+    '?'
+  )
 })
 
 const fullName = computed(() => {
@@ -40,7 +49,9 @@ async function logout() {
 <template>
   <div class="flex min-h-screen bg-elevated/30">
     <!-- Sidebar (desktop) -->
-    <aside class="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-default bg-default lg:flex">
+    <aside
+      class="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-default bg-default lg:flex"
+    >
       <div class="flex h-16 items-center border-b border-default px-6">
         <NuxtLink to="/dashboard" aria-label="Camel OS home">
           <AppLogo />
@@ -59,12 +70,19 @@ async function logout() {
                   ? 'bg-primary/10 text-primary font-medium'
                   : item.disabled
                     ? 'text-muted/60 cursor-not-allowed'
-                    : 'text-default hover:bg-elevated/60'
+                    : 'text-default hover:bg-elevated/60',
               ]"
             >
               <UIcon :name="item.icon" class="size-4 shrink-0" />
               <span>{{ item.label }}</span>
-              <UBadge v-if="item.disabled" variant="subtle" color="neutral" size="xs" label="Soon" class="ml-auto" />
+              <UBadge
+                v-if="item.disabled"
+                variant="subtle"
+                color="neutral"
+                size="xs"
+                label="Soon"
+                class="ml-auto"
+              />
             </ULink>
           </li>
         </ul>
@@ -78,12 +96,19 @@ async function logout() {
                 'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
                 item.disabled
                   ? 'text-muted/60 cursor-not-allowed'
-                  : 'text-default hover:bg-elevated/60'
+                  : 'text-default hover:bg-elevated/60',
               ]"
             >
               <UIcon :name="item.icon" class="size-4 shrink-0" />
               <span>{{ item.label }}</span>
-              <UBadge v-if="item.disabled" variant="subtle" color="neutral" size="xs" label="Soon" class="ml-auto" />
+              <UBadge
+                v-if="item.disabled"
+                variant="subtle"
+                color="neutral"
+                size="xs"
+                label="Soon"
+                class="ml-auto"
+              />
             </ULink>
           </li>
         </ul>
@@ -94,7 +119,7 @@ async function logout() {
         <UDropdownMenu
           :items="[
             [{ label: 'Account settings', icon: 'i-lucide-user', to: '/dashboard#security' }],
-            [{ label: 'Sign out', icon: 'i-lucide-log-out', onSelect: logout, color: 'error' }]
+            [{ label: 'Sign out', icon: 'i-lucide-log-out', onSelect: logout, color: 'error' }],
           ]"
           :ui="{ content: 'w-56' }"
         >
@@ -102,7 +127,9 @@ async function logout() {
             type="button"
             class="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-elevated/60"
           >
-            <div class="flex size-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+            <div
+              class="flex size-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary"
+            >
               {{ userInitials }}
             </div>
             <div class="min-w-0 flex-1">
@@ -118,7 +145,9 @@ async function logout() {
     <!-- Main column -->
     <div class="flex flex-1 flex-col lg:pl-64">
       <!-- Topbar -->
-      <header class="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-default bg-default/80 px-4 backdrop-blur sm:px-6 lg:px-8">
+      <header
+        class="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-default bg-default/80 px-4 backdrop-blur sm:px-6 lg:px-8"
+      >
         <!-- Mobile: logo + menu -->
         <div class="flex items-center gap-3 lg:hidden">
           <UButton
@@ -153,7 +182,7 @@ async function logout() {
           <UDropdownMenu
             :items="[
               [{ label: 'Account settings', icon: 'i-lucide-user', to: '/dashboard#security' }],
-              [{ label: 'Sign out', icon: 'i-lucide-log-out', onSelect: logout, color: 'error' }]
+              [{ label: 'Sign out', icon: 'i-lucide-log-out', onSelect: logout, color: 'error' }],
             ]"
           >
             <button
@@ -190,13 +219,20 @@ async function logout() {
                       ? 'bg-primary/10 text-primary font-medium'
                       : item.disabled
                         ? 'text-muted/60'
-                        : 'text-default hover:bg-elevated/60'
+                        : 'text-default hover:bg-elevated/60',
                   ]"
                   @click="mobileNavOpen = false"
                 >
                   <UIcon :name="item.icon" class="size-4" />
                   {{ item.label }}
-                  <UBadge v-if="item.disabled" variant="subtle" color="neutral" size="xs" label="Soon" class="ml-auto" />
+                  <UBadge
+                    v-if="item.disabled"
+                    variant="subtle"
+                    color="neutral"
+                    size="xs"
+                    label="Soon"
+                    class="ml-auto"
+                  />
                 </ULink>
               </li>
             </ul>

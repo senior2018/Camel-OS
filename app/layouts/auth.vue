@@ -5,10 +5,11 @@ interface Props {
 
 withDefaults(defineProps<Props>(), {
   testimonial: () => ({
-    quote: 'Camel OS brought our engagements, grants, and impact reporting into one place. Our team ships outcomes faster — and our funders see it in real time.',
+    quote:
+      'Camel OS brought our engagements, grants, and impact reporting into one place. Our team ships outcomes faster — and our funders see it in real time.',
     author: 'Amina K.',
-    role: 'Program Director'
-  })
+    role: 'Program Director',
+  }),
 })
 </script>
 
@@ -32,7 +33,7 @@ withDefaults(defineProps<Props>(), {
           width="40"
           height="40"
           class="size-9 rounded-lg shrink-0 ring-1 ring-white/30"
-        >
+        />
         <span class="text-base font-semibold tracking-tight">Camel OS</span>
       </NuxtLink>
 
@@ -42,7 +43,8 @@ withDefaults(defineProps<Props>(), {
           The operating platform for impact-driven consulting firms.
         </h2>
         <p class="mt-4 max-w-md text-pretty text-white/85">
-          Engagements, grants, and outcomes — together in one secure workspace built for the way modern consulting firms deliver impact.
+          Engagements, grants, and outcomes — together in one secure workspace built for the way
+          modern consulting firms deliver impact.
         </p>
       </div>
 
@@ -52,7 +54,9 @@ withDefaults(defineProps<Props>(), {
           &ldquo;{{ testimonial.quote }}&rdquo;
         </blockquote>
         <figcaption class="mt-4 flex items-center gap-3">
-          <div class="flex size-10 items-center justify-center rounded-full bg-white/15 text-sm font-semibold ring-1 ring-white/20">
+          <div
+            class="flex size-10 items-center justify-center rounded-full bg-white/15 text-sm font-semibold ring-1 ring-white/20"
+          >
             {{ testimonial.author.charAt(0) }}
           </div>
           <div class="text-sm">
@@ -70,7 +74,14 @@ withDefaults(defineProps<Props>(), {
         <NuxtLink to="/" aria-label="Camel OS home">
           <AppLogo />
         </NuxtLink>
-        <UButton to="/" variant="ghost" color="neutral" size="sm" icon="i-lucide-arrow-left" label="Home" />
+        <UButton
+          to="/"
+          variant="ghost"
+          color="neutral"
+          size="sm"
+          icon="i-lucide-arrow-left"
+          label="Home"
+        />
       </header>
 
       <div class="flex flex-1 items-center justify-center px-4 py-12 sm:px-6 lg:px-12">

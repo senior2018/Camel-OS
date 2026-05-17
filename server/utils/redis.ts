@@ -11,7 +11,7 @@ export function useRedis(): Redis {
   if (!url) throw new Error('REDIS_URL is not configured')
 
   _client = new Redis(url, {
-    maxRetriesPerRequest: 0,  // fail commands immediately when offline — rate limiter fails open
+    maxRetriesPerRequest: 0, // fail commands immediately when offline — rate limiter fails open
     enableOfflineQueue: false, // don't queue commands while disconnected
     lazyConnect: true,
     connectTimeout: 5000,
