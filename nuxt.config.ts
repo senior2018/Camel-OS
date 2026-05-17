@@ -8,8 +8,6 @@ export default defineNuxtConfig({
     enabled: true,
   },
 
-  css: ['~/assets/css/main.css'],
-
   app: {
     head: {
       titleTemplate: '%s',
@@ -18,12 +16,18 @@ export default defineNuxtConfig({
         { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' },
         { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/favicon-32x32.png' },
         { rel: 'icon', type: 'image/png', sizes: '16x16', href: '/favicon-16x16.png' },
-        { rel: 'apple-touch-icon', sizes: '180x180', href: '/apple-touch-icon.png' }
+        { rel: 'apple-touch-icon', sizes: '180x180', href: '/apple-touch-icon.png' },
       ],
-      meta: [
-        { name: 'theme-color', content: '#f05100' }
-      ]
-    }
+      meta: [{ name: 'theme-color', content: '#f05100' }],
+    },
+  },
+
+  css: ['~/assets/css/main.css'],
+
+  // Lock the app to its designed light theme — Nuxt UI v4 skips its color-mode plugin entirely
+  // and the `@custom-variant dark` rule in main.css blocks Tailwind's prefers-color-scheme fallback.
+  ui: {
+    colorMode: false,
   },
 
   runtimeConfig: {
