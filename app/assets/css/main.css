@@ -1,25 +1,48 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
-
+ 
 @theme static {
   --font-sans: "Public Sans", sans-serif;
+ 
+  /* ── Orange scale anchored on #f05100 (site's --color-orange-600) ── */
+  --color-orange-50:  #fff7ed;   
+  --color-orange-100: #ffedd5;   
+  --color-orange-200: #ffd7a8;   
+  --color-orange-300: #fdba74;
+  --color-orange-400: #fb923c;
+  --color-orange-500: #f97316;
+  --color-orange-600: #f05100;   /* PRIMARY action color */
+  --color-orange-700: #ea4300;   /* Interaction/Hover state */
+  --color-orange-800: #7b3306;   
+  --color-orange-900: #5a2400;
+  --color-orange-950: #3a1500;
 
-  /* Updated red shades based on base HEX #e73e2a and #b12d22 */
-  --color-red-50: #fff4f3;
-  --color-red-100: #ffe3e1;
-  --color-red-200: #ffcac6;
-  --color-red-300: #f5988e;
-  --color-red-400: #ee6556;
-  --color-red-500: #e73e2a; /* New Base */
-  --color-red-600: #d03725;
-  --color-red-700: #b12d22; /* Secondary */
-  --color-red-800: #8d221a;
-  --color-red-900: #731c15;
-  --color-red-950: #3a0d0a;
+
+  --color-primary: var(--color-orange-600);
+  --color-primary-hover: var(--color-orange-700);
+  --color-primary-dark: var(--color-orange-800);
 }
-
+ 
 :root {
-  --ui-primary: var(--color-red-500); /* Primary = #e73e2a */
-  --ui-primary-dark: #b12d22; /* Optional darker version */
-  --ui-text-base: #101828; /* Deep neutral base */
+  /* Nuxt UI bindings mapped safely to our theme properties */
+  --ui-primary:      var(--color-primary);  
+  --ui-primary-hover: var(--color-primary-hover); 
+  --ui-primary-dark:  var(--color-primary-dark);  
+ 
+  /* Typography — Tailwind Slate palette */
+  --ui-text-base:    #0f172a;  /* slate-900 — headings & body text */
+  --ui-text-muted:   #64748b;  /* slate-500 — secondary captions */
+  --ui-text-subtle:  #94a3b8;  /* slate-400 — input placeholders */
+  --ui-text-inverse: #f8fafc;  /* slate-50  — light text on dark assets */
+ 
+  /* Surfaces & layout — Slate */
+  --ui-surface:      #f8fafc;  /* slate-50  — main cards */
+  --ui-surface-2:    #f1f5f9;  /* slate-100 — secondary structural rows */
+  --ui-border:       #e2e8f0;  /* slate-200 — standard container outlines */
+  --ui-border-muted: #cbd5e1;  /* slate-300 — deep input borders */
+ 
+  /* Backgrounds */
+  --ui-bg:           #f8fafc;  /* slate-50  — app backdrop */
+  --ui-bg-dark:      #1e293b;  /* slate-800 — sidebars and footer wrappers */
+  --ui-ink:          #0f172a;  /* slate-900 — absolute dark regions */
 }
