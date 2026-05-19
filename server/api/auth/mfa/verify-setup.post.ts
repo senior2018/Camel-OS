@@ -84,6 +84,11 @@ export default defineEventHandler(async (event) => {
       meta: {},
     })
 
+    // Clear the `mustSetupMfa` gate so middleware lets them into the app.
+    await setUserSession(event, {
+      user: { ...session.user, mustSetupMfa: false },
+    })
+
     return { success: true, recoveryCodes: rawCodes }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error

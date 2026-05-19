@@ -49,10 +49,16 @@ export const users = pgTable('users', {
   avatarUrl: text('avatar_url'),
   status: userStatusEnum().notNull().default('pending_verification'),
   role: userRoleEnum().notNull().default('member'),
+  // Per-user coarse MFA flag — finer-grained enforcement lives on roles.mfa_required.
   mfaRequired: boolean('mfa_required').notNull().default(false),
   failedLoginAttempts: integer('failed_login_attempts').notNull().default(0),
   lockedUntil: timestamp('locked_until', { withTimezone: true }),
   emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
+  // Password policy fields (UM-07)
+  passwordChangedAt: timestamp('password_changed_at', { withTimezone: true }),
+  mustChangePassword: boolean('must_change_password').notNull().default(false),
+  // Soft-deactivation flag (UM-01)
+  deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
@@ -169,6 +175,135 @@ export const mfaRecoveryCodes = pgTable(
   (table) => [index('mfa_recovery_codes_user_id_idx').on(table.userId)]
 )
 
+// ─── Roles (UM-02) ─────────────────────────────────────────────────────────────
+
+export const roles = pgTable(
+  'roles',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    name: text().notNull(),
+    description: text(),
+    // If true, any user holding this role must have MFA enabled to access the app (UM-06).
+    mfaRequired: boolean('mfa_required').notNull().default(false),
+    // System roles are seeded per org and cannot be deleted via the UI.
+    isSystem: boolean('is_system').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    unique().on(table.organizationId, table.name),
+    index('roles_organization_id_idx').on(table.organizationId),
+  ]
+)
+
+// ─── Role Permissions (UM-02) ──────────────────────────────────────────────────
+
+export const rolePermissions = pgTable(
+  'role_permissions',
+  {
+    roleId: uuid('role_id')
+      .notNull()
+      .references(() => roles.id, { onDelete: 'cascade' }),
+    // Module name, e.g. 'opportunity', 'crm', 'finance', 'admin'. Free-form so new
+    // modules can be added without a schema migration.
+    module: text().notNull(),
+    // Action verb, e.g. 'read' | 'create' | 'update' | 'delete' | 'admin'.
+    action: text().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.roleId, table.module, table.action] }),
+    index('role_permissions_role_id_idx').on(table.roleId),
+  ]
+)
+
+// ─── User-Role Assignments (UM-03) ─────────────────────────────────────────────
+
+export const userRoles = pgTable(
+  'user_roles',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    roleId: uuid('role_id')
+      .notNull()
+      .references(() => roles.id, { onDelete: 'cascade' }),
+    assignedAt: timestamp('assigned_at', { withTimezone: true }).defaultNow().notNull(),
+    assignedByUserId: uuid('assigned_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.roleId] }),
+    index('user_roles_user_id_idx').on(table.userId),
+    index('user_roles_role_id_idx').on(table.roleId),
+  ]
+)
+
+// ─── User Invitations (UM-01) ──────────────────────────────────────────────────
+
+export const userInvitations = pgTable(
+  'user_invitations',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    email: text().notNull(),
+    firstName: text('first_name').notNull(),
+    lastName: text('last_name').notNull(),
+    // Role assigned at acceptance time (single role at invite; multi-role later in admin UI).
+    roleId: uuid('role_id').references(() => roles.id, { onDelete: 'set null' }),
+    invitedByUserId: uuid('invited_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('user_invitations_organization_id_idx').on(table.organizationId),
+    index('user_invitations_email_idx').on(table.email),
+  ]
+)
+
+// ─── Password Policies (UM-07) ─────────────────────────────────────────────────
+
+export const passwordPolicies = pgTable('password_policies', {
+  organizationId: uuid('organization_id')
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  minLength: integer('min_length').notNull().default(8),
+  requireUppercase: boolean('require_uppercase').notNull().default(false),
+  requireLowercase: boolean('require_lowercase').notNull().default(false),
+  requireNumber: boolean('require_number').notNull().default(false),
+  requireSymbol: boolean('require_symbol').notNull().default(false),
+  // Days before a password expires; null = never expires.
+  expiryDays: integer('expiry_days'),
+  // Number of previous passwords to remember (prevent reuse). 0 = no history check.
+  historyCount: integer('history_count').notNull().default(0),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+// ─── Password History (UM-07: reuse prevention) ────────────────────────────────
+
+export const passwordHistory = pgTable(
+  'password_history',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    passwordHash: text('password_hash').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('password_history_user_id_idx').on(table.userId)]
+)
+
 // ─── Audit Log ─────────────────────────────────────────────────────────────────
 
 export const auditLog = pgTable(
@@ -219,6 +354,24 @@ export type NewPasswordResetToken = typeof passwordResetTokens.$inferInsert
 
 export type MfaRecoveryCode = typeof mfaRecoveryCodes.$inferSelect
 export type NewMfaRecoveryCode = typeof mfaRecoveryCodes.$inferInsert
+
+export type Role = typeof roles.$inferSelect
+export type NewRole = typeof roles.$inferInsert
+
+export type RolePermission = typeof rolePermissions.$inferSelect
+export type NewRolePermission = typeof rolePermissions.$inferInsert
+
+export type UserRole = typeof userRoles.$inferSelect
+export type NewUserRole = typeof userRoles.$inferInsert
+
+export type UserInvitation = typeof userInvitations.$inferSelect
+export type NewUserInvitation = typeof userInvitations.$inferInsert
+
+export type PasswordPolicy = typeof passwordPolicies.$inferSelect
+export type NewPasswordPolicy = typeof passwordPolicies.$inferInsert
+
+export type PasswordHistory = typeof passwordHistory.$inferSelect
+export type NewPasswordHistory = typeof passwordHistory.$inferInsert
 
 export type AuditLog = typeof auditLog.$inferSelect
 export type NewAuditLog = typeof auditLog.$inferInsert

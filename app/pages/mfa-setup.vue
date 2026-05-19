@@ -3,10 +3,15 @@ import * as z from 'zod'
 import type { FormSubmitEvent } from '@nuxt/ui'
 
 definePageMeta({
-  layout: 'default',
+  layout: 'dashboard',
 })
 
 const toast = useToast()
+const { fetch: refreshSession, user } = useUserSession()
+
+const forced = computed(
+  () => (user.value as { mustSetupMfa?: boolean } | null)?.mustSetupMfa === true
+)
 
 type Step = 'qr' | 'verify' | 'recovery'
 
@@ -50,6 +55,9 @@ async function onVerify(payload: FormSubmitEvent<VerifySchema>) {
     })
     recoveryCodes.value = result.recoveryCodes
     step.value = 'recovery'
+    // Server cleared the mustSetupMfa flag — sync the client session so
+    // middleware lets them leave this page.
+    await refreshSession()
   } catch (err: unknown) {
     const msg =
       (err as { data?: { statusMessage?: string } })?.data?.statusMessage ??
@@ -71,6 +79,16 @@ async function copyRecoveryCodes() {
       <h1 class="text-2xl font-bold">Set up Two-Factor Authentication</h1>
       <p class="mt-1 text-sm text-muted">Protect your account with an authenticator app.</p>
     </div>
+
+    <UAlert
+      v-if="forced"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-shield-alert"
+      title="MFA is required for your role"
+      description="Complete setup below to access the rest of the platform."
+      class="mb-6"
+    />
 
     <!-- Step 1: QR Code -->
     <UPageCard v-if="step === 'qr'" class="flex flex-col gap-6">

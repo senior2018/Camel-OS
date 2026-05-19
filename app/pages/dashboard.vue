@@ -9,6 +9,7 @@ const { user } = useUserSession()
 const toast = useToast()
 
 const { data: mfaStatus, refresh: refreshMfa } = await useFetch('/api/auth/mfa/status')
+const { data: perms } = await usePermissions()
 
 const showDisableModal = ref(false)
 const disableCode = ref('')
@@ -19,39 +20,19 @@ const firstName = computed(() => {
   return u?.firstName ?? 'there'
 })
 
-const stats = [
-  { label: 'Active engagements', value: '—', icon: 'i-lucide-briefcase', hint: 'Available soon' },
-  { label: 'Open grant cycles', value: '—', icon: 'i-lucide-banknote', hint: 'Available soon' },
-  { label: 'Team members', value: '1', icon: 'i-lucide-users', hint: 'Just you for now' },
-  { label: 'Impact records', value: '—', icon: 'i-lucide-line-chart', hint: 'Available soon' },
-]
-
-const quickActions = [
-  {
-    title: 'Set up two-factor auth',
-    description: 'Add a second layer of security to your account.',
-    icon: 'i-lucide-shield',
-    to: '/mfa-setup',
-    disabled: false,
-    hideIf: () => mfaStatus.value?.mfaEnabled,
-  },
-  {
-    title: 'Invite teammates',
-    description: 'Bring your colleagues into the workspace.',
-    icon: 'i-lucide-user-plus',
-    to: '#',
-    disabled: true,
-  },
-  {
-    title: 'Create your first engagement',
-    description: 'Start tracking a project from end to end.',
-    icon: 'i-lucide-plus-circle',
-    to: '#',
-    disabled: true,
-  },
-]
-
-const visibleQuickActions = computed(() => quickActions.filter((a) => !a.hideIf?.()))
+// Only show actions that are actually wired up. Future modules add items here as they land.
+const quickActions = computed(() => {
+  const items: Array<{ title: string; description: string; icon: string; to: string }> = []
+  if (!mfaStatus.value?.mfaEnabled && mfaStatus.value?.hasLocalAccount) {
+    items.push({
+      title: 'Set up two-factor authentication',
+      description: 'Add a second layer of security to your account.',
+      icon: 'i-lucide-shield',
+      to: '/mfa-setup',
+    })
+  }
+  return items
+})
 
 async function disableMfa() {
   disabling.value = true
@@ -88,7 +69,7 @@ async function disableMfa() {
             Welcome back, <span class="text-primary">{{ firstName }}</span>
           </h1>
           <p class="mt-1 text-sm text-muted">
-            Here's a snapshot of your workspace. Modules unlock as the platform rolls out.
+            Sign-in is live. New modules will appear here as they're rolled out.
           </p>
         </div>
         <UBadge variant="subtle" color="success" size="lg">
@@ -98,38 +79,20 @@ async function disableMfa() {
       </div>
     </section>
 
-    <!-- Stats -->
-    <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <UCard v-for="stat in stats" :key="stat.label" :ui="{ body: 'p-5' }">
-        <div class="flex items-start justify-between">
-          <div>
-            <p class="text-sm text-muted">{{ stat.label }}</p>
-            <p class="mt-2 text-2xl font-semibold text-default">{{ stat.value }}</p>
-          </div>
-          <div
-            class="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary"
-          >
-            <UIcon :name="stat.icon" class="size-5" />
-          </div>
-        </div>
-        <p class="mt-3 text-xs text-muted">{{ stat.hint }}</p>
-      </UCard>
-    </section>
-
     <div class="grid gap-6 lg:grid-cols-3">
-      <!-- Quick actions -->
-      <section v-if="visibleQuickActions.length" class="lg:col-span-2">
+      <!-- Quick actions (only render when there's something actionable) -->
+      <section v-if="quickActions.length" class="lg:col-span-2">
         <UCard>
           <template #header>
             <div class="flex items-center justify-between">
-              <h2 class="font-semibold">Quick actions</h2>
+              <h2 class="font-semibold">Recommended next steps</h2>
               <UBadge variant="subtle" color="primary" size="sm" label="Recommended" />
             </div>
           </template>
 
           <ul class="divide-y divide-default">
             <li
-              v-for="action in visibleQuickActions"
+              v-for="action in quickActions"
               :key="action.title"
               class="flex items-center gap-4 py-4 first:pt-0 last:pb-0"
             >
@@ -143,21 +106,19 @@ async function disableMfa() {
                 <p class="text-xs text-muted">{{ action.description }}</p>
               </div>
               <UButton
-                v-if="!action.disabled"
                 :to="action.to"
                 size="sm"
                 variant="outline"
                 trailing-icon="i-lucide-arrow-right"
                 label="Open"
               />
-              <UBadge v-else variant="subtle" color="neutral" size="sm" label="Soon" />
             </li>
           </ul>
         </UCard>
       </section>
 
-      <!-- Workspace info -->
-      <section :class="visibleQuickActions.length ? '' : 'lg:col-span-3'">
+      <!-- Account summary -->
+      <section :class="quickActions.length ? '' : 'lg:col-span-3'">
         <UCard :ui="{ body: 'p-6' }">
           <template #header>
             <h2 class="font-semibold">Your account</h2>
@@ -168,9 +129,21 @@ async function disableMfa() {
               <dt class="text-muted">Email</dt>
               <dd class="font-medium text-default">{{ user?.email }}</dd>
             </div>
-            <div class="flex items-center justify-between">
-              <dt class="text-muted">Plan</dt>
-              <dd><UBadge variant="subtle" color="primary" size="sm" label="Free" /></dd>
+            <div class="flex items-start justify-between gap-3">
+              <dt class="text-muted">Roles</dt>
+              <dd class="flex flex-wrap justify-end gap-1">
+                <UBadge
+                  v-for="role in perms?.roles ?? []"
+                  :key="role.id"
+                  variant="subtle"
+                  color="primary"
+                  size="sm"
+                  :label="role.name"
+                />
+                <span v-if="!perms?.roles?.length" class="text-xs text-muted"
+                  >No roles assigned</span
+                >
+              </dd>
             </div>
             <div class="flex items-center justify-between">
               <dt class="text-muted">Two-factor auth</dt>
@@ -254,7 +227,7 @@ async function disableMfa() {
               variant="outline"
               label="Change password"
               icon="i-lucide-key"
-              @click="navigateTo('/forgot-password')"
+              @click="navigateTo('/change-password')"
             />
           </div>
         </div>

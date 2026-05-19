@@ -53,6 +53,8 @@ export const RATE_LIMITS = {
   forgotPassword: { capacity: 5, refillRate: 5 / 3600 }, // 5 per hour per IP
   resendVerification: { capacity: 3, refillRate: 3 / 3600 }, // 3 per hour per user
   mfaChallenge: { capacity: 10, refillRate: 10 / 600 }, // 10 per 10 min per IP
+  acceptInvite: { capacity: 5, refillRate: 5 / 600 }, // 5 per 10 min per IP
+  adminInvite: { capacity: 30, refillRate: 30 / 3600 }, // 30 per hour per admin (anti-spam)
 } as const satisfies Record<string, RateLimitConfig>
 
 export async function checkRateLimit(

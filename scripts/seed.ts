@@ -1,12 +1,22 @@
 import { eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
-import { hash, Algorithm } from '@node-rs/argon2'
+import { Hash } from '@adonisjs/hash'
+import { Scrypt } from '@adonisjs/hash/drivers/scrypt'
 import postgres from 'postgres'
 import dotenv from 'dotenv'
 import consola from 'consola'
 
 import * as schema from '../server/database/schema'
-import { authAccounts, organizationMembers, organizations, users } from '../server/database/schema'
+import {
+  authAccounts,
+  organizationMembers,
+  organizations,
+  rolePermissions,
+  roles,
+  userRoles,
+  users,
+} from '../server/database/schema'
+import { DEFAULT_ROLES, expandDefaultPermissions } from '../shared/permissions'
 
 dotenv.config()
 
@@ -42,12 +52,11 @@ async function seed() {
     process.exit(0)
   }
 
-  const passwordHash = await hash(SEED_ADMIN.password, {
-    algorithm: Algorithm.Argon2id,
-    memoryCost: 19456,
-    timeCost: 2,
-    parallelism: 1,
-  })
+  // Match the algorithm nuxt-auth-utils' `verifyPassword` uses (@adonisjs/hash → scrypt).
+  // Hashing with anything else (e.g. argon2 directly) produces a format the verifier
+  // cannot read, which is why earlier seed-then-login attempts silently failed.
+  const hasher = new Hash(new Scrypt({}))
+  const passwordHash = await hasher.make(SEED_ADMIN.password)
 
   await db.transaction(async (tx) => {
     const [org] = await tx.insert(organizations).values(SEED_ORG).returning()
@@ -80,8 +89,42 @@ async function seed() {
       passwordHash,
     })
 
+    // Seed default roles for the org and assign the System Administrator role to
+    // the bootstrap admin so role-based permissions work from first login.
+    for (const def of DEFAULT_ROLES) {
+      const [createdRole] = await tx
+        .insert(roles)
+        .values({
+          organizationId: org.id,
+          name: def.name,
+          description: def.description,
+          mfaRequired: def.mfaRequired,
+          isSystem: def.isSystem,
+        })
+        .returning({ id: roles.id, name: roles.name })
+
+      if (!createdRole) throw new Error(`Failed to seed role: ${def.name}`)
+
+      const permRows = expandDefaultPermissions(def).map((p) => ({
+        roleId: createdRole.id,
+        module: p.module,
+        action: p.action,
+      }))
+      if (permRows.length > 0) {
+        await tx.insert(rolePermissions).values(permRows)
+      }
+
+      if (createdRole.name === 'System Administrator') {
+        await tx.insert(userRoles).values({
+          userId: adminUser.id,
+          roleId: createdRole.id,
+        })
+      }
+    }
+
     consola.success(`Organization : ${org.name} (${org.id})`)
     consola.success(`Admin user   : ${adminUser.email} (${adminUser.id})`)
+    consola.success(`Roles seeded : ${DEFAULT_ROLES.map((r) => r.name).join(', ')}`)
     consola.box(`Login → email: ${SEED_ADMIN.email}  |  password: ${SEED_ADMIN.password}`)
   })
 

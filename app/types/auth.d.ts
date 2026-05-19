@@ -5,6 +5,10 @@ declare module '#auth-utils' {
     firstName: string
     lastName: string
     avatarUrl: string | null
+    mustChangePassword?: boolean
+    mustSetupMfa?: boolean
+    /** Epoch ms of the last authenticated activity — drives the idle timeout. */
+    lastActivityAt?: number
   }
 }
 

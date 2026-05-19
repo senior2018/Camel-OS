@@ -11,7 +11,7 @@ export default defineNuxtConfig({
   app: {
     head: {
       titleTemplate: '%s',
-      title: 'Camel OS — The operating platform for impact-driven consulting',
+      title: 'Camel OS',
       link: [
         { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' },
         { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/favicon-32x32.png' },
@@ -43,9 +43,7 @@ export default defineNuxtConfig({
     },
   },
 
-  routeRules: {
-    '/': { prerender: true },
-  },
+  // `/` is a server-side redirect to /login or /dashboard, not a renderable page.
 
   compatibilityDate: '2025-01-15',
 
