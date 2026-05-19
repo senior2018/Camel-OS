@@ -124,6 +124,10 @@ export default defineEventHandler(async (event) => {
       expiresAt: new Date(now.getTime() + SESSION_MS),
     })
 
+    // Carry any password-expiry flag set by the login step into the MFA-completed
+    // session. `mustSetupMfa` is necessarily false here — they just used a TOTP.
+    const mustChangePassword = existingUser.mustChangePassword === true
+
     await clearUserSession(event)
     await setUserSession(event, {
       user: {
@@ -132,6 +136,9 @@ export default defineEventHandler(async (event) => {
         firstName: existingUser.firstName,
         lastName: existingUser.lastName,
         avatarUrl: existingUser.avatarUrl,
+        mustChangePassword,
+        mustSetupMfa: false,
+        lastActivityAt: now.getTime(),
       },
     })
 
@@ -145,6 +152,7 @@ export default defineEventHandler(async (event) => {
 
     return {
       success: true,
+      mustChangePassword,
       user: {
         id: existingUser.id,
         email: existingUser.email,

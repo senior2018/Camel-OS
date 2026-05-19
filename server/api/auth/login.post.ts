@@ -11,6 +11,8 @@ import { checkRateLimit, RATE_LIMITS } from '@@/server/utils/rate-limit'
 import { logAuditEvent } from '@@/server/utils/audit'
 import { encrypt, sha256 } from '@@/server/utils/crypto'
 import { sendPasswordResetEmail } from '@@/server/utils/mailer'
+import { getPasswordPolicy, isPasswordExpired } from '@@/server/utils/password-policy'
+import { userRequiresMfa } from '@@/server/utils/role'
 
 const MAX_FAILED_ATTEMPTS = 5
 const LOCKOUT_MS = 24 * 60 * 60 * 1000 // 24 hours — cleared by password reset
@@ -140,6 +142,29 @@ export default defineEventHandler(async (event) => {
       .set({ failedLoginAttempts: 0, lockedUntil: null })
       .where(eq(users.id, existingUser.id))
 
+    // Determine whether the password is expired (policy + passwordChangedAt). If so,
+    // we still grant a session so the user can change it — middleware will redirect
+    // every page except /change-password until they comply.
+    const policy = await getPasswordPolicy(existingUser.organizationId)
+    const expired = isPasswordExpired(existingUser.passwordChangedAt, policy)
+    const mustChangePassword = expired || existingUser.mustChangePassword
+
+    if (expired) {
+      await db.update(users).set({ mustChangePassword: true }).where(eq(users.id, existingUser.id))
+      await logAuditEvent({
+        organizationId: existingUser.organizationId,
+        userId: existingUser.id,
+        resource: 'auth',
+        action: 'password_expired',
+        meta: { ip, expiryDays: policy.expiryDays },
+      })
+    }
+
+    // If any role requires MFA but the user hasn't enabled it yet, grant a partial
+    // session flagged `mustSetupMfa` — middleware funnels them to /mfa-setup and
+    // blocks every other route until they enrol.
+    const mustSetupMfa = !existingAuthAccount.mfaEnabled && (await userRequiresMfa(existingUser.id))
+
     // If MFA is enabled, issue a short-lived challenge token instead of a full session
     if (existingAuthAccount.mfaEnabled) {
       const challengePayload = JSON.stringify({
@@ -176,6 +201,9 @@ export default defineEventHandler(async (event) => {
         firstName: existingUser.firstName,
         lastName: existingUser.lastName,
         avatarUrl: existingUser.avatarUrl,
+        mustChangePassword,
+        mustSetupMfa,
+        lastActivityAt: now.getTime(),
       },
     })
 
@@ -185,11 +213,13 @@ export default defineEventHandler(async (event) => {
       resource: 'auth',
       action: 'login',
       resourceId: existingUser.id,
-      meta: { ip, provider: 'local' },
+      meta: { ip, provider: 'local', mustSetupMfa },
     })
 
     return {
       success: true,
+      mustChangePassword,
+      mustSetupMfa,
       user: {
         id: existingUser.id,
         email: existingUser.email,

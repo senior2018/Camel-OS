@@ -8,6 +8,7 @@ import { findAuthAccountByUserIdAndProvider } from '@@/server/utils/auth-account
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { sha256 } from '@@/server/utils/crypto'
 import { logAuditEvent } from '@@/server/utils/audit'
+import { enforcePasswordPolicy, recordPasswordHistory } from '@@/server/utils/password-policy'
 
 const INVALID_TOKEN_ERROR = createError({
   statusCode: 400,
@@ -50,6 +51,16 @@ export default defineEventHandler(async (event) => {
     const [localAccount] = await findAuthAccountByUserIdAndProvider(user.id, 'local')
     if (!localAccount) throw INVALID_TOKEN_ERROR
 
+    // Enforce policy (rules + history) before touching anything.
+    const policyErrors = await enforcePasswordPolicy(
+      user.id,
+      user.organizationId,
+      parsed.data.password
+    )
+    if (policyErrors.length > 0) {
+      throw createError({ statusCode: 400, statusMessage: policyErrors[0] })
+    }
+
     const newPasswordHash = await hashPassword(parsed.data.password)
 
     await db.transaction(async (tx) => {
@@ -63,12 +74,20 @@ export default defineEventHandler(async (event) => {
         .set({ usedAt: now })
         .where(eq(passwordResetTokens.id, resetToken.id))
 
-      // Clear any lockout so the user can log in immediately after reset
+      // Clear any lockout and the "must change" flag, and stamp the change time.
       await tx
         .update(users)
-        .set({ failedLoginAttempts: 0, lockedUntil: null })
+        .set({
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+          mustChangePassword: false,
+          passwordChangedAt: now,
+          updatedAt: now,
+        })
         .where(eq(users.id, user.id))
     })
+
+    await recordPasswordHistory(user.id, newPasswordHash)
 
     await clearUserSession(event)
 

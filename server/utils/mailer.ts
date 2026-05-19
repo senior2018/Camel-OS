@@ -32,6 +32,32 @@ export async function sendEmailVerificationEmail(to: string, verifyUrl: string):
   }
 }
 
+export async function sendInvitationEmail(
+  to: string,
+  options: {
+    inviteeName: string
+    inviterName: string
+    organizationName: string
+    acceptUrl: string
+  }
+): Promise<void> {
+  try {
+    await getClient().transactionalEmails.sendTransacEmail({
+      sender: { name: 'Camel OS', email: getFromEmail() },
+      to: [{ email: to }],
+      subject: `You're invited to join ${options.organizationName} on Camel OS`,
+      htmlContent: `
+        <p>Hi ${options.inviteeName},</p>
+        <p><strong>${options.inviterName}</strong> has invited you to join <strong>${options.organizationName}</strong> on Camel OS.</p>
+        <p><a href="${options.acceptUrl}">Click here to accept your invitation and set your password</a></p>
+        <p>This invitation expires in <strong>7 days</strong>. If you weren't expecting this, you can safely ignore this email.</p>
+      `,
+    })
+  } catch (err) {
+    throw new Error(`Failed to send email: ${(err as Error).message}`)
+  }
+}
+
 export async function sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
   try {
     await getClient().transactionalEmails.sendTransacEmail({

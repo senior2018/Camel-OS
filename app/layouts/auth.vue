@@ -1,16 +1,12 @@
 <script setup lang="ts">
-interface Props {
-  testimonial?: { quote: string; author: string; role: string }
-}
-
-withDefaults(defineProps<Props>(), {
-  testimonial: () => ({
-    quote:
-      'Camel OS brought our engagements, grants, and impact reporting into one place. Our team ships outcomes faster — and our funders see it in real time.',
-    author: 'Amina K.',
-    role: 'Program Director',
-  }),
-})
+// Internal-system auth shell. No marketing copy — just clear branding and a short
+// description of what this platform is.
+const highlights = [
+  { icon: 'i-lucide-briefcase', label: 'Engagement & opportunity management' },
+  { icon: 'i-lucide-banknote', label: 'Grant pipelines & disbursement tracking' },
+  { icon: 'i-lucide-line-chart', label: 'Impact measurement & reporting' },
+  { icon: 'i-lucide-shield-check', label: 'Enterprise-grade security' },
+]
 </script>
 
 <template>
@@ -26,7 +22,7 @@ withDefaults(defineProps<Props>(), {
       </div>
 
       <!-- Top: Logo -->
-      <NuxtLink to="/" class="relative flex items-center gap-2.5">
+      <div class="relative flex items-center gap-2.5">
         <img
           src="/logo.png"
           alt="Camel OS"
@@ -35,53 +31,44 @@ withDefaults(defineProps<Props>(), {
           class="size-9 rounded-lg shrink-0 ring-1 ring-white/30"
         />
         <span class="text-base font-semibold tracking-tight">Camel OS</span>
-      </NuxtLink>
-
-      <!-- Middle: Headline -->
-      <div class="relative">
-        <h2 class="text-balance text-3xl font-semibold leading-tight xl:text-4xl">
-          The operating platform for impact-driven consulting firms.
-        </h2>
-        <p class="mt-4 max-w-md text-pretty text-white/85">
-          Engagements, grants, and outcomes — together in one secure workspace built for the way
-          modern consulting firms deliver impact.
-        </p>
       </div>
 
-      <!-- Bottom: Testimonial -->
-      <figure class="relative">
-        <blockquote class="text-sm leading-relaxed text-white/90">
-          &ldquo;{{ testimonial.quote }}&rdquo;
-        </blockquote>
-        <figcaption class="mt-4 flex items-center gap-3">
-          <div
-            class="flex size-10 items-center justify-center rounded-full bg-white/15 text-sm font-semibold ring-1 ring-white/20"
+      <!-- Middle: Internal product description -->
+      <div class="relative">
+        <h2 class="text-balance text-3xl font-semibold leading-tight xl:text-4xl">
+          Your firm's operating platform.
+        </h2>
+        <p class="mt-4 max-w-md text-pretty text-white/85">
+          Sign in to access engagements, grants, and impact tools — all under one secure workspace.
+        </p>
+
+        <ul class="mt-8 space-y-3">
+          <li
+            v-for="h in highlights"
+            :key="h.label"
+            class="flex items-center gap-3 text-sm text-white/90"
           >
-            {{ testimonial.author.charAt(0) }}
-          </div>
-          <div class="text-sm">
-            <p class="font-medium">{{ testimonial.author }}</p>
-            <p class="text-white/70">{{ testimonial.role }}</p>
-          </div>
-        </figcaption>
-      </figure>
+            <span
+              class="flex size-7 items-center justify-center rounded-md bg-white/15 ring-1 ring-white/20"
+            >
+              <UIcon :name="h.icon" class="size-4" />
+            </span>
+            {{ h.label }}
+          </li>
+        </ul>
+      </div>
+
+      <!-- Bottom: Internal note -->
+      <p class="relative text-xs text-white/70">
+        Internal use only · Access provisioned by your administrator
+      </p>
     </aside>
 
     <!-- Form panel -->
     <main class="flex flex-1 flex-col">
       <!-- Mobile top bar with logo -->
-      <header class="flex items-center justify-between border-b border-default px-6 py-4 lg:hidden">
-        <NuxtLink to="/" aria-label="Camel OS home">
-          <AppLogo />
-        </NuxtLink>
-        <UButton
-          to="/"
-          variant="ghost"
-          color="neutral"
-          size="sm"
-          icon="i-lucide-arrow-left"
-          label="Home"
-        />
+      <header class="flex items-center border-b border-default px-6 py-4 lg:hidden">
+        <AppLogo />
       </header>
 
       <div class="flex flex-1 items-center justify-center px-4 py-12 sm:px-6 lg:px-12">
@@ -91,7 +78,7 @@ withDefaults(defineProps<Props>(), {
       </div>
 
       <footer class="border-t border-default px-6 py-4 text-center text-xs text-muted lg:text-left">
-        <p>© {{ new Date().getFullYear() }} Camel OS. All rights reserved.</p>
+        <p>© {{ new Date().getFullYear() }} Camel OS · Internal use only</p>
       </footer>
     </main>
   </div>

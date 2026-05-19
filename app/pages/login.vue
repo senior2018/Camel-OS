@@ -52,6 +52,7 @@ const redirectTo = computed(() => {
 })
 
 const toast = useToast()
+const { fetch: refreshSession } = useUserSession()
 const accountLocked = ref(false)
 const lockedEmail = ref('')
 const resending = ref(false)
@@ -69,6 +70,10 @@ async function onSubmit(payload: FormSubmitEvent<Schema>) {
       )
       return
     }
+    // Sync the client-side session before navigating so the global auth middleware
+    // sees the new login state instead of bouncing us back to /login. Without this
+    // refresh, `loggedIn` is still false on the next route evaluation.
+    await refreshSession()
     await navigateTo(redirectTo.value)
   } catch (err: unknown) {
     const fetchErr = err as { status?: number; data?: { statusMessage?: string } }
@@ -168,16 +173,8 @@ async function resendReset() {
       </template>
     </UAuthForm>
 
-    <p class="mt-8 text-center text-sm text-muted">
-      Don't have an account?
-      <ULink to="/register" class="font-medium text-primary hover:underline">Create one</ULink>
-    </p>
-
-    <p class="mt-4 text-center text-xs text-muted">
-      By signing in, you agree to our
-      <ULink to="#" class="font-medium text-default hover:text-primary">Terms</ULink>
-      and
-      <ULink to="#" class="font-medium text-default hover:text-primary">Privacy Policy</ULink>.
+    <p class="mt-8 text-center text-xs text-muted">
+      Need access? Contact your workspace administrator.
     </p>
   </div>
 </template>

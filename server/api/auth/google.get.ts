@@ -128,6 +128,7 @@ export default defineOAuthGoogleEventHandler({
           firstName: appUser.firstName,
           lastName: appUser.lastName,
           avatarUrl: appUser.avatarUrl,
+          lastActivityAt: Date.now(),
         },
       })
 

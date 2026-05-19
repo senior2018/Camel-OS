@@ -2,24 +2,58 @@
 const route = useRoute()
 const { user, clear } = useUserSession()
 
-const navItems = computed(() => [
-  {
-    label: 'Overview',
-    to: '/dashboard',
-    icon: 'i-lucide-layout-dashboard',
-    active: route.path === '/dashboard',
-  },
-  { label: 'Engagements', to: '#', icon: 'i-lucide-briefcase', disabled: true },
-  { label: 'Grants', to: '#', icon: 'i-lucide-banknote', disabled: true },
-  { label: 'Impact', to: '#', icon: 'i-lucide-line-chart', disabled: true },
-  { label: 'Team', to: '#', icon: 'i-lucide-users', disabled: true },
-])
+const { data: perms, can } = await usePermissions()
 
-const settingsItems = computed(() => [
-  { label: 'Security', to: '/dashboard#security', icon: 'i-lucide-shield' },
-  { label: 'Workspace', to: '#', icon: 'i-lucide-building-2', disabled: true },
-  { label: 'Billing', to: '#', icon: 'i-lucide-credit-card', disabled: true },
-])
+// Modules registered here as they ship. Each entry declares its required permission
+// so users only see what they can actually access. `Overview` is unconditional —
+// every authenticated user can see their own dashboard.
+const navItems = computed(() => {
+  const items = [
+    {
+      label: 'Overview',
+      to: '/dashboard',
+      icon: 'i-lucide-layout-dashboard',
+      active: route.path === '/dashboard',
+    },
+  ]
+  // S2+ modules will append here, gated by their own permission, e.g.:
+  // if (can.value('opportunity', 'read')) items.push({ label: 'Opportunities', ... })
+  return items
+})
+
+const adminItems = computed(() => {
+  // Admin section shows when the user qualifies as admin by any route — legacy
+  // flags or the new RBAC `admin:read` permission.
+  if (!perms.value?.isAdmin && !can.value('admin', 'read')) return []
+  return [
+    {
+      label: 'Users',
+      to: '/admin/users',
+      icon: 'i-lucide-users',
+      active: route.path.startsWith('/admin/users'),
+    },
+    {
+      label: 'Roles',
+      to: '/admin/roles',
+      icon: 'i-lucide-shield-check',
+      active: route.path.startsWith('/admin/roles'),
+    },
+    {
+      label: 'Security',
+      to: '/admin/security',
+      icon: 'i-lucide-lock',
+      active: route.path.startsWith('/admin/security'),
+    },
+    {
+      label: 'Audit log',
+      to: '/admin/audit-log',
+      icon: 'i-lucide-scroll-text',
+      active: route.path.startsWith('/admin/audit-log'),
+    },
+  ]
+})
+
+const settingsItems = [{ label: 'Security', to: '/dashboard#security', icon: 'i-lucide-shield' }]
 
 const userInitials = computed(() => {
   if (!user.value) return '?'
@@ -44,6 +78,11 @@ async function logout() {
   await clear()
   await navigateTo('/login')
 }
+
+const userMenu = [
+  [{ label: 'Account settings', icon: 'i-lucide-user', to: '/dashboard#security' }],
+  [{ label: 'Sign out', icon: 'i-lucide-log-out', onSelect: logout, color: 'error' as const }],
+]
 </script>
 
 <template>
@@ -63,52 +102,51 @@ async function logout() {
         <ul class="mt-3 space-y-1">
           <li v-for="item in navItems" :key="item.label">
             <ULink
-              :to="item.disabled ? undefined : item.to"
+              :to="item.to"
               :class="[
                 'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
                 item.active
                   ? 'bg-primary/10 text-primary font-medium'
-                  : item.disabled
-                    ? 'text-muted/60 cursor-not-allowed'
-                    : 'text-default hover:bg-elevated/60',
-              ]"
-            >
-              <UIcon :name="item.icon" class="size-4 shrink-0" />
-              <span>{{ item.label }}</span>
-              <UBadge
-                v-if="item.disabled"
-                variant="subtle"
-                color="neutral"
-                size="xs"
-                label="Soon"
-                class="ml-auto"
-              />
-            </ULink>
-          </li>
-        </ul>
-
-        <p class="mt-8 px-3 text-xs font-semibold uppercase tracking-wider text-muted">Settings</p>
-        <ul class="mt-3 space-y-1">
-          <li v-for="item in settingsItems" :key="item.label">
-            <ULink
-              :to="item.disabled ? undefined : item.to"
-              :class="[
-                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
-                item.disabled
-                  ? 'text-muted/60 cursor-not-allowed'
                   : 'text-default hover:bg-elevated/60',
               ]"
             >
               <UIcon :name="item.icon" class="size-4 shrink-0" />
               <span>{{ item.label }}</span>
-              <UBadge
-                v-if="item.disabled"
-                variant="subtle"
-                color="neutral"
-                size="xs"
-                label="Soon"
-                class="ml-auto"
-              />
+            </ULink>
+          </li>
+        </ul>
+
+        <template v-if="adminItems.length">
+          <p class="mt-8 px-3 text-xs font-semibold uppercase tracking-wider text-muted">
+            Administration
+          </p>
+          <ul class="mt-3 space-y-1">
+            <li v-for="item in adminItems" :key="item.label">
+              <ULink
+                :to="item.to"
+                :class="[
+                  'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+                  item.active
+                    ? 'bg-primary/10 text-primary font-medium'
+                    : 'text-default hover:bg-elevated/60',
+                ]"
+              >
+                <UIcon :name="item.icon" class="size-4 shrink-0" />
+                <span>{{ item.label }}</span>
+              </ULink>
+            </li>
+          </ul>
+        </template>
+
+        <p class="mt-8 px-3 text-xs font-semibold uppercase tracking-wider text-muted">Settings</p>
+        <ul class="mt-3 space-y-1">
+          <li v-for="item in settingsItems" :key="item.label">
+            <ULink
+              :to="item.to"
+              class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-default transition-colors hover:bg-elevated/60"
+            >
+              <UIcon :name="item.icon" class="size-4 shrink-0" />
+              <span>{{ item.label }}</span>
             </ULink>
           </li>
         </ul>
@@ -116,13 +154,7 @@ async function logout() {
 
       <!-- User card -->
       <div class="border-t border-default p-3">
-        <UDropdownMenu
-          :items="[
-            [{ label: 'Account settings', icon: 'i-lucide-user', to: '/dashboard#security' }],
-            [{ label: 'Sign out', icon: 'i-lucide-log-out', onSelect: logout, color: 'error' }],
-          ]"
-          :ui="{ content: 'w-56' }"
-        >
+        <UDropdownMenu :items="userMenu" :ui="{ content: 'w-56' }">
           <button
             type="button"
             class="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-elevated/60"
@@ -161,39 +193,18 @@ async function logout() {
         </div>
 
         <div class="hidden flex-1 lg:block">
-          <h1 class="text-lg font-semibold text-default">{{ $route.meta.title ?? 'Dashboard' }}</h1>
+          <h1 class="text-lg font-semibold text-default">Dashboard</h1>
         </div>
 
-        <div class="flex items-center gap-2">
-          <UButton
-            variant="ghost"
-            color="neutral"
-            icon="i-lucide-bell"
-            aria-label="Notifications"
-            class="hidden sm:inline-flex"
-          />
-          <UButton
-            variant="ghost"
-            color="neutral"
-            icon="i-lucide-life-buoy"
-            aria-label="Help"
-            class="hidden sm:inline-flex"
-          />
-          <UDropdownMenu
-            :items="[
-              [{ label: 'Account settings', icon: 'i-lucide-user', to: '/dashboard#security' }],
-              [{ label: 'Sign out', icon: 'i-lucide-log-out', onSelect: logout, color: 'error' }],
-            ]"
+        <UDropdownMenu :items="userMenu">
+          <button
+            type="button"
+            class="flex size-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary lg:hidden"
+            aria-label="Account menu"
           >
-            <button
-              type="button"
-              class="flex size-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary lg:hidden"
-              aria-label="Account menu"
-            >
-              {{ userInitials }}
-            </button>
-          </UDropdownMenu>
-        </div>
+            {{ userInitials }}
+          </button>
+        </UDropdownMenu>
       </header>
 
       <main class="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
@@ -212,27 +223,42 @@ async function logout() {
             <ul class="space-y-1">
               <li v-for="item in navItems" :key="item.label">
                 <ULink
-                  :to="item.disabled ? undefined : item.to"
+                  :to="item.to"
                   :class="[
                     'flex items-center gap-3 rounded-lg px-3 py-2 text-sm',
                     item.active
                       ? 'bg-primary/10 text-primary font-medium'
-                      : item.disabled
-                        ? 'text-muted/60'
-                        : 'text-default hover:bg-elevated/60',
+                      : 'text-default hover:bg-elevated/60',
                   ]"
                   @click="mobileNavOpen = false"
                 >
                   <UIcon :name="item.icon" class="size-4" />
                   {{ item.label }}
-                  <UBadge
-                    v-if="item.disabled"
-                    variant="subtle"
-                    color="neutral"
-                    size="xs"
-                    label="Soon"
-                    class="ml-auto"
-                  />
+                </ULink>
+              </li>
+              <li v-for="item in adminItems" :key="item.label">
+                <ULink
+                  :to="item.to"
+                  :class="[
+                    'flex items-center gap-3 rounded-lg px-3 py-2 text-sm',
+                    item.active
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-default hover:bg-elevated/60',
+                  ]"
+                  @click="mobileNavOpen = false"
+                >
+                  <UIcon :name="item.icon" class="size-4" />
+                  {{ item.label }}
+                </ULink>
+              </li>
+              <li v-for="item in settingsItems" :key="item.label">
+                <ULink
+                  :to="item.to"
+                  class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-default hover:bg-elevated/60"
+                  @click="mobileNavOpen = false"
+                >
+                  <UIcon :name="item.icon" class="size-4" />
+                  {{ item.label }}
                 </ULink>
               </li>
             </ul>

@@ -20,8 +20,8 @@ async function reset() {
 
   console.log('🗑️ Emptying the entire database')
 
-  // Disable foreign key constraints
-  await db.execute(sql.raw('SET session_replication_role = replica;'))
+  // No need to disable FK constraints — every DROP below uses CASCADE, which the
+  // Supabase `postgres` role is allowed to run (`session_replication_role` isn't).
 
   // Drop all PGMQ queues
   await db.execute(
@@ -80,9 +80,6 @@ async function reset() {
     END $$;
   `)
   )
-
-  // Re-enable foreign key constraints
-  await db.execute(sql.raw('SET session_replication_role = origin;'))
 
   console.log('✅ Database tables and enums dropped')
 
