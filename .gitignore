@@ -23,6 +23,7 @@ logs
 .env.*
 !.env.example
 CODING_STANDARDS.md
+CLAUDE.md
 Untitled document (1).pdf
 Copy of Camel OS Activity Tracker.xlsx
 PROGRESS.md

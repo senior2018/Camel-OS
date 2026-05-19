@@ -1,9 +1,11 @@
 import {
   bigserial,
   boolean,
+  date,
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   primaryKey,
@@ -23,6 +25,32 @@ export const organizationMemberRoleEnum = pgEnum('organization_member_role', [
   'owner',
   'admin',
   'member',
+])
+
+export const opportunityStageEnum = pgEnum('opportunity_stage', [
+  'discovery',
+  'qualifying',
+  'proposal',
+  'submitted',
+  'won',
+  'lost',
+])
+
+export const opportunitySourceEnum = pgEnum('opportunity_source', [
+  'tender',
+  'grant',
+  'partnership',
+  'referral',
+  'inbound',
+  'other',
+])
+
+export const opportunityTypeEnum = pgEnum('opportunity_type', [
+  'consulting',
+  'training',
+  'research',
+  'advisory',
+  'other',
 ])
 
 // ─── Organizations ─────────────────────────────────────────────────────────────
@@ -329,6 +357,49 @@ export const auditLog = pgTable(
   ]
 )
 
+// ─── Opportunities (S2 — OM-02, OM-03, OM-09) ──────────────────────────────────
+
+export const opportunities = pgTable(
+  'opportunities',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    title: text().notNull(),
+    description: text(),
+    source: opportunitySourceEnum().notNull().default('other'),
+    type: opportunityTypeEnum().notNull().default('consulting'),
+    stage: opportunityStageEnum().notNull().default('discovery'),
+    // ISO date — RFPs and grant calls usually quote a calendar deadline, not an instant.
+    deadline: date('deadline'),
+    // Monetary value in `currency`; numeric(14,2) gives room up to 999,999,999,999.99.
+    estimatedValue: numeric('estimated_value', { precision: 14, scale: 2 }),
+    currency: varchar('currency', { length: 3 }).notNull().default('USD'),
+    // 0-100 — used by the manager dashboard (OM-06) once it ships.
+    winProbability: integer('win_probability'),
+    // Free-form tags as a text[] array — keeps OM-05 simple without a join table.
+    tags: text('tags').array(),
+    ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
+    // OM-08: "Approved to Pursue" stamp. Null until an approver flips it.
+    approvedToPursueAt: timestamp('approved_to_pursue_at', { withTimezone: true }),
+    approvedByUserId: uuid('approved_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('opportunities_organization_id_idx').on(table.organizationId),
+    index('opportunities_stage_idx').on(table.stage),
+    index('opportunities_owner_user_id_idx').on(table.ownerUserId),
+    index('opportunities_deadline_idx').on(table.deadline),
+  ]
+)
+
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 export type Organization = typeof organizations.$inferSelect
@@ -375,3 +446,6 @@ export type NewPasswordHistory = typeof passwordHistory.$inferInsert
 
 export type AuditLog = typeof auditLog.$inferSelect
 export type NewAuditLog = typeof auditLog.$inferInsert
+
+export type Opportunity = typeof opportunities.$inferSelect
+export type NewOpportunity = typeof opportunities.$inferInsert

@@ -6,7 +6,10 @@ interface Props {
 }
 
 const props = defineProps<Props>()
-const expanded = ref(false)
+
+const { format } = useAuditFormatter()
+
+const formatted = computed(() => format(props.item.resource, props.item.action, props.item.meta))
 
 const userLabel = computed(() => {
   if (props.item.userEmail) {
@@ -27,42 +30,34 @@ const timestamp = computed(() =>
   })
 )
 
-const hasMeta = computed(() => {
-  const m = props.item.meta
-  if (!m || typeof m !== 'object') return false
-  return Object.keys(m as Record<string, unknown>).length > 0
-})
+const resourceLabels: Record<string, string> = {
+  opportunity: 'Opportunity',
+  auth: 'Authentication',
+  user: 'User',
+  user_invitation: 'Invitation',
+  role: 'Role',
+  password_policy: 'Password policy',
+  audit_log: 'Audit log',
+}
 
-const metaJson = computed(() => JSON.stringify(props.item.meta, null, 2))
+function resourceLabel(r: string) {
+  return resourceLabels[r] ?? r
+}
 </script>
 
 <template>
-  <li class="flex flex-col gap-2 py-3 text-sm first:pt-0 last:pb-0">
-    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-      <div class="min-w-0 flex-1">
-        <div class="flex flex-wrap items-center gap-2">
-          <UBadge variant="subtle" color="primary" size="sm" :label="item.resource" />
-          <span class="font-mono text-xs text-default">{{ item.action }}</span>
-          <span class="text-xs text-muted">·</span>
-          <span class="truncate text-xs text-muted">{{ userLabel }}</span>
-        </div>
-        <p class="mt-1 truncate text-xs text-dimmed">
-          {{ timestamp }}<span v-if="item.resourceId"> · {{ item.resourceId }}</span>
-        </p>
-      </div>
-      <UButton
-        v-if="hasMeta"
-        size="xs"
-        variant="ghost"
-        :icon="expanded ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
-        :label="expanded ? 'Hide' : 'Details'"
-        @click="expanded = !expanded"
-      />
+  <li class="flex flex-col gap-1 py-3 text-sm first:pt-0 last:pb-0">
+    <div class="flex flex-wrap items-center gap-2">
+      <UBadge variant="subtle" color="primary" size="sm" :label="resourceLabel(item.resource)" />
+      <span class="font-medium text-default">{{ formatted.summary }}</span>
     </div>
-    <pre
-      v-if="expanded && hasMeta"
-      class="overflow-x-auto rounded-md bg-elevated/50 p-3 text-xs text-default"
-      >{{ metaJson }}</pre
-    >
+
+    <div v-if="formatted.fields.length" class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+      <span v-for="f in formatted.fields" :key="f.label">
+        <span class="font-medium text-default">{{ f.label }}:</span> {{ f.value }}
+      </span>
+    </div>
+
+    <p class="text-xs text-dimmed">{{ timestamp }} · {{ userLabel }}</p>
   </li>
 </template>
