@@ -8,7 +8,7 @@ const { data: perms, can } = await usePermissions()
 // so users only see what they can actually access. `Overview` is unconditional —
 // every authenticated user can see their own dashboard.
 const navItems = computed(() => {
-  const items = [
+  const items: Array<{ label: string; to: string; icon: string; active: boolean }> = [
     {
       label: 'Overview',
       to: '/dashboard',
@@ -16,8 +16,14 @@ const navItems = computed(() => {
       active: route.path === '/dashboard',
     },
   ]
-  // S2+ modules will append here, gated by their own permission, e.g.:
-  // if (can.value('opportunity', 'read')) items.push({ label: 'Opportunities', ... })
+  if (can.value('opportunity', 'read')) {
+    items.push({
+      label: 'Opportunities',
+      to: '/opportunities',
+      icon: 'i-lucide-target',
+      active: route.path.startsWith('/opportunities'),
+    })
+  }
   return items
 })
 

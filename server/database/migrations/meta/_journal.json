@@ -15,6 +15,13 @@
       "when": 1779108349661,
       "tag": "0001_overconfident_shinko_yamashiro",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779217609255,
+      "tag": "0002_lazy_mandroid",
+      "breakpoints": true
     }
   ]
 }
