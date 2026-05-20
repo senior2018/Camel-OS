@@ -37,6 +37,8 @@ export default defineNuxtConfig({
     brevoApiKey: process.env.BREVO_API_KEY,
     brevoFromEmail: process.env.BREVO_FROM_EMAIL,
     appUrl: process.env.APP_URL,
+    supabaseUrl: process.env.SUPABASE_URL,
+    supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
     public: {
       supabaseUrl: process.env.SUPABASE_URL,
       supabasePublishableKey: process.env.SUPABASE_PUBLISHABLE_KEY,
@@ -46,6 +48,20 @@ export default defineNuxtConfig({
   // `/` is a server-side redirect to /login or /dashboard, not a renderable page.
 
   compatibilityDate: '2025-01-15',
+
+  // Nitro tasks for scheduled background jobs. Tasks live in `server/tasks/`.
+  // Production cron only fires when the host supports it (Cloudflare cron
+  // triggers, Vercel cron, or a long-running Node server). Admins can also
+  // trigger any task manually via the API (see /api/admin/tasks/*).
+  nitro: {
+    experimental: {
+      tasks: true,
+    },
+    scheduledTasks: {
+      // Daily at 08:00 UTC — opportunity deadline reminders (OM-07).
+      '0 8 * * *': ['opportunities:deadline-reminders'],
+    },
+  },
 
   eslint: {
     config: {

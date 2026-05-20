@@ -9,7 +9,6 @@ import type {
 export interface Opportunity {
   id: string
   title: string
-  description: string | null
   source: OpportunitySource
   type: OpportunityType
   stage: OpportunityStage
@@ -17,7 +16,6 @@ export interface Opportunity {
   estimatedValue: string | null
   currency: string
   winProbability: number | null
-  tags: string[] | null
   ownerUserId: string | null
   ownerEmail: string | null
   ownerFirstName: string | null
@@ -48,19 +46,22 @@ export function useOpportunities() {
     return (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? fallback
   }
 
-  async function createOpportunity(payload: CreateOpportunityPayload): Promise<boolean> {
+  async function createOpportunity(payload: CreateOpportunityPayload): Promise<Opportunity | null> {
     try {
-      await $fetch('/api/opportunities', { method: 'POST', body: payload })
+      const res = await $fetch<{ success: boolean; opportunity: Opportunity }>(
+        '/api/opportunities',
+        { method: 'POST', body: payload }
+      )
       toast.add({ title: 'Opportunity created', description: payload.title, color: 'success' })
       await refresh()
-      return true
+      return res.opportunity
     } catch (err) {
       toast.add({
         title: 'Could not create opportunity',
         description: extractMessage(err, 'Please try again.'),
         color: 'error',
       })
-      return false
+      return null
     }
   }
 
@@ -92,6 +93,29 @@ export function useOpportunities() {
     } catch (err) {
       toast.add({
         title: 'Delete failed',
+        description: extractMessage(err, 'Please try again.'),
+        color: 'error',
+      })
+      return false
+    }
+  }
+
+  async function setApproved(opp: Opportunity, approved: boolean): Promise<boolean> {
+    try {
+      await $fetch(`/api/opportunities/${opp.id}/approve`, {
+        method: 'POST',
+        body: { approved },
+      })
+      toast.add({
+        title: approved ? 'Marked as approved to pursue' : 'Approval revoked',
+        description: opp.title,
+        color: 'success',
+      })
+      await refresh()
+      return true
+    } catch (err) {
+      toast.add({
+        title: 'Approval update failed',
         description: extractMessage(err, 'Please try again.'),
         color: 'error',
       })
@@ -136,5 +160,6 @@ export function useOpportunities() {
     updateOpportunity,
     deleteOpportunity,
     moveStage,
+    setApproved,
   }
 }

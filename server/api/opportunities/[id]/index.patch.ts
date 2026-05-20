@@ -5,6 +5,7 @@ import { opportunities } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import { logAuditEvent } from '@@/server/utils/audit'
+import { notifyOpportunityOwnerAssignment } from '@@/server/utils/opportunity-notify'
 import { updateOpportunitySchema } from '@@/shared/schemas/opportunity'
 
 export default defineEventHandler(async (event) => {
@@ -23,22 +24,30 @@ export default defineEventHandler(async (event) => {
 
     const data = parsed.data
     const now = new Date()
+    const db = useDrizzle()
 
-    // Build partial update — only include fields the caller actually sent so we
-    // don't accidentally clobber columns the form omitted.
+    // Read current row so we can detect owner changes for OM-05 notifications.
+    const [existing] = await db
+      .select({ ownerUserId: opportunities.ownerUserId })
+      .from(opportunities)
+      .where(and(eq(opportunities.id, id), eq(opportunities.organizationId, ctx.organizationId)))
+      .limit(1)
+
+    if (!existing) {
+      throw createError({ statusCode: 404, statusMessage: 'Opportunity not found' })
+    }
+
     const updates: Record<string, unknown> = { updatedAt: now }
     if (data.title !== undefined) updates.title = data.title
-    if (data.description !== undefined) updates.description = data.description
     if (data.source !== undefined) updates.source = data.source
     if (data.type !== undefined) updates.type = data.type
     if (data.deadline !== undefined) updates.deadline = data.deadline ?? null
     if (data.estimatedValue !== undefined) updates.estimatedValue = data.estimatedValue ?? null
     if (data.currency !== undefined) updates.currency = data.currency
     if (data.winProbability !== undefined) updates.winProbability = data.winProbability ?? null
-    if (data.tags !== undefined) updates.tags = data.tags && data.tags.length > 0 ? data.tags : null
     if (data.ownerUserId !== undefined) updates.ownerUserId = data.ownerUserId ?? null
 
-    const [updated] = await useDrizzle()
+    const [updated] = await db
       .update(opportunities)
       .set(updates)
       .where(and(eq(opportunities.id, id), eq(opportunities.organizationId, ctx.organizationId)))
@@ -56,6 +65,12 @@ export default defineEventHandler(async (event) => {
       resourceId: updated.id,
       meta: { fields: Object.keys(updates).filter((k) => k !== 'updatedAt') },
     })
+
+    const ownerChanged =
+      data.ownerUserId !== undefined && updated.ownerUserId !== existing.ownerUserId
+    if (ownerChanged && updated.ownerUserId && updated.ownerUserId !== ctx.userId) {
+      await notifyOpportunityOwnerAssignment(updated.ownerUserId, ctx.userId, updated)
+    }
 
     return { success: true, opportunity: updated }
   } catch (error) {

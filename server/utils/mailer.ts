@@ -32,6 +32,70 @@ export async function sendEmailVerificationEmail(to: string, verifyUrl: string):
   }
 }
 
+export async function sendOpportunityDeadlineReminder(
+  to: string,
+  options: {
+    recipientName: string
+    title: string
+    daysUntil: number
+    deadline: string
+    valueLabel: string | null
+    url: string
+  }
+): Promise<void> {
+  const when =
+    options.daysUntil === 0
+      ? 'today'
+      : options.daysUntil === 1
+        ? 'tomorrow'
+        : `in ${options.daysUntil} days`
+
+  try {
+    await getClient().transactionalEmails.sendTransacEmail({
+      sender: { name: 'Camel OS', email: getFromEmail() },
+      to: [{ email: to }],
+      subject: `Reminder: "${options.title}" deadline ${when}`,
+      htmlContent: `
+        <p>Hi ${options.recipientName},</p>
+        <p>This is a reminder that the deadline for <strong>${options.title}</strong> is ${when} (${options.deadline}).</p>
+        ${options.valueLabel ? `<p>Estimated value: <strong>${options.valueLabel}</strong></p>` : ''}
+        <p><a href="${options.url}">Open in Camel OS</a></p>
+      `,
+    })
+  } catch (err) {
+    throw new Error(`Failed to send email: ${(err as Error).message}`)
+  }
+}
+
+export async function sendOpportunityAssignmentEmail(
+  to: string,
+  options: {
+    recipientName: string
+    title: string
+    assignerName: string
+    deadline: string | null
+    valueLabel: string | null
+    url: string
+  }
+): Promise<void> {
+  try {
+    await getClient().transactionalEmails.sendTransacEmail({
+      sender: { name: 'Camel OS', email: getFromEmail() },
+      to: [{ email: to }],
+      subject: `You've been assigned to "${options.title}"`,
+      htmlContent: `
+        <p>Hi ${options.recipientName},</p>
+        <p><strong>${options.assignerName}</strong> has assigned you as the owner of the opportunity <strong>${options.title}</strong>.</p>
+        ${options.deadline ? `<p>Deadline: <strong>${options.deadline}</strong></p>` : ''}
+        ${options.valueLabel ? `<p>Estimated value: <strong>${options.valueLabel}</strong></p>` : ''}
+        <p><a href="${options.url}">Open in Camel OS</a></p>
+      `,
+    })
+  } catch (err) {
+    throw new Error(`Failed to send email: ${(err as Error).message}`)
+  }
+}
+
 export async function sendInvitationEmail(
   to: string,
   options: {

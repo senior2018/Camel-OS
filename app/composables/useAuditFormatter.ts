@@ -66,6 +66,54 @@ function formatOpportunity(action: string, meta: Meta): FormattedAudit {
         fields: note ? [{ label: 'Note', value: note }] : [],
       }
     }
+    case 'approved':
+      return {
+        summary: `Approved opportunity${title ? ` "${title}"` : ''} to pursue`,
+        fields: [],
+      }
+    case 'approval_revoked':
+      return {
+        summary: `Revoked approval to pursue${title ? ` for "${title}"` : ''}`,
+        fields: [],
+      }
+    case 'deadline_reminder_sent': {
+      const recipient = str(meta, 'recipient')
+      const daysUntil = typeof meta.daysUntil === 'number' ? meta.daysUntil : null
+      const when =
+        daysUntil === 0
+          ? 'today'
+          : daysUntil === 1
+            ? 'tomorrow'
+            : daysUntil !== null
+              ? `in ${daysUntil} days`
+              : 'soon'
+      return {
+        summary: `Deadline reminder sent${title ? ` for "${title}"` : ''} — due ${when}`,
+        fields: recipient ? [{ label: 'To', value: recipient }] : [],
+      }
+    }
+    case 'deadline_reminders_run': {
+      const sent = typeof meta.sent === 'number' ? meta.sent : 0
+      const scanned = typeof meta.scanned === 'number' ? meta.scanned : 0
+      return {
+        summary: `Ran deadline-reminder task — ${sent} sent / ${scanned} scanned`,
+        fields: [],
+      }
+    }
+    case 'attachment_uploaded': {
+      const fileName = str(meta, 'fileName')
+      return {
+        summary: `Uploaded attachment${fileName ? ` "${fileName}"` : ''}`,
+        fields: [],
+      }
+    }
+    case 'attachment_deleted': {
+      const fileName = str(meta, 'fileName')
+      return {
+        summary: `Deleted attachment${fileName ? ` "${fileName}"` : ''}`,
+        fields: [],
+      }
+    }
     default:
       return { summary: `${humanise(action)} opportunity${title ? ` "${title}"` : ''}`, fields: [] }
   }

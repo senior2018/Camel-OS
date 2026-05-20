@@ -71,6 +71,14 @@ const valueLabel = computed(() => {
     <div class="mt-2 flex flex-wrap items-center gap-1">
       <UBadge variant="subtle" color="primary" size="xs" :label="sourceLabel" />
       <UBadge variant="subtle" color="neutral" size="xs" :label="typeLabel" />
+      <UBadge
+        v-if="opportunity.approvedToPursueAt"
+        variant="subtle"
+        color="success"
+        size="xs"
+        icon="i-lucide-circle-check"
+        label="Approved"
+      />
     </div>
 
     <div v-if="valueLabel" class="mt-2 text-xs font-medium text-default">

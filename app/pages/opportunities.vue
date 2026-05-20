@@ -1,6 +1,12 @@
 <script setup lang="ts">
-import type { CreateOpportunityPayload, OpportunityStage } from '@@/shared/schemas/opportunity'
+import type {
+  CreateOpportunityPayload,
+  OpportunityStage,
+  OpportunityStage as _Stage,
+} from '@@/shared/schemas/opportunity'
+import { OPPORTUNITY_STAGES } from '@@/shared/schemas/opportunity'
 import type { Opportunity } from '@/composables/useOpportunities'
+import type { OpportunityFilterState } from '@/components/opportunity/OpportunityFilters.vue'
 
 definePageMeta({
   layout: 'dashboard',
@@ -22,9 +28,68 @@ const canCreate = computed(() => can.value('opportunity', 'create'))
 const canUpdate = computed(() => can.value('opportunity', 'update'))
 const canDelete = computed(() => can.value('opportunity', 'delete'))
 
-const { data, status, createOpportunity, updateOpportunity, deleteOpportunity, moveStage } =
-  useOpportunities()
+const {
+  data,
+  status,
+  createOpportunity,
+  updateOpportunity,
+  deleteOpportunity,
+  moveStage,
+  setApproved,
+} = useOpportunities()
 
+// ─── Filters + view toggle (OM-04, OM-06) ─────────────────────────────────────
+const view = ref<'stages' | 'list' | 'dashboard' | 'kanban'>('stages')
+const showFilters = ref(false)
+
+const filters = ref<OpportunityFilterState>({
+  search: '',
+  sources: [],
+  types: [],
+  stages: [],
+  deadlineFrom: '',
+  deadlineTo: '',
+  valueMin: null,
+  valueMax: null,
+})
+
+function matchesFilters(opp: Opportunity, f: OpportunityFilterState): boolean {
+  if (f.stages.length && !f.stages.includes(opp.stage)) return false
+  if (f.sources.length && !f.sources.includes(opp.source)) return false
+  if (f.types.length && !f.types.includes(opp.type)) return false
+
+  if (f.search.trim()) {
+    const q = f.search.trim().toLowerCase()
+    if (!opp.title.toLowerCase().includes(q)) return false
+  }
+
+  if (f.deadlineFrom && (!opp.deadline || opp.deadline < f.deadlineFrom)) return false
+  if (f.deadlineTo && (!opp.deadline || opp.deadline > f.deadlineTo)) return false
+
+  if (f.valueMin !== null || f.valueMax !== null) {
+    const v = opp.estimatedValue ? Number(opp.estimatedValue) : null
+    if (v === null || Number.isNaN(v)) return false
+    if (f.valueMin !== null && v < f.valueMin) return false
+    if (f.valueMax !== null && v > f.valueMax) return false
+  }
+
+  return true
+}
+
+const filteredItems = computed<Opportunity[]>(() => {
+  if (!data.value?.items) return []
+  return data.value.items.filter((opp) => matchesFilters(opp, filters.value))
+})
+
+const filteredGrouped = computed<Record<_Stage, Opportunity[]>>(() => {
+  const grouped = Object.fromEntries(
+    OPPORTUNITY_STAGES.map((s) => [s, [] as Opportunity[]])
+  ) as Record<_Stage, Opportunity[]>
+  for (const opp of filteredItems.value) grouped[opp.stage].push(opp)
+  return grouped
+})
+
+// ─── Modal state ───────────────────────────────────────────────────────────────
 const showFormModal = ref(false)
 const editing = ref<Opportunity | null>(null)
 const submitting = ref(false)
@@ -41,13 +106,46 @@ function openEdit(opp: Opportunity) {
   showFormModal.value = true
 }
 
-async function handleSubmit(payload: CreateOpportunityPayload, id: string | null) {
-  // Defence-in-depth: hidden buttons aren't a real auth check. The server will
-  // also reject this via `requirePermission`, but skipping the call client-side
-  // avoids a wasted round-trip and a generic 403 toast.
+const toast = useToast()
+
+async function uploadPendingFiles(opportunityId: string, files: File[]): Promise<void> {
+  for (const file of files) {
+    try {
+      const body = new FormData()
+      body.append('file', file)
+      await $fetch(`/api/opportunities/${opportunityId}/attachments`, {
+        method: 'POST',
+        body,
+      })
+    } catch (err) {
+      const msg =
+        (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Upload failed'
+      toast.add({
+        title: `Couldn't upload ${file.name}`,
+        description: `${msg}. You can retry from the opportunity's edit screen.`,
+        color: 'error',
+      })
+    }
+  }
+}
+
+async function handleSubmit(
+  payload: CreateOpportunityPayload,
+  id: string | null,
+  pendingFiles: File[]
+) {
   if (id ? !canUpdate.value : !canCreate.value) return
   submitting.value = true
-  const ok = id ? await updateOpportunity(id, payload) : await createOpportunity(payload)
+  let ok: boolean
+  if (id) {
+    ok = await updateOpportunity(id, payload)
+  } else {
+    const created = await createOpportunity(payload)
+    ok = !!created
+    if (created && pendingFiles.length) {
+      await uploadPendingFiles(created.id, pendingFiles)
+    }
+  }
   submitting.value = false
   if (ok) showFormModal.value = false
 }
@@ -64,33 +162,91 @@ async function confirmAndDelete() {
   confirmDelete.value = null
   await deleteOpportunity(opp)
 }
+
+const totalCount = computed(() => data.value?.items?.length ?? 0)
+const filteredCount = computed(() => filteredItems.value.length)
 </script>
 
 <template>
   <div class="space-y-6">
-    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <header class="space-y-4">
       <div>
         <h1 class="text-2xl font-semibold tracking-tight text-default">Opportunities</h1>
         <p class="mt-1 text-sm text-muted">
           Track tenders, grants, and partnership leads through the pipeline.
         </p>
       </div>
-      <UButton
-        v-if="canCreate"
-        size="lg"
-        icon="i-lucide-plus"
-        label="New opportunity"
-        @click="openCreate"
-      />
+      <div class="flex flex-wrap items-center gap-2">
+        <UFieldGroup>
+          <UButton
+            :color="view === 'stages' ? 'primary' : 'neutral'"
+            :variant="view === 'stages' ? 'solid' : 'outline'"
+            icon="i-lucide-layers"
+            aria-label="Stages view"
+            @click="view = 'stages'"
+          >
+            <span class="hidden sm:inline">Stages</span>
+          </UButton>
+          <UButton
+            :color="view === 'list' ? 'primary' : 'neutral'"
+            :variant="view === 'list' ? 'solid' : 'outline'"
+            icon="i-lucide-list"
+            aria-label="List view"
+            @click="view = 'list'"
+          >
+            <span class="hidden sm:inline">List</span>
+          </UButton>
+          <UButton
+            :color="view === 'dashboard' ? 'primary' : 'neutral'"
+            :variant="view === 'dashboard' ? 'solid' : 'outline'"
+            icon="i-lucide-bar-chart-3"
+            aria-label="Dashboard view"
+            @click="view = 'dashboard'"
+          >
+            <span class="hidden sm:inline">Dashboard</span>
+          </UButton>
+          <UButton
+            :color="view === 'kanban' ? 'primary' : 'neutral'"
+            :variant="view === 'kanban' ? 'solid' : 'outline'"
+            icon="i-lucide-columns-3"
+            aria-label="Kanban view"
+            @click="view = 'kanban'"
+          >
+            <span class="hidden sm:inline">Kanban</span>
+          </UButton>
+        </UFieldGroup>
+        <UButton
+          variant="outline"
+          color="neutral"
+          icon="i-lucide-filter"
+          :aria-label="showFilters ? 'Hide filters' : 'Show filters'"
+          @click="showFilters = !showFilters"
+        >
+          <span class="hidden sm:inline">{{ showFilters ? 'Hide filters' : 'Filters' }}</span>
+        </UButton>
+        <UButton
+          v-if="canCreate"
+          size="md"
+          icon="i-lucide-plus"
+          class="ml-auto"
+          @click="openCreate"
+        >
+          <span class="hidden sm:inline">New opportunity</span>
+          <span class="sm:hidden">New</span>
+        </UButton>
+      </div>
     </header>
+
+    <OpportunityFilters v-if="showFilters" v-model="filters" />
 
     <div v-if="status === 'pending'" class="flex justify-center py-16">
       <UIcon name="i-lucide-loader-circle" class="size-8 animate-spin text-muted" />
     </div>
 
     <template v-else>
+      <!-- Truly empty: no opportunities at all -->
       <div
-        v-if="!data?.items?.length"
+        v-if="totalCount === 0"
         class="flex flex-col items-center gap-3 rounded-xl border border-dashed border-default p-12 text-center"
       >
         <UIcon name="i-lucide-target" class="size-10 text-muted" />
@@ -107,13 +263,47 @@ async function confirmAndDelete() {
         />
       </div>
 
-      <OpportunityKanban
-        v-else
-        :grouped="data.grouped"
-        :can-move="canUpdate"
-        @select-opportunity="openEdit"
-        @move-stage="handleMove"
-      />
+      <!-- Filtered to zero -->
+      <div
+        v-else-if="filteredCount === 0"
+        class="flex flex-col items-center gap-3 rounded-xl border border-dashed border-default p-12 text-center"
+      >
+        <UIcon name="i-lucide-filter-x" class="size-10 text-muted" />
+        <h2 class="text-lg font-semibold text-default">No matches</h2>
+        <p class="text-sm text-muted">Adjust your filters to see opportunities.</p>
+      </div>
+
+      <template v-else>
+        <p class="text-xs text-muted">Showing {{ filteredCount }} of {{ totalCount }}</p>
+
+        <OpportunityStagesView
+          v-if="view === 'stages'"
+          :grouped="filteredGrouped"
+          :can-move="canUpdate"
+          @select-opportunity="openEdit"
+          @move-stage="handleMove"
+        />
+
+        <OpportunityList
+          v-else-if="view === 'list'"
+          :items="filteredItems"
+          @select-opportunity="openEdit"
+        />
+
+        <OpportunityDashboard
+          v-else-if="view === 'dashboard'"
+          :items="filteredItems"
+          @select-opportunity="openEdit"
+        />
+
+        <OpportunityKanban
+          v-else
+          :grouped="filteredGrouped"
+          :can-move="canUpdate"
+          @select-opportunity="openEdit"
+          @move-stage="handleMove"
+        />
+      </template>
     </template>
 
     <OpportunityFormModal
@@ -127,6 +317,23 @@ async function confirmAndDelete() {
         (opp) => {
           showFormModal = false
           confirmDelete = opp
+        }
+      "
+      @approve="
+        async (opp, approved) => {
+          if (!canUpdate) return
+          await setApproved(opp, approved)
+          showFormModal = false
+        }
+      "
+      @move-stage="
+        async (opp, toStage) => {
+          if (!canUpdate) return
+          const ok = await moveStage(opp, toStage)
+          if (ok) {
+            // Reflect the new stage so the modal's badge updates in place.
+            editing = { ...opp, stage: toStage }
+          }
         }
       "
     />
