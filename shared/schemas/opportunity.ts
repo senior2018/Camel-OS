@@ -84,14 +84,12 @@ const optionalDate = z
  */
 export const createOpportunitySchema = z.object({
   title: z.string().trim().min(1, 'Title is required').max(200),
-  description: z.string().trim().max(5000).optional().nullable(),
   source: z.enum(OPPORTUNITY_SOURCES).default('other'),
   type: z.enum(OPPORTUNITY_TYPES).default('consulting'),
   deadline: optionalDate,
   estimatedValue: monetary,
   currency: z.string().trim().length(3).toUpperCase().default('USD'),
   winProbability: z.number().int().min(0).max(100).optional().nullable(),
-  tags: z.array(z.string().trim().min(1).max(40)).max(20).optional().default([]),
   ownerUserId: z.string().uuid().optional().nullable(),
 })
 

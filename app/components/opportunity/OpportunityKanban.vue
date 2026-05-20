@@ -93,7 +93,7 @@ function onDrop(stage: OpportunityStage, event: DragEvent) {
       <div
         v-for="col in stageColumns"
         :key="col.key"
-        class="flex w-72 shrink-0 flex-col rounded-xl border border-default bg-elevated/30 p-3 transition-colors"
+        class="flex w-64 shrink-0 flex-col rounded-xl border border-default bg-elevated/30 p-3 transition-colors sm:w-72"
         :class="dragOverStage === col.key ? 'border-primary bg-primary/5' : ''"
         @dragover="onDragOver(col.key, $event)"
         @dragleave="onDragLeave(col.key)"

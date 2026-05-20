@@ -22,6 +22,27 @@
       "when": 1779217609255,
       "tag": "0002_lazy_mandroid",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779224032435,
+      "tag": "0003_typical_gorgon",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1779226954285,
+      "tag": "0004_dazzling_wendell_rand",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779269160809,
+      "tag": "0005_luxuriant_felicia_hardy",
+      "breakpoints": true
     }
   ]
 }

@@ -367,7 +367,6 @@ export const opportunities = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: 'cascade' }),
     title: text().notNull(),
-    description: text(),
     source: opportunitySourceEnum().notNull().default('other'),
     type: opportunityTypeEnum().notNull().default('consulting'),
     stage: opportunityStageEnum().notNull().default('discovery'),
@@ -378,8 +377,6 @@ export const opportunities = pgTable(
     currency: varchar('currency', { length: 3 }).notNull().default('USD'),
     // 0-100 — used by the manager dashboard (OM-06) once it ships.
     winProbability: integer('win_probability'),
-    // Free-form tags as a text[] array — keeps OM-05 simple without a join table.
-    tags: text('tags').array(),
     ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
     // OM-08: "Approved to Pursue" stamp. Null until an approver flips it.
     approvedToPursueAt: timestamp('approved_to_pursue_at', { withTimezone: true }),
@@ -397,6 +394,35 @@ export const opportunities = pgTable(
     index('opportunities_stage_idx').on(table.stage),
     index('opportunities_owner_user_id_idx').on(table.ownerUserId),
     index('opportunities_deadline_idx').on(table.deadline),
+  ]
+)
+
+// ─── Opportunity Attachments (S3 — OM-10) ──────────────────────────────────────
+
+export const opportunityAttachments = pgTable(
+  'opportunity_attachments',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    opportunityId: uuid('opportunity_id')
+      .notNull()
+      .references(() => opportunities.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    fileName: text('file_name').notNull(),
+    mimeType: text('mime_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    // Object key inside the `opportunity-attachments` Supabase Storage bucket.
+    // We never expose this directly — every download goes through a signed URL.
+    storagePath: text('storage_path').notNull(),
+    uploadedByUserId: uuid('uploaded_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('opportunity_attachments_opportunity_id_idx').on(table.opportunityId),
+    index('opportunity_attachments_organization_id_idx').on(table.organizationId),
   ]
 )
 
@@ -449,3 +475,6 @@ export type NewAuditLog = typeof auditLog.$inferInsert
 
 export type Opportunity = typeof opportunities.$inferSelect
 export type NewOpportunity = typeof opportunities.$inferInsert
+
+export type OpportunityAttachment = typeof opportunityAttachments.$inferSelect
+export type NewOpportunityAttachment = typeof opportunityAttachments.$inferInsert

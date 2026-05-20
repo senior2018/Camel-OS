@@ -4,6 +4,7 @@ import { opportunities } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import { logAuditEvent } from '@@/server/utils/audit'
+import { notifyOpportunityOwnerAssignment } from '@@/server/utils/opportunity-notify'
 import { createOpportunitySchema } from '@@/shared/schemas/opportunity'
 
 export default defineEventHandler(async (event) => {
@@ -25,14 +26,12 @@ export default defineEventHandler(async (event) => {
       .values({
         organizationId: ctx.organizationId,
         title: data.title,
-        description: data.description ?? null,
         source: data.source,
         type: data.type,
         deadline: data.deadline ?? null,
         estimatedValue: data.estimatedValue ?? null,
         currency: data.currency,
         winProbability: data.winProbability ?? null,
-        tags: data.tags && data.tags.length > 0 ? data.tags : null,
         ownerUserId: data.ownerUserId ?? null,
         createdByUserId: ctx.userId,
       })
@@ -48,6 +47,10 @@ export default defineEventHandler(async (event) => {
       resourceId: created.id,
       meta: { title: created.title, source: created.source, type: created.type },
     })
+
+    if (created.ownerUserId && created.ownerUserId !== ctx.userId) {
+      await notifyOpportunityOwnerAssignment(created.ownerUserId, ctx.userId, created)
+    }
 
     return { success: true, opportunity: created }
   } catch (error) {

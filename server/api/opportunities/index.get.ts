@@ -21,7 +21,6 @@ export default defineEventHandler(async (event) => {
       .select({
         id: opportunities.id,
         title: opportunities.title,
-        description: opportunities.description,
         source: opportunities.source,
         type: opportunities.type,
         stage: opportunities.stage,
@@ -29,7 +28,6 @@ export default defineEventHandler(async (event) => {
         estimatedValue: opportunities.estimatedValue,
         currency: opportunities.currency,
         winProbability: opportunities.winProbability,
-        tags: opportunities.tags,
         ownerUserId: opportunities.ownerUserId,
         ownerEmail: users.email,
         ownerFirstName: users.firstName,
