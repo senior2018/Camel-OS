@@ -91,6 +91,8 @@ export const createOpportunitySchema = z.object({
   currency: z.string().trim().length(3).toUpperCase().default('USD'),
   winProbability: z.number().int().min(0).max(100).optional().nullable(),
   ownerUserId: z.string().uuid().optional().nullable(),
+  // CR-03: primary client link. Optional — opportunities can exist without one.
+  primaryClientId: z.string().uuid().optional().nullable(),
 })
 
 export type CreateOpportunityPayload = z.output<typeof createOpportunitySchema>

@@ -1,7 +1,7 @@
 import { consola } from 'consola'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, ne } from 'drizzle-orm'
 
-import { opportunities } from '@@/server/database/schema'
+import { clients, opportunities, opportunityClients } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import { logAuditEvent } from '@@/server/utils/audit'
@@ -47,11 +47,77 @@ export default defineEventHandler(async (event) => {
     if (data.winProbability !== undefined) updates.winProbability = data.winProbability ?? null
     if (data.ownerUserId !== undefined) updates.ownerUserId = data.ownerUserId ?? null
 
-    const [updated] = await db
-      .update(opportunities)
-      .set(updates)
-      .where(and(eq(opportunities.id, id), eq(opportunities.organizationId, ctx.organizationId)))
-      .returning()
+    const updated = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(opportunities)
+        .set(updates)
+        .where(and(eq(opportunities.id, id), eq(opportunities.organizationId, ctx.organizationId)))
+        .returning()
+      if (!row) return null
+
+      // CR-03 primary-client mutation. `null` removes the primary link entirely
+      // (the picker treats "No client" as unlink, not demote). A uuid promotes
+      // that client (demoting any existing primary). `undefined` leaves links untouched.
+      if (data.primaryClientId !== undefined) {
+        if (data.primaryClientId === null) {
+          // Delete only the current primary row. Secondary links (if any) stay.
+          await tx
+            .delete(opportunityClients)
+            .where(
+              and(eq(opportunityClients.opportunityId, id), eq(opportunityClients.isPrimary, true))
+            )
+        } else {
+          // Demote any current primary so we can insert a new one cleanly.
+          await tx
+            .update(opportunityClients)
+            .set({ isPrimary: false })
+            .where(
+              and(eq(opportunityClients.opportunityId, id), eq(opportunityClients.isPrimary, true))
+            )
+        }
+
+        if (data.primaryClientId) {
+          // Validate ownership, then upsert the link with isPrimary=true.
+          const [client] = await tx
+            .select({ id: clients.id })
+            .from(clients)
+            .where(
+              and(
+                eq(clients.id, data.primaryClientId),
+                eq(clients.organizationId, ctx.organizationId)
+              )
+            )
+            .limit(1)
+          if (client) {
+            await tx
+              .insert(opportunityClients)
+              .values({
+                opportunityId: id,
+                clientId: data.primaryClientId,
+                organizationId: ctx.organizationId,
+                isPrimary: true,
+              })
+              .onConflictDoUpdate({
+                target: [opportunityClients.opportunityId, opportunityClients.clientId],
+                set: { isPrimary: true },
+              })
+            // Ensure no *other* client is left primary (defensive — the prior
+            // demote covers this, but a stale row from a half-applied migration
+            // shouldn't slip through).
+            await tx
+              .update(opportunityClients)
+              .set({ isPrimary: false })
+              .where(
+                and(
+                  eq(opportunityClients.opportunityId, id),
+                  ne(opportunityClients.clientId, data.primaryClientId)
+                )
+              )
+          }
+        }
+      }
+      return row
+    })
 
     if (!updated) {
       throw createError({ statusCode: 404, statusMessage: 'Opportunity not found' })

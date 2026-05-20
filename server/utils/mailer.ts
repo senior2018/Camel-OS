@@ -96,6 +96,33 @@ export async function sendOpportunityAssignmentEmail(
   }
 }
 
+export async function sendClientReminderEmail(
+  to: string,
+  options: {
+    recipientName: string
+    clientName: string
+    message: string
+    dueAt: string
+    url: string
+  }
+): Promise<void> {
+  try {
+    await getClient().transactionalEmails.sendTransacEmail({
+      sender: { name: 'Camel OS', email: getFromEmail() },
+      to: [{ email: to }],
+      subject: `Follow-up reminder: ${options.clientName}`,
+      htmlContent: `
+        <p>Hi ${options.recipientName},</p>
+        <p>You have a follow-up due for <strong>${options.clientName}</strong> on <strong>${options.dueAt}</strong>:</p>
+        <blockquote style="border-left:3px solid #ccc;padding-left:12px;color:#444;">${options.message}</blockquote>
+        <p><a href="${options.url}">Open in Camel OS</a></p>
+      `,
+    })
+  } catch (err) {
+    throw new Error(`Failed to send email: ${(err as Error).message}`)
+  }
+}
+
 export async function sendInvitationEmail(
   to: string,
   options: {
