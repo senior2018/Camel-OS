@@ -1,6 +1,7 @@
 import { consola } from 'consola'
+import { and, eq } from 'drizzle-orm'
 
-import { opportunities } from '@@/server/database/schema'
+import { clients, opportunities, opportunityClients } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import { logAuditEvent } from '@@/server/utils/audit'
@@ -21,21 +22,50 @@ export default defineEventHandler(async (event) => {
 
     const data = parsed.data
 
-    const [created] = await useDrizzle()
-      .insert(opportunities)
-      .values({
-        organizationId: ctx.organizationId,
-        title: data.title,
-        source: data.source,
-        type: data.type,
-        deadline: data.deadline ?? null,
-        estimatedValue: data.estimatedValue ?? null,
-        currency: data.currency,
-        winProbability: data.winProbability ?? null,
-        ownerUserId: data.ownerUserId ?? null,
-        createdByUserId: ctx.userId,
-      })
-      .returning()
+    const db = useDrizzle()
+
+    const created = await db.transaction(async (tx) => {
+      const [opp] = await tx
+        .insert(opportunities)
+        .values({
+          organizationId: ctx.organizationId,
+          title: data.title,
+          source: data.source,
+          type: data.type,
+          deadline: data.deadline ?? null,
+          estimatedValue: data.estimatedValue ?? null,
+          currency: data.currency,
+          winProbability: data.winProbability ?? null,
+          ownerUserId: data.ownerUserId ?? null,
+          createdByUserId: ctx.userId,
+        })
+        .returning()
+      if (!opp) throw new Error('Failed to create opportunity')
+
+      // CR-03: link the chosen primary client. Validate it belongs to this org
+      // before inserting so a malicious id can't leak across tenants.
+      if (data.primaryClientId) {
+        const [client] = await tx
+          .select({ id: clients.id })
+          .from(clients)
+          .where(
+            and(
+              eq(clients.id, data.primaryClientId),
+              eq(clients.organizationId, ctx.organizationId)
+            )
+          )
+          .limit(1)
+        if (client) {
+          await tx.insert(opportunityClients).values({
+            opportunityId: opp.id,
+            clientId: data.primaryClientId,
+            organizationId: ctx.organizationId,
+            isPrimary: true,
+          })
+        }
+      }
+      return opp
+    })
 
     if (!created) throw new Error('Failed to create opportunity')
 

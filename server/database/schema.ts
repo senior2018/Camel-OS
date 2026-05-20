@@ -53,6 +53,17 @@ export const opportunityTypeEnum = pgEnum('opportunity_type', [
   'other',
 ])
 
+// CRM enums (S4 — CR-01, CR-02, CR-05). Donor types arrive in S5/S6.
+export const clientTypeEnum = pgEnum('client_type', ['client', 'prospect'])
+
+export const clientInteractionTypeEnum = pgEnum('client_interaction_type', [
+  'meeting',
+  'call',
+  'email',
+  'note',
+  'other',
+])
+
 // ─── Organizations ─────────────────────────────────────────────────────────────
 
 export const organizations = pgTable('organizations', {
@@ -426,6 +437,173 @@ export const opportunityAttachments = pgTable(
   ]
 )
 
+// ─── CRM — Clients (S4 — CR-01) ────────────────────────────────────────────────
+
+export const clients = pgTable(
+  'clients',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    name: text().notNull(),
+    type: clientTypeEnum().notNull().default('prospect'),
+    // Industry / sector tag — free text since the firm covers many verticals.
+    industry: text(),
+    country: text(),
+    website: text(),
+    // Top-line phone on the account itself. Per-person numbers live on client_contacts.
+    phone: text(),
+    // Top-line email on the account — used for duplicate detection alongside primary contact email.
+    email: text(),
+    notes: text(),
+    ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('clients_organization_id_idx').on(table.organizationId),
+    index('clients_owner_user_id_idx').on(table.ownerUserId),
+    index('clients_email_idx').on(table.email),
+    index('clients_name_idx').on(table.name),
+  ]
+)
+
+// ─── CRM — Client Contacts (S4 — CR-01, CR-02) ─────────────────────────────────
+
+export const clientContacts = pgTable(
+  'client_contacts',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    clientId: uuid('client_id')
+      .notNull()
+      .references(() => clients.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    firstName: text('first_name').notNull(),
+    lastName: text('last_name'),
+    title: text(),
+    email: text(),
+    phone: text(),
+    // Exactly one primary contact per client is conventional; enforced at app layer
+    // rather than via a partial unique index to keep this portable.
+    isPrimary: boolean('is_primary').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('client_contacts_client_id_idx').on(table.clientId),
+    index('client_contacts_organization_id_idx').on(table.organizationId),
+    index('client_contacts_email_idx').on(table.email),
+  ]
+)
+
+// ─── CRM — Client Interactions (S4 — CR-02) ────────────────────────────────────
+
+export const clientInteractions = pgTable(
+  'client_interactions',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    clientId: uuid('client_id')
+      .notNull()
+      .references(() => clients.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    // Nullable — an interaction may be against the account as a whole, not a person.
+    contactId: uuid('contact_id').references(() => clientContacts.id, { onDelete: 'set null' }),
+    type: clientInteractionTypeEnum().notNull().default('note'),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    summary: text().notNull(),
+    // CR-02 acceptance: "follow-up action recorded". When set, can pair with a reminder.
+    followUpAt: date('follow_up_at'),
+    followUpAction: text('follow_up_action'),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('client_interactions_client_id_idx').on(table.clientId),
+    index('client_interactions_organization_id_idx').on(table.organizationId),
+    index('client_interactions_contact_id_idx').on(table.contactId),
+    index('client_interactions_occurred_at_idx').on(table.occurredAt),
+  ]
+)
+
+// ─── CRM — Opportunity ↔ Client link (S4 — CR-03) ──────────────────────────────
+// Many-to-many pivot. `isPrimary` lets cards / lists show a single client without
+// hiding the others; enforced at the app layer (one primary per opportunity).
+
+export const opportunityClients = pgTable(
+  'opportunity_clients',
+  {
+    opportunityId: uuid('opportunity_id')
+      .notNull()
+      .references(() => opportunities.id, { onDelete: 'cascade' }),
+    clientId: uuid('client_id')
+      .notNull()
+      .references(() => clients.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    isPrimary: boolean('is_primary').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.opportunityId, table.clientId] }),
+    index('opportunity_clients_opportunity_id_idx').on(table.opportunityId),
+    index('opportunity_clients_client_id_idx').on(table.clientId),
+    index('opportunity_clients_organization_id_idx').on(table.organizationId),
+  ]
+)
+
+// ─── CRM — Client Reminders (S4 — CR-05) ───────────────────────────────────────
+// Follow-up reminders surface to the assignee via daily email; in-app notification
+// is wired when NT-01 lands in S26. Setting completedAt removes from the active list.
+
+export const clientReminders = pgTable(
+  'client_reminders',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    clientId: uuid('client_id')
+      .notNull()
+      .references(() => clients.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    contactId: uuid('contact_id').references(() => clientContacts.id, { onDelete: 'set null' }),
+    // The user who owns this reminder — receives the email + sees it in their task list.
+    assignedUserId: uuid('assigned_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // Timestamptz (not date) so the user can capture a specific time for the
+    // follow-up. The daily cron still ships at 08:00 UTC — the time is mostly
+    // informational, but a future per-hour cron can use it for precision firing.
+    dueAt: timestamp('due_at', { withTimezone: true }).notNull(),
+    message: text().notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    // Idempotency stamp so the daily task doesn't email the same reminder twice.
+    notifiedAt: timestamp('notified_at', { withTimezone: true }),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('client_reminders_client_id_idx').on(table.clientId),
+    index('client_reminders_organization_id_idx').on(table.organizationId),
+    index('client_reminders_assigned_user_id_idx').on(table.assignedUserId),
+    index('client_reminders_due_at_idx').on(table.dueAt),
+  ]
+)
+
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 export type Organization = typeof organizations.$inferSelect
@@ -478,3 +656,18 @@ export type NewOpportunity = typeof opportunities.$inferInsert
 
 export type OpportunityAttachment = typeof opportunityAttachments.$inferSelect
 export type NewOpportunityAttachment = typeof opportunityAttachments.$inferInsert
+
+export type Client = typeof clients.$inferSelect
+export type NewClient = typeof clients.$inferInsert
+
+export type ClientContact = typeof clientContacts.$inferSelect
+export type NewClientContact = typeof clientContacts.$inferInsert
+
+export type ClientInteraction = typeof clientInteractions.$inferSelect
+export type NewClientInteraction = typeof clientInteractions.$inferInsert
+
+export type OpportunityClient = typeof opportunityClients.$inferSelect
+export type NewOpportunityClient = typeof opportunityClients.$inferInsert
+
+export type ClientReminder = typeof clientReminders.$inferSelect
+export type NewClientReminder = typeof clientReminders.$inferInsert

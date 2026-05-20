@@ -48,6 +48,7 @@ const state = reactive<{
   currency: string
   winProbability: number | null
   ownerUserId: string | null
+  primaryClientId: string | null
 }>({
   title: '',
   source: 'other',
@@ -57,6 +58,7 @@ const state = reactive<{
   currency: 'USD',
   winProbability: null,
   ownerUserId: null,
+  primaryClientId: null,
 })
 
 const pendingFiles = ref<File[]>([])
@@ -97,6 +99,23 @@ const { data: teamData } = await useFetch<{ members: TeamMember[] }>('/api/users
   default: () => ({ members: [] }),
 })
 
+// Client roster for the primary-client picker (CR-03).
+interface ClientPickerItem {
+  id: string
+  name: string
+}
+const { data: clientData } = await useFetch<{ items: ClientPickerItem[] }>('/api/clients', {
+  key: 'clients-list-picker',
+  default: () => ({ items: [] }),
+})
+const clientOptions = computed(() => [
+  { label: 'No client', value: null as string | null },
+  ...(clientData.value?.items ?? []).map((c) => ({
+    label: c.name,
+    value: c.id as string | null,
+  })),
+])
+
 const ownerOptions = computed(() => [
   { label: 'Unassigned', value: null as string | null },
   ...(teamData.value?.members ?? []).map((m) => ({
@@ -128,6 +147,7 @@ watch(
       state.currency = initial.currency
       state.winProbability = initial.winProbability
       state.ownerUserId = initial.ownerUserId
+      state.primaryClientId = initial.primaryClientId
     } else {
       state.title = ''
       state.source = 'other'
@@ -137,6 +157,7 @@ watch(
       state.currency = 'USD'
       state.winProbability = null
       state.ownerUserId = null
+      state.primaryClientId = null
     }
   },
   { immediate: true }
@@ -154,6 +175,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
       currency: state.currency,
       winProbability: state.winProbability,
       ownerUserId: state.ownerUserId,
+      primaryClientId: state.primaryClientId,
     },
     props.initial?.id ?? null,
     props.initial ? [] : pendingFiles.value
@@ -286,6 +308,17 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
           <USelectMenu
             v-model="state.ownerUserId"
             :items="ownerOptions"
+            value-key="value"
+            size="lg"
+            class="w-full"
+            :disabled="readOnly"
+          />
+        </UFormField>
+
+        <UFormField label="Primary client" name="primaryClientId" class="sm:col-span-2">
+          <USelectMenu
+            v-model="state.primaryClientId"
+            :items="clientOptions"
             value-key="value"
             size="lg"
             class="w-full"

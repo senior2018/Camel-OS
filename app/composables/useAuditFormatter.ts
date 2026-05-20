@@ -228,6 +228,78 @@ function formatPasswordPolicy(action: string): FormattedAudit {
   return { summary: humanise(action), fields: [] }
 }
 
+function formatClient(action: string, meta: Meta): FormattedAudit {
+  const name = str(meta, 'name')
+  switch (action) {
+    case 'create':
+      return { summary: `Created client${name ? ` "${name}"` : ''}`, fields: [] }
+    case 'update': {
+      const fields = Array.isArray(meta.fields) ? (meta.fields as string[]) : []
+      const labelled = fields.map(humanise).join(', ')
+      return {
+        summary: `Edited client${labelled ? ` — ${labelled}` : ''}`,
+        fields: [],
+      }
+    }
+    case 'delete':
+      return { summary: `Deleted client${name ? ` "${name}"` : ''}`, fields: [] }
+    case 'contact_added':
+      return { summary: `Added contact${name ? ` "${name}"` : ''}`, fields: [] }
+    case 'contact_updated':
+      return { summary: 'Updated a contact', fields: [] }
+    case 'contact_removed':
+      return { summary: `Removed contact${name ? ` "${name}"` : ''}`, fields: [] }
+    case 'interaction_logged':
+      return {
+        summary: `Logged a ${humanise(String(meta.type ?? 'note'))}`,
+        fields: [],
+      }
+    case 'interaction_updated':
+      return { summary: 'Updated an interaction', fields: [] }
+    case 'interaction_removed':
+      return { summary: 'Removed an interaction', fields: [] }
+    case 'opportunity_linked': {
+      const oppTitle = str(meta, 'opportunityTitle')
+      const primary = meta.isPrimary === true ? ' (primary)' : ''
+      return {
+        summary: `Linked opportunity${oppTitle ? ` "${oppTitle}"` : ''}${primary}`,
+        fields: [],
+      }
+    }
+    case 'opportunity_unlinked':
+      return { summary: 'Unlinked an opportunity', fields: [] }
+    case 'reminder_created':
+      return {
+        summary: `Created reminder${meta.dueAt ? ` due ${meta.dueAt}` : ''}`,
+        fields: [],
+      }
+    case 'reminder_updated':
+      return { summary: 'Updated a reminder', fields: [] }
+    case 'reminder_completed':
+      return { summary: 'Marked a reminder complete', fields: [] }
+    case 'reminder_removed':
+      return { summary: 'Removed a reminder', fields: [] }
+    case 'reminder_sent': {
+      const recipient = str(meta, 'recipient')
+      const clientName = str(meta, 'clientName')
+      return {
+        summary: `Sent reminder email${clientName ? ` for "${clientName}"` : ''}`,
+        fields: recipient ? [{ label: 'To', value: recipient }] : [],
+      }
+    }
+    case 'reminders_run': {
+      const sent = typeof meta.sent === 'number' ? meta.sent : 0
+      const scanned = typeof meta.scanned === 'number' ? meta.scanned : 0
+      return {
+        summary: `Ran client-reminder task — ${sent} sent / ${scanned} scanned`,
+        fields: [],
+      }
+    }
+    default:
+      return { summary: `${humanise(action)} client${name ? ` "${name}"` : ''}`, fields: [] }
+  }
+}
+
 function formatAuditLog(action: string, meta: Meta): FormattedAudit {
   if (action === 'export') {
     return {
@@ -244,6 +316,8 @@ export function useAuditFormatter() {
     switch (resource) {
       case 'opportunity':
         return formatOpportunity(action, m)
+      case 'client':
+        return formatClient(action, m)
       case 'auth':
         return formatAuth(action, m)
       case 'user':

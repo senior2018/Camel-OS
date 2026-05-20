@@ -68,6 +68,11 @@ const valueLabel = computed(() => {
       {{ opportunity.title }}
     </p>
 
+    <p v-if="opportunity.primaryClientName" class="mt-1 truncate text-xs text-muted">
+      <UIcon name="i-lucide-building-2" class="mr-1 inline size-3.5" />
+      {{ opportunity.primaryClientName }}
+    </p>
+
     <div class="mt-2 flex flex-wrap items-center gap-1">
       <UBadge variant="subtle" color="primary" size="xs" :label="sourceLabel" />
       <UBadge variant="subtle" color="neutral" size="xs" :label="typeLabel" />

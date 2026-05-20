@@ -24,6 +24,14 @@ const navItems = computed(() => {
       active: route.path.startsWith('/opportunities'),
     })
   }
+  if (can.value('crm', 'read')) {
+    items.push({
+      label: 'Clients',
+      to: '/clients',
+      icon: 'i-lucide-users',
+      active: route.path.startsWith('/clients'),
+    })
+  }
   return items
 })
 
