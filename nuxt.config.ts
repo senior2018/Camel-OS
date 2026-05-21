@@ -58,9 +58,10 @@ export default defineNuxtConfig({
       tasks: true,
     },
     scheduledTasks: {
-      // Daily at 08:00 UTC — opportunity deadlines (OM-07). Deadlines are date-only
-      // so once-a-day is the right cadence.
-      '0 8 * * *': ['opportunities:deadline-reminders'],
+      // Daily at 08:00 UTC — opportunity deadlines (OM-07) + donor grant
+      // deadlines (CR-09). Both fire 14/7/2 days or 30 days out respectively;
+      // once-a-day cadence is enough since they're date-only.
+      '0 8 * * *': ['opportunities:deadline-reminders', 'clients:grants'],
       // Every 5 minutes — client follow-up reminders (CR-05). Reminders carry a
       // time-of-day, so we want the email to arrive close to the set time without
       // building a per-reminder job queue. Worst-case delivery latency: ~5 min.

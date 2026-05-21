@@ -75,6 +75,7 @@ export default defineEventHandler(async (event) => {
         phone: data.phone ?? null,
         email: data.email ?? null,
         notes: data.notes ?? null,
+        metadata: data.metadata ?? null,
         ownerUserId: data.ownerUserId ?? null,
         createdByUserId: ctx.userId,
       })

@@ -32,6 +32,7 @@ export default defineEventHandler(async (event) => {
     if (data.phone !== undefined) updates.phone = data.phone ?? null
     if (data.email !== undefined) updates.email = data.email ?? null
     if (data.notes !== undefined) updates.notes = data.notes ?? null
+    if (data.metadata !== undefined) updates.metadata = data.metadata ?? null
     if (data.ownerUserId !== undefined) updates.ownerUserId = data.ownerUserId ?? null
 
     const [updated] = await useDrizzle()

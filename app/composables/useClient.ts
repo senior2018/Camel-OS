@@ -1,11 +1,15 @@
 import type {
   ClientInteractionType,
+  ClientMetadata,
   ClientType,
   CreateContactPayload,
+  CreateGrantPayload,
   CreateInteractionPayload,
   CreateReminderPayload,
+  DonorGrantStatus,
   UpdateClientPayload,
   UpdateContactPayload,
+  UpdateGrantPayload,
   UpdateInteractionPayload,
   UpdateReminderPayload,
 } from '@@/shared/schemas/client'
@@ -21,6 +25,7 @@ export interface ClientDetail {
   phone: string | null
   email: string | null
   notes: string | null
+  metadata: ClientMetadata | null
   ownerUserId: string | null
   ownerEmail: string | null
   ownerFirstName: string | null
@@ -81,12 +86,29 @@ export interface ClientReminder {
   assignedEmail: string | null
 }
 
+export interface DonorGrant {
+  id: string
+  donorId: string
+  title: string
+  startDate: string | null
+  endDate: string | null
+  totalValue: string | null
+  currency: string
+  reportingSchedule: string | null
+  nextReportingDate: string | null
+  status: DonorGrantStatus
+  notes: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export interface ClientDetailResponse {
   client: ClientDetail
   contacts: ClientContact[]
   interactions: ClientInteraction[]
   linkedOpportunities: ClientLinkedOpportunity[]
   reminders: ClientReminder[]
+  grants: DonorGrant[]
 }
 
 /**
@@ -230,6 +252,30 @@ export function useClient(id: Ref<string>) {
     return res
   }
 
+  // Donor grants ---------------------------------------------------------------
+  function createGrant(payload: CreateGrantPayload) {
+    return withToast(
+      () => $fetch(`/api/clients/${id.value}/grants`, { method: 'POST', body: payload }),
+      'Grant added',
+      'Could not add grant'
+    )
+  }
+  function updateGrant(grantId: string, payload: UpdateGrantPayload) {
+    return withToast(
+      () =>
+        $fetch(`/api/clients/${id.value}/grants/${grantId}`, { method: 'PATCH', body: payload }),
+      'Grant updated',
+      'Update failed'
+    )
+  }
+  function removeGrant(grantId: string) {
+    return withToast(
+      () => $fetch(`/api/clients/${id.value}/grants/${grantId}`, { method: 'DELETE' }),
+      'Grant removed',
+      'Delete failed'
+    )
+  }
+
   // Reminders ------------------------------------------------------------------
   function createReminder(payload: CreateReminderPayload) {
     return withToast(
@@ -273,5 +319,8 @@ export function useClient(id: Ref<string>) {
     createReminder,
     updateReminder,
     removeReminder,
+    createGrant,
+    updateGrant,
+    removeGrant,
   }
 }

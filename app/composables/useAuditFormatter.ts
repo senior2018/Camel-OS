@@ -295,6 +295,58 @@ function formatClient(action: string, meta: Meta): FormattedAudit {
         fields: [],
       }
     }
+    case 'grant_created':
+      return {
+        summary: `Added grant${str(meta, 'title') ? ` "${str(meta, 'title')}"` : ''}`,
+        fields: [],
+      }
+    case 'grant_updated':
+      return {
+        summary: `Updated a grant${meta.status ? ` (${humanise(String(meta.status))})` : ''}`,
+        fields: [],
+      }
+    case 'grant_removed':
+      return {
+        summary: `Removed grant${str(meta, 'title') ? ` "${str(meta, 'title')}"` : ''}`,
+        fields: [],
+      }
+    case 'grant_deadline_sent': {
+      const recipient = str(meta, 'recipient')
+      const kind = str(meta, 'kind')
+      const date = str(meta, 'deadlineDate')
+      return {
+        summary: `Sent grant ${kind === 'reporting' ? 'reporting' : 'end-date'} reminder — due ${date}`,
+        fields: recipient ? [{ label: 'To', value: recipient }] : [],
+      }
+    }
+    case 'grant_deadlines_run': {
+      const sentEnd = typeof meta.sentEndDate === 'number' ? meta.sentEndDate : 0
+      const sentRep = typeof meta.sentReporting === 'number' ? meta.sentReporting : 0
+      const scanned = typeof meta.scanned === 'number' ? meta.scanned : 0
+      return {
+        summary: `Ran grant-deadline task — ${sentEnd + sentRep} sent / ${scanned} scanned`,
+        fields: [],
+      }
+    }
+    case 'contacts_imported': {
+      const total = typeof meta.total === 'number' ? meta.total : 0
+      const inserted = typeof meta.inserted === 'number' ? meta.inserted : 0
+      const updated = typeof meta.updated === 'number' ? meta.updated : 0
+      const skipped = typeof meta.skipped === 'number' ? meta.skipped : 0
+      const errors = typeof meta.errors === 'number' ? meta.errors : 0
+      return {
+        summary: `Imported contacts (${total} rows) — ${inserted} added, ${updated} updated, ${skipped} skipped, ${errors} errors`,
+        fields: [],
+      }
+    }
+    case 'activity_report_exported': {
+      const from = str(meta, 'from')
+      const to = str(meta, 'to')
+      return {
+        summary: `Exported CRM activity report${from && to ? ` (${from} → ${to})` : ''}`,
+        fields: [],
+      }
+    }
     default:
       return { summary: `${humanise(action)} client${name ? ` "${name}"` : ''}`, fields: [] }
   }
