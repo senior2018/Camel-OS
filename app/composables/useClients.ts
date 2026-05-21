@@ -36,6 +36,28 @@ export interface CreateClientResult {
 }
 
 /**
+ * CR-04 — bucket a client's recency-of-interaction into a colour-coded health
+ * level. "Healthy" = touched in the last fortnight, "Warm" = within two months,
+ * "At risk" = no contact for 60+ days (or never). Used by both the list page
+ * (filter chip + dot indicator) and the detail header.
+ */
+export type ClientHealth = 'healthy' | 'warm' | 'at_risk'
+
+export const CLIENT_HEALTH_LABEL: Record<ClientHealth, string> = {
+  healthy: 'Healthy',
+  warm: 'Warm',
+  at_risk: 'At risk',
+}
+
+export function clientHealth(lastInteractionAt: string | null): ClientHealth {
+  if (!lastInteractionAt) return 'at_risk'
+  const days = Math.floor((Date.now() - new Date(lastInteractionAt).getTime()) / 86_400_000)
+  if (days < 14) return 'healthy'
+  if (days < 60) return 'warm'
+  return 'at_risk'
+}
+
+/**
  * Owns the clients list state and every mutation. Toast feedback lives here so
  * pages stay focused on layout. Duplicate detection on create returns the
  * existing matches so the modal can offer "open existing".

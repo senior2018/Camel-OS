@@ -27,6 +27,17 @@ Internal operating platform for Sahara Consult — a PSA (Professional Services 
 - 30-minute idle timeout
 - Hash-chained audit log with viewer + CSV export
 
+### S4–S5 — CRM (Clients, Prospects, Donors, Partners)
+- **Account types**: client / prospect / donor / partner — one table, type-specific extras in a JSONB `metadata` column
+- **Contacts**: many per client, with a primary-contact flag
+- **Interactions timeline**: meetings, calls, emails, notes, with optional follow-up date + action
+- **Opportunity links**: primary client shown on each opportunity card; many-to-many with secondary clients
+- **Follow-up reminders**: per-assignee, time-of-day precision, dispatched every 5 minutes, with an admin **Run now** trigger
+- **Relationship health score**: green/yellow/red dot per account based on recency of interaction; "At risk" once 60+ days idle
+- **CSV import**: bulk-load contacts onto a client from a CSV template, with skip / overwrite duplicate handling and row-level error reporting
+- **Donor grants**: funding cycles with start/end, total value, currency, tranches, reporting schedule, status; daily cron emails account owners 30 days before each deadline
+- **CRM activity report**: contacts reached, meetings held, pipeline value by period and staff member; CSV export + browser print
+
 ### S2–S3 — Opportunity Management
 - **Views**: Stages (default), List, Manager Dashboard, Kanban (with drag-and-drop)
 - **Stages**: Discovery → Qualifying → Proposal → Submitted → Won / Lost
@@ -100,9 +111,15 @@ Configured via Nitro `scheduledTasks` in `nuxt.config.ts`:
 | Task | Cron | Purpose |
 |---|---|---|
 | `opportunities:deadline-reminders` | `0 8 * * *` (08:00 UTC daily) | Emails opportunity owners 14 / 7 / 2 days before deadline |
+| `clients:grants` | `0 8 * * *` (08:00 UTC daily) | Emails donor account owners 30 days before each grant end / next reporting deadline |
 | `clients:reminders` | `*/5 * * * *` (every 5 minutes) | Emails assignees when a client follow-up reminder is due |
 
-Admins can manually trigger either task via `POST /api/admin/tasks/opportunity-reminders` or `POST /api/admin/tasks/client-reminders`. The Reminders card on each client page also exposes a **Run now** button when you're logged in as admin.
+Admins can manually trigger any task via `POST /api/admin/tasks/<task>`:
+- `/api/admin/tasks/opportunity-reminders`
+- `/api/admin/tasks/donor-grants`
+- `/api/admin/tasks/client-reminders` (also exposed as a **Run now** button on the client detail page)
+
+Each task uses a `notified_at` (or `endDateNotifiedAt` / `nextReportingNotifiedAt`) stamp on its target rows so it never re-sends the same email.
 
 ### How client follow-up reminders work (CR-05)
 

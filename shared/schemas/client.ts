@@ -1,12 +1,58 @@
 import { z } from 'zod'
 
-export const CLIENT_TYPES = ['client', 'prospect'] as const
+export const CLIENT_TYPES = ['client', 'prospect', 'donor', 'partner'] as const
 export type ClientType = (typeof CLIENT_TYPES)[number]
 
 export const CLIENT_TYPE_LABEL: Record<ClientType, string> = {
   client: 'Client',
   prospect: 'Prospect',
+  donor: 'Donor',
+  partner: 'Partner',
 }
+
+// Partnership flavours — surface as a dropdown when type === 'partner' (CR-08).
+// Free-form notes live in `metadata.scope`; structured agreement records belong
+// in the upcoming `partnership_agreements` table (CR-11).
+export const PARTNERSHIP_TYPES = [
+  'implementation',
+  'sub_grantee',
+  'consortium',
+  'mou',
+  'other',
+] as const
+export type PartnershipType = (typeof PARTNERSHIP_TYPES)[number]
+
+export const PARTNERSHIP_TYPE_LABEL: Record<PartnershipType, string> = {
+  implementation: 'Implementation partner',
+  sub_grantee: 'Sub-grantee',
+  consortium: 'Consortium member',
+  mou: 'MOU',
+  other: 'Other',
+}
+
+/**
+ * Type-specific extras for `clients.metadata`. Each variant is opt-in — only the
+ * relevant fields are sent based on `type`. Unknown keys are ignored on read so
+ * admins can drop in extra fields without breaking older clients.
+ */
+export const clientMetadataSchema = z
+  .object({
+    // Donor fields
+    focusAreas: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
+    reportingLanguage: z.string().trim().max(20).optional(),
+    fiscalYearStart: z
+      .string()
+      .trim()
+      .regex(/^\d{2}-\d{2}$/, 'Use MM-DD')
+      .optional(),
+    // Partner fields
+    partnershipType: z.enum(PARTNERSHIP_TYPES).optional(),
+    scope: z.string().trim().max(2000).optional(),
+  })
+  .partial()
+  .nullable()
+
+export type ClientMetadata = z.output<typeof clientMetadataSchema>
 
 export const CLIENT_INTERACTION_TYPES = ['meeting', 'call', 'email', 'note', 'other'] as const
 export type ClientInteractionType = (typeof CLIENT_INTERACTION_TYPES)[number]
@@ -59,7 +105,7 @@ const optionalDate = z
 
 // ─── Client ───────────────────────────────────────────────────────────────────
 
-/** Body for `POST /api/clients` (CR-01). */
+/** Body for `POST /api/clients` (CR-01 + CR-08). */
 export const createClientSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(200),
   type: z.enum(CLIENT_TYPES).default('prospect'),
@@ -69,6 +115,7 @@ export const createClientSchema = z.object({
   phone: optionalText(50),
   email: optionalEmail,
   notes: optionalText(2000),
+  metadata: clientMetadataSchema.optional(),
   ownerUserId: z.string().uuid().optional().nullable(),
 })
 
@@ -165,3 +212,47 @@ export const updateReminderSchema = z.object({
 })
 
 export type UpdateReminderPayload = z.output<typeof updateReminderSchema>
+
+// ─── Donor grants (CR-09) ─────────────────────────────────────────────────────
+
+export const DONOR_GRANT_STATUSES = ['pending', 'active', 'completed', 'cancelled'] as const
+export type DonorGrantStatus = (typeof DONOR_GRANT_STATUSES)[number]
+
+export const DONOR_GRANT_STATUS_LABEL: Record<DonorGrantStatus, string> = {
+  pending: 'Pending',
+  active: 'Active',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+}
+
+const monetary = z
+  .union([z.number(), z.string()])
+  .transform((v) => (typeof v === 'number' ? v.toFixed(2) : v.trim()))
+  .pipe(z.string().regex(/^\d{1,12}(\.\d{1,2})?$/, 'Invalid amount'))
+  .optional()
+  .nullable()
+
+const dateString = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
+  .optional()
+  .nullable()
+  .or(z.literal('').transform(() => null))
+
+export const createGrantSchema = z.object({
+  title: z.string().trim().min(1, 'Title is required').max(200),
+  startDate: dateString,
+  endDate: dateString,
+  totalValue: monetary,
+  currency: z.string().trim().length(3).toUpperCase().default('USD'),
+  reportingSchedule: optionalText(500),
+  nextReportingDate: dateString,
+  status: z.enum(DONOR_GRANT_STATUSES).default('pending'),
+  notes: optionalText(2000),
+})
+
+export type CreateGrantPayload = z.output<typeof createGrantSchema>
+
+export const updateGrantSchema = createGrantSchema.partial()
+export type UpdateGrantPayload = z.output<typeof updateGrantSchema>

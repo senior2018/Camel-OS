@@ -1,6 +1,13 @@
 <script setup lang="ts">
-import { CLIENT_TYPE_LABEL } from '@@/shared/schemas/client'
-import type { UpdateClientPayload } from '@@/shared/schemas/client'
+import { CLIENT_TYPE_LABEL, CLIENT_TYPES, PARTNERSHIP_TYPE_LABEL } from '@@/shared/schemas/client'
+import type {
+  ClientMetadata,
+  ClientType,
+  CreateGrantPayload,
+  UpdateClientPayload,
+  UpdateGrantPayload,
+} from '@@/shared/schemas/client'
+import { CLIENT_HEALTH_LABEL, clientHealth } from '@/composables/useClients'
 
 definePageMeta({
   layout: 'dashboard',
@@ -27,6 +34,7 @@ const currentUserId = computed(() => (user.value as { id: string } | null)?.id ?
 const {
   data,
   status,
+  refresh,
   updateClient,
   addContact,
   updateContact,
@@ -38,6 +46,9 @@ const {
   createReminder,
   updateReminder,
   removeReminder,
+  createGrant,
+  updateGrant,
+  removeGrant,
 } = useClient(clientId)
 
 // Roster used by the reminder assignee picker.
@@ -71,13 +82,14 @@ useHead({ title: computed(() => `${data.value?.client.name ?? 'Client'} — Came
 const editing = ref(false)
 const editState = reactive<{
   name: string
-  type: 'client' | 'prospect'
+  type: ClientType
   industry: string
   country: string
   website: string
   phone: string
   email: string
   notes: string
+  metadata: ClientMetadata
 }>({
   name: '',
   type: 'prospect',
@@ -87,7 +99,10 @@ const editState = reactive<{
   phone: '',
   email: '',
   notes: '',
+  metadata: {},
 })
+
+const typeOptions = CLIENT_TYPES.map((t) => ({ label: CLIENT_TYPE_LABEL[t], value: t }))
 
 function startEdit() {
   if (!data.value) return
@@ -100,6 +115,7 @@ function startEdit() {
   editState.phone = c.phone ?? ''
   editState.email = c.email ?? ''
   editState.notes = c.notes ?? ''
+  editState.metadata = (c.metadata ?? {}) as ClientMetadata
   editing.value = true
 }
 
@@ -113,6 +129,10 @@ async function saveEdit() {
     phone: editState.phone || null,
     email: editState.email || null,
     notes: editState.notes || null,
+    metadata:
+      editState.type === 'donor' || editState.type === 'partner'
+        ? (editState.metadata ?? {})
+        : null,
   }
   const ok = await updateClient(payload)
   if (ok) editing.value = false
@@ -130,6 +150,19 @@ function ownerLabel(): string {
   if (!data.value?.client.ownerUserId) return 'Unassigned'
   const c = data.value.client
   return [c.ownerFirstName, c.ownerLastName].filter(Boolean).join(' ') || c.ownerEmail || 'Unknown'
+}
+
+// CR-04 — interactions are ordered occurredAt DESC, so the first row is the
+// freshest touch. Empty list → "at risk" (never contacted).
+const healthLevel = computed(() => {
+  const latest = data.value?.interactions[0]
+  return clientHealth(latest?.occurredAt ?? null)
+})
+
+function healthColor(level: ReturnType<typeof clientHealth>): 'success' | 'warning' | 'error' {
+  if (level === 'healthy') return 'success'
+  if (level === 'warm') return 'warning'
+  return 'error'
 }
 </script>
 
@@ -161,7 +194,7 @@ function ownerLabel(): string {
         />
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div class="flex items-center gap-3">
+            <div class="flex flex-wrap items-center gap-3">
               <h1 class="text-2xl font-semibold tracking-tight text-default">
                 {{ data.client.name }}
               </h1>
@@ -170,6 +203,12 @@ function ownerLabel(): string {
                 variant="subtle"
                 size="sm"
                 :label="CLIENT_TYPE_LABEL[data.client.type]"
+              />
+              <UBadge
+                :color="healthColor(healthLevel)"
+                variant="subtle"
+                size="sm"
+                :label="CLIENT_HEALTH_LABEL[healthLevel]"
               />
             </div>
             <p class="mt-1 text-sm text-muted">
@@ -236,6 +275,43 @@ function ownerLabel(): string {
                 <p class="text-xs uppercase tracking-wide text-muted">Notes</p>
                 <p class="whitespace-pre-wrap text-default">{{ data.client.notes }}</p>
               </div>
+
+              <template v-if="data.client.type === 'donor' && data.client.metadata">
+                <div v-if="data.client.metadata.focusAreas?.length">
+                  <p class="text-xs uppercase tracking-wide text-muted">Focus areas</p>
+                  <div class="mt-1 flex flex-wrap gap-1">
+                    <UBadge
+                      v-for="f in data.client.metadata.focusAreas"
+                      :key="f"
+                      variant="subtle"
+                      color="primary"
+                      size="xs"
+                      :label="f"
+                    />
+                  </div>
+                </div>
+                <div v-if="data.client.metadata.reportingLanguage">
+                  <p class="text-xs uppercase tracking-wide text-muted">Reporting language</p>
+                  <p class="text-default">{{ data.client.metadata.reportingLanguage }}</p>
+                </div>
+                <div v-if="data.client.metadata.fiscalYearStart">
+                  <p class="text-xs uppercase tracking-wide text-muted">Fiscal year start</p>
+                  <p class="text-default">{{ data.client.metadata.fiscalYearStart }}</p>
+                </div>
+              </template>
+
+              <template v-if="data.client.type === 'partner' && data.client.metadata">
+                <div v-if="data.client.metadata.partnershipType">
+                  <p class="text-xs uppercase tracking-wide text-muted">Partnership type</p>
+                  <p class="text-default">
+                    {{ PARTNERSHIP_TYPE_LABEL[data.client.metadata.partnershipType] }}
+                  </p>
+                </div>
+                <div v-if="data.client.metadata.scope">
+                  <p class="text-xs uppercase tracking-wide text-muted">Scope</p>
+                  <p class="whitespace-pre-wrap text-default">{{ data.client.metadata.scope }}</p>
+                </div>
+              </template>
             </div>
 
             <div v-else class="space-y-3">
@@ -245,10 +321,7 @@ function ownerLabel(): string {
               <UFormField label="Type">
                 <USelectMenu
                   v-model="editState.type"
-                  :items="[
-                    { label: 'Client', value: 'client' },
-                    { label: 'Prospect', value: 'prospect' },
-                  ]"
+                  :items="typeOptions"
                   value-key="value"
                   class="w-full"
                 />
@@ -271,6 +344,7 @@ function ownerLabel(): string {
               <UFormField label="Notes">
                 <UTextarea v-model="editState.notes" :rows="3" class="w-full" />
               </UFormField>
+              <ClientMetadataFields v-model="editState.metadata" :type="editState.type" />
               <div class="flex justify-end gap-2">
                 <UButton variant="ghost" label="Cancel" size="sm" @click="editing = false" />
                 <UButton label="Save" size="sm" @click="saveEdit" />
@@ -280,10 +354,12 @@ function ownerLabel(): string {
 
           <ClientContactsCard
             :contacts="data.contacts"
+            :client-id="clientId"
             :can-edit="canUpdate"
             @add="(p) => addContact(p)"
             @update="(id, p) => updateContact(id, p)"
             @remove="(id) => removeContact(id)"
+            @imported="refresh"
           />
         </div>
 
@@ -303,6 +379,15 @@ function ownerLabel(): string {
             :can-edit="canUpdate"
             @link="(oppId, primary) => linkOpportunity(oppId, primary)"
             @unlink="(oppId) => unlinkOpportunity(oppId)"
+          />
+
+          <ClientDonorGrantsCard
+            v-if="data.client.type === 'donor'"
+            :grants="data.grants"
+            :can-edit="canUpdate"
+            @create="(p: CreateGrantPayload) => createGrant(p)"
+            @update="(id: string, p: UpdateGrantPayload) => updateGrant(id, p)"
+            @remove="(id: string) => removeGrant(id)"
           />
 
           <ClientRemindersCard

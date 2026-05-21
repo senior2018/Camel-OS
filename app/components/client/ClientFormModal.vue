@@ -4,6 +4,7 @@ import {
   CLIENT_TYPES,
   CLIENT_TYPE_LABEL,
   createClientSchema,
+  type ClientMetadata,
   type ClientType,
   type CreateClientPayload,
 } from '@@/shared/schemas/client'
@@ -61,6 +62,7 @@ const state = reactive<{
   phone: string
   email: string
   notes: string
+  metadata: ClientMetadata
   ownerUserId: string | null
 }>({
   name: '',
@@ -71,6 +73,7 @@ const state = reactive<{
   phone: '',
   email: '',
   notes: '',
+  metadata: {},
   ownerUserId: null,
 })
 
@@ -87,6 +90,7 @@ watch(
       state.phone = initial.phone ?? ''
       state.email = initial.email ?? ''
       state.notes = ''
+      state.metadata = {}
       state.ownerUserId = initial.ownerUserId
     } else {
       state.name = ''
@@ -97,6 +101,7 @@ watch(
       state.phone = ''
       state.email = ''
       state.notes = ''
+      state.metadata = {}
       state.ownerUserId = null
     }
   },
@@ -115,6 +120,8 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
       phone: state.phone || null,
       email: state.email || null,
       notes: state.notes || null,
+      // Only send metadata when the type actually uses it — keeps the DB row tidy.
+      metadata: state.type === 'donor' || state.type === 'partner' ? (state.metadata ?? {}) : null,
       ownerUserId: state.ownerUserId,
     },
     props.initial?.id ?? null
@@ -239,6 +246,8 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
             :disabled="readOnly"
           />
         </UFormField>
+
+        <ClientMetadataFields v-model="state.metadata" :type="state.type" :disabled="readOnly" />
 
         <UFormField v-if="!initial" label="Notes" name="notes" class="sm:col-span-2">
           <UTextarea

@@ -96,6 +96,33 @@ export async function sendOpportunityAssignmentEmail(
   }
 }
 
+export async function sendDonorGrantDeadlineEmail(
+  to: string,
+  options: {
+    recipientName: string
+    donorName: string
+    grantTitle: string
+    deadlineKind: string
+    deadlineDate: string
+    url: string
+  }
+): Promise<void> {
+  try {
+    await getClient().transactionalEmails.sendTransacEmail({
+      sender: { name: 'Camel OS', email: getFromEmail() },
+      to: [{ email: to }],
+      subject: `${options.deadlineKind} deadline approaching — ${options.donorName} / ${options.grantTitle}`,
+      htmlContent: `
+        <p>Hi ${options.recipientName},</p>
+        <p><strong>${options.deadlineKind}</strong> deadline for grant <strong>${options.grantTitle}</strong> (donor: <strong>${options.donorName}</strong>) falls on <strong>${options.deadlineDate}</strong> — within the next 30 days.</p>
+        <p><a href="${options.url}">Open in Camel OS</a></p>
+      `,
+    })
+  } catch (err) {
+    throw new Error(`Failed to send email: ${(err as Error).message}`)
+  }
+}
+
 export async function sendClientReminderEmail(
   to: string,
   options: {

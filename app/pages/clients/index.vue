@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { CreateClientPayload } from '@@/shared/schemas/client'
 import { CLIENT_TYPE_LABEL } from '@@/shared/schemas/client'
-import type { ClientListItem } from '@/composables/useClients'
+import { CLIENT_HEALTH_LABEL, clientHealth } from '@/composables/useClients'
+import type { ClientHealth, ClientListItem } from '@/composables/useClients'
 
 definePageMeta({
   layout: 'dashboard',
@@ -25,13 +26,16 @@ const canDelete = computed(() => can.value('crm', 'delete'))
 const { data, status, createClient, deleteClient } = useClients()
 
 const search = ref('')
-const typeFilter = ref<'all' | 'client' | 'prospect'>('all')
+const typeFilter = ref<'all' | 'client' | 'prospect' | 'donor' | 'partner'>('all')
+const healthFilter = ref<'all' | ClientHealth>('all')
 
 const filtered = computed<ClientListItem[]>(() => {
   const items = data.value?.items ?? []
   const q = search.value.trim().toLowerCase()
   return items.filter((c) => {
     if (typeFilter.value !== 'all' && c.type !== typeFilter.value) return false
+    if (healthFilter.value !== 'all' && clientHealth(c.lastInteractionAt) !== healthFilter.value)
+      return false
     if (!q) return true
     const haystack = [c.name, c.email, c.industry, c.country]
       .filter(Boolean)
@@ -97,6 +101,36 @@ function ownerLabel(c: ClientListItem): string {
   return name || c.ownerEmail || '—'
 }
 
+const healthCounts = computed(() => {
+  const items = data.value?.items ?? []
+  return {
+    healthy: items.filter((c) => clientHealth(c.lastInteractionAt) === 'healthy').length,
+    warm: items.filter((c) => clientHealth(c.lastInteractionAt) === 'warm').length,
+    at_risk: items.filter((c) => clientHealth(c.lastInteractionAt) === 'at_risk').length,
+  }
+})
+
+function healthDotClass(level: ClientHealth): string {
+  if (level === 'healthy') return 'bg-success'
+  if (level === 'warm') return 'bg-warning'
+  return 'bg-error'
+}
+
+function typeBadgeColor(t: ClientListItem['type']) {
+  // Visually distinct without being noisy — green clients, neutral prospects,
+  // primary-tinted donors, info for partners.
+  switch (t) {
+    case 'client':
+      return 'success' as const
+    case 'donor':
+      return 'primary' as const
+    case 'partner':
+      return 'info' as const
+    default:
+      return 'neutral' as const
+  }
+}
+
 function ownerInitials(c: ClientListItem): string {
   if (!c.ownerUserId) return ''
   const f = (c.ownerFirstName ?? '').charAt(0).toUpperCase()
@@ -111,7 +145,8 @@ function ownerInitials(c: ClientListItem): string {
       <div>
         <h1 class="text-2xl font-semibold tracking-tight text-default">Clients</h1>
         <p class="mt-1 text-sm text-muted">
-          Client and prospect accounts — contacts, interactions, and linked opportunities.
+          Clients, prospects, donors, and partners — contacts, interactions, grants, and linked
+          opportunities.
         </p>
       </div>
 
@@ -142,6 +177,51 @@ function ownerInitials(c: ClientListItem): string {
             label="Prospects"
             @click="typeFilter = 'prospect'"
           />
+          <UButton
+            :color="typeFilter === 'donor' ? 'primary' : 'neutral'"
+            :variant="typeFilter === 'donor' ? 'solid' : 'outline'"
+            label="Donors"
+            @click="typeFilter = 'donor'"
+          />
+          <UButton
+            :color="typeFilter === 'partner' ? 'primary' : 'neutral'"
+            :variant="typeFilter === 'partner' ? 'solid' : 'outline'"
+            label="Partners"
+            @click="typeFilter = 'partner'"
+          />
+        </UFieldGroup>
+
+        <UFieldGroup>
+          <UButton
+            :color="healthFilter === 'all' ? 'primary' : 'neutral'"
+            :variant="healthFilter === 'all' ? 'solid' : 'outline'"
+            label="Any health"
+            @click="healthFilter = 'all'"
+          />
+          <UButton
+            :color="healthFilter === 'healthy' ? 'primary' : 'neutral'"
+            :variant="healthFilter === 'healthy' ? 'solid' : 'outline'"
+            @click="healthFilter = 'healthy'"
+          >
+            <span class="inline-block size-2 rounded-full bg-success" />
+            <span class="ml-1.5">Healthy ({{ healthCounts.healthy }})</span>
+          </UButton>
+          <UButton
+            :color="healthFilter === 'warm' ? 'primary' : 'neutral'"
+            :variant="healthFilter === 'warm' ? 'solid' : 'outline'"
+            @click="healthFilter = 'warm'"
+          >
+            <span class="inline-block size-2 rounded-full bg-warning" />
+            <span class="ml-1.5">Warm ({{ healthCounts.warm }})</span>
+          </UButton>
+          <UButton
+            :color="healthFilter === 'at_risk' ? 'primary' : 'neutral'"
+            :variant="healthFilter === 'at_risk' ? 'solid' : 'outline'"
+            @click="healthFilter = 'at_risk'"
+          >
+            <span class="inline-block size-2 rounded-full bg-error" />
+            <span class="ml-1.5">At risk ({{ healthCounts.at_risk }})</span>
+          </UButton>
         </UFieldGroup>
         <UButton
           v-if="canCreate"
@@ -195,6 +275,7 @@ function ownerInitials(c: ClientListItem): string {
           <table class="min-w-full divide-y divide-default text-sm">
             <thead class="bg-elevated/40 text-xs uppercase tracking-wide text-muted">
               <tr>
+                <th class="px-3 py-3 text-left font-medium" />
                 <th class="px-4 py-3 text-left font-medium">Name</th>
                 <th class="px-4 py-3 text-left font-medium">Type</th>
                 <th class="px-4 py-3 text-left font-medium">Industry</th>
@@ -212,10 +293,20 @@ function ownerInitials(c: ClientListItem): string {
                 class="cursor-pointer transition-colors hover:bg-elevated/40"
                 @click="navigateTo(`/clients/${c.id}`)"
               >
+                <td class="px-3 py-3">
+                  <UTooltip :text="CLIENT_HEALTH_LABEL[clientHealth(c.lastInteractionAt)]">
+                    <span
+                      :class="[
+                        'inline-block size-2.5 rounded-full',
+                        healthDotClass(clientHealth(c.lastInteractionAt)),
+                      ]"
+                    />
+                  </UTooltip>
+                </td>
                 <td class="px-4 py-3 font-medium text-default">{{ c.name }}</td>
                 <td class="px-4 py-3">
                   <UBadge
-                    :color="c.type === 'client' ? 'success' : 'neutral'"
+                    :color="typeBadgeColor(c.type)"
                     variant="subtle"
                     size="xs"
                     :label="CLIENT_TYPE_LABEL[c.type]"

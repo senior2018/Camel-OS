@@ -6,6 +6,7 @@ import {
   clientInteractions,
   clientReminders,
   clients,
+  donorGrants,
   opportunities,
   opportunityClients,
   users,
@@ -38,6 +39,7 @@ export default defineEventHandler(async (event) => {
         phone: clients.phone,
         email: clients.email,
         notes: clients.notes,
+        metadata: clients.metadata,
         ownerUserId: clients.ownerUserId,
         ownerEmail: users.email,
         ownerFirstName: users.firstName,
@@ -114,7 +116,18 @@ export default defineEventHandler(async (event) => {
       .where(eq(clientReminders.clientId, client.id))
       .orderBy(asc(clientReminders.completedAt), asc(clientReminders.dueAt))
 
-    return { client, contacts, interactions, linkedOpportunities, reminders }
+    // Donor grants (CR-09) — only returned when the client is a donor. The UI
+    // hides the grants card otherwise, so an empty array would just be noise.
+    const grants =
+      client.type === 'donor'
+        ? await db
+            .select()
+            .from(donorGrants)
+            .where(eq(donorGrants.donorId, client.id))
+            .orderBy(asc(donorGrants.endDate), desc(donorGrants.createdAt))
+        : []
+
+    return { client, contacts, interactions, linkedOpportunities, reminders, grants }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
     consola.error('Error fetching client', error)

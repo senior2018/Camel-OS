@@ -53,8 +53,11 @@ export const opportunityTypeEnum = pgEnum('opportunity_type', [
   'other',
 ])
 
-// CRM enums (S4 — CR-01, CR-02, CR-05). Donor types arrive in S5/S6.
-export const clientTypeEnum = pgEnum('client_type', ['client', 'prospect'])
+// CRM enums. S4 introduced client/prospect; S5 added donor/partner (CR-08).
+// One table, four sub-types — matches Salesforce/HubSpot's "Account with type"
+// pattern. Type-specific structured data lives in `donor_grants` and
+// `partnership_agreements`; free-form per-type extras live in `clients.metadata`.
+export const clientTypeEnum = pgEnum('client_type', ['client', 'prospect', 'donor', 'partner'])
 
 export const clientInteractionTypeEnum = pgEnum('client_interaction_type', [
   'meeting',
@@ -457,6 +460,10 @@ export const clients = pgTable(
     // Top-line email on the account — used for duplicate detection alongside primary contact email.
     email: text(),
     notes: text(),
+    // Type-specific free-form fields (CR-08). Donor: focusAreas[], reportingLanguage,
+    // fiscalYearStart. Partner: partnershipType, scope. Stored as JSONB so admins
+    // can extend without a schema migration; structured data goes in dedicated tables.
+    metadata: jsonb(),
     ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
@@ -560,6 +567,59 @@ export const opportunityClients = pgTable(
     index('opportunity_clients_opportunity_id_idx').on(table.opportunityId),
     index('opportunity_clients_client_id_idx').on(table.clientId),
     index('opportunity_clients_organization_id_idx').on(table.organizationId),
+  ]
+)
+
+// ─── CRM — Donor Grants (S5 — CR-09) ───────────────────────────────────────────
+// Tracks a single funding cycle for a donor. Multiple grants per donor are
+// allowed — each row carries its own start/end, value, currency, and reporting
+// schedule. The dispatcher (server/utils/donor-grants.ts) emails the donor's
+// owner 30 days before the next deadline; `endDateNotifiedAt` and
+// `nextReportingNotifiedAt` are the idempotency stamps so each deadline only
+// fires once.
+
+export const donorGrantStatusEnum = pgEnum('donor_grant_status', [
+  'pending',
+  'active',
+  'completed',
+  'cancelled',
+])
+
+export const donorGrants = pgTable(
+  'donor_grants',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    donorId: uuid('donor_id')
+      .notNull()
+      .references(() => clients.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    title: text().notNull(),
+    startDate: date('start_date'),
+    endDate: date('end_date'),
+    totalValue: numeric('total_value', { precision: 14, scale: 2 }),
+    currency: varchar('currency', { length: 3 }).notNull().default('USD'),
+    // Free-form description of the reporting cadence — e.g. "Quarterly, due 30
+    // days after period end" — kept as text since the variety across donors is
+    // huge. A `nextReportingDate` lets the cron alert without parsing the text.
+    reportingSchedule: text('reporting_schedule'),
+    nextReportingDate: date('next_reporting_date'),
+    status: donorGrantStatusEnum().notNull().default('pending'),
+    notes: text(),
+    endDateNotifiedAt: timestamp('end_date_notified_at', { withTimezone: true }),
+    nextReportingNotifiedAt: timestamp('next_reporting_notified_at', { withTimezone: true }),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('donor_grants_donor_id_idx').on(table.donorId),
+    index('donor_grants_organization_id_idx').on(table.organizationId),
+    index('donor_grants_end_date_idx').on(table.endDate),
+    index('donor_grants_next_reporting_date_idx').on(table.nextReportingDate),
   ]
 )
 
@@ -671,3 +731,6 @@ export type NewOpportunityClient = typeof opportunityClients.$inferInsert
 
 export type ClientReminder = typeof clientReminders.$inferSelect
 export type NewClientReminder = typeof clientReminders.$inferInsert
+
+export type DonorGrant = typeof donorGrants.$inferSelect
+export type NewDonorGrant = typeof donorGrants.$inferInsert

@@ -31,6 +31,12 @@ const navItems = computed(() => {
       icon: 'i-lucide-users',
       active: route.path.startsWith('/clients'),
     })
+    items.push({
+      label: 'Reports',
+      to: '/reports/crm-activity',
+      icon: 'i-lucide-bar-chart-3',
+      active: route.path.startsWith('/reports'),
+    })
   }
   return items
 })
