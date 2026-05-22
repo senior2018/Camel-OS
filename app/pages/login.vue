@@ -29,15 +29,18 @@ const fields: AuthFormField[] = [
   },
 ]
 
-const providers = [
-  {
-    label: 'Continue with Google',
-    icon: 'devicon:google',
-    onClick: () => {
-      window.location.href = '/api/auth/google'
-    },
-  },
-]
+// Google sign-in hidden for the current rollout — toggle back on once the
+// client's IT approves the Google Workspace OAuth consent screen. Server route
+// `/api/auth/google` still exists and works if re-enabled.
+// const providers = [
+//   {
+//     label: 'Continue with Google',
+//     icon: 'devicon:google',
+//     onClick: () => {
+//       window.location.href = '/api/auth/google'
+//     },
+//   },
+// ]
 
 const schema = z.object({
   email: z.email('Invalid email'),
@@ -159,13 +162,7 @@ async function resendReset() {
       <p class="mt-2 text-sm text-muted">Sign in to your workspace to continue.</p>
     </div>
 
-    <UAuthForm
-      :schema="schema"
-      :fields="fields"
-      :providers="providers"
-      :loading-auto="true"
-      @submit="onSubmit"
-    >
+    <UAuthForm :schema="schema" :fields="fields" :loading-auto="true" @submit="onSubmit">
       <template #password-hint>
         <ULink to="/forgot-password" class="text-sm font-medium text-primary hover:underline">
           Forgot password?
