@@ -9,6 +9,7 @@ import { mfaRecoveryCodes, userSessions, users } from '@@/server/database/schema
 import { decrypt, sha256 } from '@@/server/utils/crypto'
 import { checkRateLimit, RATE_LIMITS } from '@@/server/utils/rate-limit'
 import { logAuditEvent } from '@@/server/utils/audit'
+import { verifyEmailCode } from '@@/server/utils/mfa-email'
 
 const otp = new OTP()
 const SESSION_MS = 7 * 24 * 60 * 60 * 1000
@@ -56,19 +57,27 @@ export default defineEventHandler(async (event) => {
     const { userId } = challengePayload
 
     const [localAccount] = await findAuthAccountByUserIdAndProvider(userId, 'local')
-    if (!localAccount?.mfaSecret || !localAccount.mfaEnabled) {
+    if (!localAccount || !localAccount.mfaEnabled) {
       throw createError({ statusCode: 400, statusMessage: 'MFA not configured for this account' })
     }
+    if (localAccount.mfaMethod === 'totp' && !localAccount.mfaSecret) {
+      throw createError({ statusCode: 400, statusMessage: 'TOTP secret missing — reconfigure MFA' })
+    }
 
-    const totpSecret = decrypt(localAccount.mfaSecret)
     const db = useDrizzle()
     const now = new Date()
     const code = parsed.data.code
+    const method = localAccount.mfaMethod
 
-    // Recovery codes are longer than 6 chars
+    // Recovery codes work regardless of the chosen primary method — they're a
+    // dash-separated 18-hex-char fallback, so they're easy to distinguish from
+    // the 6-digit primary codes.
     const isRecoveryCode = code.length > 6
 
+    let resolvedMethod: 'totp' | 'email' | 'recovery_code' = method as 'totp' | 'email'
+
     if (isRecoveryCode) {
+      resolvedMethod = 'recovery_code'
       const normalizedCode = code.replace(/-/g, '').toUpperCase()
       const codeHash = sha256(normalizedCode)
 
@@ -96,7 +105,29 @@ export default defineEventHandler(async (event) => {
         .update(mfaRecoveryCodes)
         .set({ usedAt: now })
         .where(eq(mfaRecoveryCodes.id, recoveryCode.id))
+    } else if (method === 'email') {
+      const result = await verifyEmailCode(userId, code)
+      if (!result.ok) {
+        await logAuditEvent({
+          organizationId: null,
+          userId,
+          resource: 'auth',
+          action: 'mfa_challenge_failed',
+          meta: { ip, reason: `invalid_email_${result.reason ?? 'invalid'}` },
+        })
+        throw createError({
+          statusCode: 401,
+          statusMessage:
+            result.reason === 'expired'
+              ? 'Code expired. Request a new one.'
+              : result.reason === 'exhausted'
+                ? 'Too many attempts. Request a new code.'
+                : 'Invalid code',
+        })
+      }
     } else {
+      // TOTP — default branch.
+      const totpSecret = decrypt(localAccount.mfaSecret!)
       const result = otp.verifySync({ token: code, secret: totpSecret })
       if (!result.valid) {
         await logAuditEvent({
@@ -147,7 +178,7 @@ export default defineEventHandler(async (event) => {
       userId: existingUser.id,
       resource: 'auth',
       action: 'mfa_challenge_passed',
-      meta: { ip, method: isRecoveryCode ? 'recovery_code' : 'totp' },
+      meta: { ip, method: resolvedMethod },
     })
 
     return {

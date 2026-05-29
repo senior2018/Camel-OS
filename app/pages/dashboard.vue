@@ -20,6 +20,37 @@ const firstName = computed(() => {
   return u?.firstName ?? 'there'
 })
 
+// S5b — on the super admin's own dashboard, hide the redundant "System
+// Administrator" role pill; the gold "Super Administrator" badge replaces it.
+const displayDashboardRoles = computed(() => {
+  const list = perms.value?.roles ?? []
+  if (perms.value?.isSuperAdmin) {
+    return list.filter((r: { name: string }) => r.name !== 'System Administrator')
+  }
+  return list
+})
+
+// S5b — copy reflects the actual MFA method instead of always saying "authenticator app".
+const mfaDescription = computed(() => {
+  if (!mfaStatus.value?.mfaEnabled) {
+    return 'Add an extra layer of security to your account.'
+  }
+  if (mfaStatus.value?.mfaMethod === 'email') {
+    return 'You sign in with a 6-digit code sent to your email.'
+  }
+  return 'You sign in with a code from your authenticator app.'
+})
+
+// "Change method" disables MFA first, then routes to setup so the user can pick
+// the other method. Reuses the existing disable confirmation flow — they enter
+// a current code, MFA flips off, then they re-enroll on /mfa-setup. Simpler
+// than building a separate "switch method" flow.
+function startChangeMethod() {
+  showDisableModal.value = true
+  changingMethod.value = true
+}
+const changingMethod = ref(false)
+
 // Only show actions that are actually wired up. Future modules add items here as they land.
 const quickActions = computed(() => {
   const items: Array<{ title: string; description: string; icon: string; to: string }> = []
@@ -44,11 +75,19 @@ async function disableMfa() {
     showDisableModal.value = false
     disableCode.value = ''
     await refreshMfa()
-    toast.add({
-      title: 'MFA disabled',
-      description: 'Two-factor authentication has been turned off.',
-      color: 'success',
-    })
+    // S5b — if the user clicked "Change method", route them straight to setup
+    // so they can pick the other method. Otherwise stay on the dashboard.
+    if (changingMethod.value) {
+      changingMethod.value = false
+      toast.add({ title: 'Pick a new method', color: 'success' })
+      await navigateTo('/mfa-setup')
+    } else {
+      toast.add({
+        title: 'MFA disabled',
+        description: 'Two-factor authentication has been turned off.',
+        color: 'success',
+      })
+    }
   } catch (err: unknown) {
     const msg =
       (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Invalid code.'
@@ -133,14 +172,24 @@ async function disableMfa() {
               <dt class="text-muted">Roles</dt>
               <dd class="flex flex-wrap justify-end gap-1">
                 <UBadge
-                  v-for="role in perms?.roles ?? []"
+                  v-if="perms?.isSuperAdmin"
+                  variant="subtle"
+                  color="warning"
+                  size="sm"
+                  icon="i-lucide-crown"
+                  label="Super Administrator"
+                />
+                <UBadge
+                  v-for="role in displayDashboardRoles"
                   :key="role.id"
                   variant="subtle"
                   color="primary"
                   size="sm"
                   :label="role.name"
                 />
-                <span v-if="!perms?.roles?.length" class="text-xs text-muted"
+                <span
+                  v-if="!perms?.isSuperAdmin && !displayDashboardRoles.length"
+                  class="text-xs text-muted"
                   >No roles assigned</span
                 >
               </dd>
@@ -178,15 +227,18 @@ async function disableMfa() {
             <div>
               <p class="text-sm font-medium text-default">Two-factor authentication</p>
               <p class="mt-1 text-xs text-muted">
-                {{
-                  mfaStatus?.mfaEnabled
-                    ? 'Your account is protected with an authenticator app.'
-                    : 'Add an extra layer of security to your account.'
-                }}
+                {{ mfaDescription }}
               </p>
             </div>
 
             <div class="flex items-center gap-3">
+              <UBadge
+                v-if="mfaStatus?.mfaEnabled && mfaStatus.mfaMethod"
+                :color="mfaStatus.mfaMethod === 'email' ? 'info' : 'primary'"
+                variant="subtle"
+                :icon="mfaStatus.mfaMethod === 'email' ? 'i-lucide-mail' : 'i-lucide-smartphone'"
+                :label="mfaStatus.mfaMethod === 'email' ? 'Email codes' : 'Authenticator app'"
+              />
               <UBadge
                 :color="mfaStatus?.mfaEnabled ? 'success' : 'neutral'"
                 :label="mfaStatus?.mfaEnabled ? 'Enabled' : 'Disabled'"
@@ -202,6 +254,14 @@ async function disableMfa() {
               />
               <UButton
                 v-else-if="mfaStatus?.mfaEnabled"
+                size="sm"
+                variant="outline"
+                label="Change method"
+                icon="i-lucide-repeat"
+                @click="startChangeMethod"
+              />
+              <UButton
+                v-if="mfaStatus?.mfaEnabled"
                 size="sm"
                 color="error"
                 variant="ghost"
@@ -235,16 +295,30 @@ async function disableMfa() {
     </section>
 
     <!-- Disable MFA modal -->
-    <UModal v-model:open="showDisableModal" title="Disable two-factor authentication">
+    <UModal
+      v-model:open="showDisableModal"
+      :title="changingMethod ? 'Change MFA method' : 'Disable two-factor authentication'"
+    >
       <template #body>
         <div class="space-y-4">
           <UAlert
-            color="warning"
+            :color="changingMethod ? 'neutral' : 'warning'"
             variant="subtle"
-            icon="i-lucide-triangle-alert"
-            description="Disabling MFA will make your account less secure. You can re-enable it at any time."
+            :icon="changingMethod ? 'i-lucide-info' : 'i-lucide-triangle-alert'"
+            :description="
+              changingMethod
+                ? 'Confirm your current MFA code, then we’ll take you to set up a different method.'
+                : 'Disabling MFA will make your account less secure. You can re-enable it at any time.'
+            "
           />
-          <UFormField label="Enter your 6-digit authentication code" name="code">
+          <UFormField
+            :label="
+              mfaStatus?.mfaMethod === 'email'
+                ? 'Enter the 6-digit code from your email'
+                : 'Enter your 6-digit authenticator code'
+            "
+            name="code"
+          >
             <UInput
               v-model="disableCode"
               placeholder="000000"
@@ -258,10 +332,19 @@ async function disableMfa() {
       </template>
       <template #footer>
         <div class="flex justify-end gap-3">
-          <UButton variant="ghost" label="Cancel" @click="showDisableModal = false" />
           <UButton
-            color="error"
-            label="Disable MFA"
+            variant="ghost"
+            label="Cancel"
+            @click="
+              () => {
+                showDisableModal = false
+                changingMethod = false
+              }
+            "
+          />
+          <UButton
+            :color="changingMethod ? 'primary' : 'error'"
+            :label="changingMethod ? 'Continue' : 'Disable MFA'"
             :loading="disabling"
             :disabled="disableCode.length !== 6"
             @click="disableMfa"

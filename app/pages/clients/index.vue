@@ -280,7 +280,7 @@ function ownerInitials(c: ClientListItem): string {
                 <th class="px-4 py-3 text-left font-medium">Type</th>
                 <th class="px-4 py-3 text-left font-medium">Industry</th>
                 <th class="px-4 py-3 text-left font-medium">Country</th>
-                <th class="px-4 py-3 text-left font-medium">Owner</th>
+                <th class="px-4 py-3 text-left font-medium">Assigned to</th>
                 <th class="px-4 py-3 text-right font-medium">Opps</th>
                 <th class="px-4 py-3 text-left font-medium">Last touch</th>
                 <th v-if="canDelete" class="px-4 py-3 text-right font-medium" />

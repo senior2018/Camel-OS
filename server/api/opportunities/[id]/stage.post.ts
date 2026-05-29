@@ -1,17 +1,25 @@
 import { consola } from 'consola'
 import { and, eq } from 'drizzle-orm'
 
-import { opportunities } from '@@/server/database/schema'
+import { opportunities, opportunityStageTransitions } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import { logAuditEvent } from '@@/server/utils/audit'
 import { updateOpportunityStageSchema } from '@@/shared/schemas/opportunity'
+import { seedActivitiesIfMissing } from '@@/server/utils/opportunity-workflow'
 
 /**
- * OM-09: every stage transition is recorded against the opportunity. The audit
- * log captures `{ fromStage, toStage, note }` so the existing /admin/audit-log
- * viewer is the single source of truth for pipeline history — no parallel table
- * needed.
+ * S5b — stage transition is now a workflow decision, not just a column flip.
+ *
+ *   - For 'lost', a `comment` (rejection reason) is REQUIRED — otherwise we
+ *     reject the request with 400. This matches the client's spec feedback:
+ *     "if rejected then we should add a comment of why".
+ *   - For every other transition the comment is optional context.
+ *   - We seed the destination stage's default activity checklist if it hasn't
+ *     been seeded before, so the modal shows a sensible to-do list on entry.
+ *   - We write a row to `opportunity_stage_transitions` capturing the full
+ *     decision (from, to, comment, who) — that's the audit-grade record.
+ *     The existing audit_log row is preserved for compatibility.
  */
 export default defineEventHandler(async (event) => {
   try {
@@ -24,6 +32,14 @@ export default defineEventHandler(async (event) => {
       throw createError({
         statusCode: 400,
         statusMessage: parsed.error.issues[0]?.message ?? 'Invalid stage payload',
+      })
+    }
+
+    // Spec: rejection requires a reason.
+    if (parsed.data.stage === 'lost' && !(parsed.data.note ?? '').trim()) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'A rejection reason is required when moving to Lost.',
       })
     }
 
@@ -41,7 +57,6 @@ export default defineEventHandler(async (event) => {
     }
 
     if (existing.stage === parsed.data.stage) {
-      // No-op — return the current record so the client can stay in sync.
       return { success: true, opportunity: existing, unchanged: true }
     }
 
@@ -50,6 +65,17 @@ export default defineEventHandler(async (event) => {
       .set({ stage: parsed.data.stage, updatedAt: now })
       .where(eq(opportunities.id, existing.id))
       .returning()
+
+    await db.insert(opportunityStageTransitions).values({
+      opportunityId: existing.id,
+      organizationId: ctx.organizationId,
+      fromStage: existing.stage,
+      toStage: parsed.data.stage,
+      comment: parsed.data.note ?? null,
+      userId: ctx.userId,
+    })
+
+    await seedActivitiesIfMissing(existing.id, ctx.organizationId, parsed.data.stage)
 
     await logAuditEvent({
       organizationId: ctx.organizationId,

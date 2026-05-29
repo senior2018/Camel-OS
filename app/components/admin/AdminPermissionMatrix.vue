@@ -16,6 +16,12 @@ const emit = defineEmits<{
   'update:modelValue': [value: PermissionTuple[]]
 }>()
 
+// S5b — hide the wildcard `admin` action from the matrix; it duplicates what
+// the "All" column already does for the user. Admin stays in the underlying
+// data model (the System Administrator role still has it via the seed), but
+// admins editing other roles only see the four explicit actions.
+const VISIBLE_ACTIONS = ACTIONS.filter((a) => a !== 'admin')
+
 // Index permissions by `${module}:${action}` for O(1) checkbox lookup.
 const granted = computed(() => {
   const set = new Set<string>()
@@ -39,24 +45,24 @@ function toggle(moduleKey: string, action: PermissionAction) {
 
 function toggleAllForModule(moduleKey: string) {
   if (props.disabled) return
-  const allChecked = ACTIONS.every((a) => granted.value.has(`${moduleKey}:${a}`))
+  const allChecked = VISIBLE_ACTIONS.every((a) => granted.value.has(`${moduleKey}:${a}`))
   const cleared = props.modelValue.filter((p) => p.module !== moduleKey)
   if (allChecked) {
     emit('update:modelValue', cleared)
   } else {
     emit('update:modelValue', [
       ...cleared,
-      ...ACTIONS.map((action) => ({ module: moduleKey, action })),
+      ...VISIBLE_ACTIONS.map((action) => ({ module: moduleKey, action })),
     ])
   }
 }
 
 function moduleHasAny(moduleKey: string) {
-  return ACTIONS.some((a) => granted.value.has(`${moduleKey}:${a}`))
+  return VISIBLE_ACTIONS.some((a) => granted.value.has(`${moduleKey}:${a}`))
 }
 
 function moduleHasAll(moduleKey: string) {
-  return ACTIONS.every((a) => granted.value.has(`${moduleKey}:${a}`))
+  return VISIBLE_ACTIONS.every((a) => granted.value.has(`${moduleKey}:${a}`))
 }
 </script>
 
@@ -69,7 +75,7 @@ function moduleHasAll(moduleKey: string) {
             Module
           </th>
           <th
-            v-for="action in ACTIONS"
+            v-for="action in VISIBLE_ACTIONS"
             :key="action"
             class="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider text-muted"
           >
@@ -101,7 +107,7 @@ function moduleHasAll(moduleKey: string) {
               </div>
             </div>
           </td>
-          <td v-for="action in ACTIONS" :key="action" class="px-3 py-3 text-center">
+          <td v-for="action in VISIBLE_ACTIONS" :key="action" class="px-3 py-3 text-center">
             <UCheckbox
               :model-value="isChecked(mod.key, action)"
               :disabled="disabled"

@@ -214,7 +214,7 @@ function healthColor(level: ReturnType<typeof clientHealth>): 'success' | 'warni
             <p class="mt-1 text-sm text-muted">
               {{ data.client.industry || 'No industry' }}
               <span v-if="data.client.country"> · {{ data.client.country }}</span>
-              · Owner: {{ ownerLabel() }}
+              · Assigned to: {{ ownerLabel() }}
             </p>
           </div>
           <div class="flex items-center gap-2">

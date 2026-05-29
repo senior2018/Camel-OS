@@ -10,16 +10,25 @@ export default defineEventHandler(async (event) => {
     const admin = await requireAdmin(event)
     const db = useDrizzle()
 
+    const [me] = await db
+      .select({ isSuperAdmin: users.isSuperAdmin })
+      .from(users)
+      .where(eq(users.id, admin.userId))
+      .limit(1)
+    const callerIsSuperAdmin = !!me?.isSuperAdmin
+
     const userRows = await db
       .select({
         id: users.id,
         email: users.email,
         firstName: users.firstName,
         lastName: users.lastName,
+        role: users.role,
         status: users.status,
         deactivatedAt: users.deactivatedAt,
         emailVerifiedAt: users.emailVerifiedAt,
         lockedUntil: users.lockedUntil,
+        isSuperAdmin: users.isSuperAdmin,
         createdAt: users.createdAt,
       })
       .from(users)
@@ -70,7 +79,11 @@ export default defineEventHandler(async (event) => {
       )
       .orderBy(desc(userInvitations.createdAt))
 
-    return { users: usersWithRoles, pendingInvitations: pendingInvites }
+    return {
+      users: usersWithRoles,
+      pendingInvitations: pendingInvites,
+      callerIsSuperAdmin,
+    }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
     consola.error('Error listing admin users', error)

@@ -2,6 +2,8 @@ import type { PermissionAction } from '@@/shared/permissions'
 
 interface PermissionsResponse {
   isAdmin: boolean
+  /** S5b — true for the single super admin per org. Distinct from `isAdmin`. */
+  isSuperAdmin: boolean
   adminLevel?: 'system_admin' | 'owner' | 'admin' | 'role'
   roles: Array<{ id: string; name: string }>
   /** Map of `module → action[]` the current user has been granted by their roles. */
@@ -23,7 +25,7 @@ interface PermissionsResponse {
 export async function usePermissions() {
   const fetchResult = await useFetch<PermissionsResponse>('/api/auth/permissions', {
     key: 'auth-permissions',
-    default: () => ({ isAdmin: false, roles: [], permissions: {} }),
+    default: () => ({ isAdmin: false, isSuperAdmin: false, roles: [], permissions: {} }),
   })
 
   /**

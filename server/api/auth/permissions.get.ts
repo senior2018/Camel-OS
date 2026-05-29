@@ -31,6 +31,7 @@ export default defineEventHandler(async (event) => {
         id: users.id,
         organizationId: users.organizationId,
         systemRole: users.role,
+        isSuperAdmin: users.isSuperAdmin,
       })
       .from(users)
       .where(eq(users.id, sessionUser.id))
@@ -56,7 +57,7 @@ export default defineEventHandler(async (event) => {
       permissions[module].push(action)
     }
 
-    const base = { roles: assignedRoles, permissions }
+    const base = { roles: assignedRoles, permissions, isSuperAdmin: !!userRow.isSuperAdmin }
 
     if (userRow.systemRole === 'system_admin') {
       return { isAdmin: true, adminLevel: 'system_admin' as const, ...base }
@@ -89,5 +90,10 @@ export default defineEventHandler(async (event) => {
 })
 
 function emptyResponse() {
-  return { isAdmin: false, roles: [], permissions: {} as Record<string, string[]> }
+  return {
+    isAdmin: false,
+    isSuperAdmin: false,
+    roles: [],
+    permissions: {} as Record<string, string[]>,
+  }
 }

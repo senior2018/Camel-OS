@@ -15,7 +15,6 @@ export interface Opportunity {
   deadline: string | null
   estimatedValue: string | null
   currency: string
-  winProbability: number | null
   primaryClientId: string | null
   primaryClientName: string | null
   ownerUserId: string | null

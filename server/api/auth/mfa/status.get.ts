@@ -13,6 +13,7 @@ export default defineEventHandler(async (event) => {
 
     return {
       mfaEnabled: localAccount?.mfaEnabled ?? false,
+      mfaMethod: localAccount?.mfaMethod ?? null,
       hasLocalAccount: !!localAccount,
     }
   } catch (error) {

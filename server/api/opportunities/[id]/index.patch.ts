@@ -44,7 +44,6 @@ export default defineEventHandler(async (event) => {
     if (data.deadline !== undefined) updates.deadline = data.deadline ?? null
     if (data.estimatedValue !== undefined) updates.estimatedValue = data.estimatedValue ?? null
     if (data.currency !== undefined) updates.currency = data.currency
-    if (data.winProbability !== undefined) updates.winProbability = data.winProbability ?? null
     if (data.ownerUserId !== undefined) updates.ownerUserId = data.ownerUserId ?? null
 
     const updated = await db.transaction(async (tx) => {
