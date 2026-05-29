@@ -1,12 +1,8 @@
 <script setup lang="ts">
 import type { FormSubmitEvent } from '@nuxt/ui'
 import {
-  OPPORTUNITY_SOURCES,
-  OPPORTUNITY_SOURCE_LABEL,
   OPPORTUNITY_STAGES,
   OPPORTUNITY_STAGE_LABEL,
-  OPPORTUNITY_TYPES,
-  OPPORTUNITY_TYPE_LABEL,
   createOpportunitySchema,
   type CreateOpportunityPayload,
   type OpportunitySource,
@@ -29,8 +25,46 @@ const emit = defineEmits<{
   submit: [payload: CreateOpportunityPayload, id: string | null, pendingFiles: File[]]
   delete: [opp: Opportunity]
   approve: [opp: Opportunity, approved: boolean]
-  'move-stage': [opp: Opportunity, toStage: OpportunityStage]
+  // S5b: stage moves now carry a comment (required for 'lost', optional otherwise).
+  'move-stage': [opp: Opportunity, toStage: OpportunityStage, comment: string | null]
 }>()
+
+// S5b — view-by-default for existing opportunities. The form fields are
+// rendered disabled until the user explicitly clicks "Edit details"; this
+// prevents accidental mutations while still showing all the information
+// clearly. New opportunities open straight into edit mode (no existing data
+// to view). The workflow checklist + attachments + stage selector live
+// outside this gate because they're discrete actions, not form mutations.
+const editMode = ref(false)
+
+// Buffered stage transition: the dropdown changes a *pending* value, then
+// opens the dialog. Only when the user confirms (with a comment if needed)
+// do we emit `move-stage` to the parent.
+const pendingStage = ref<OpportunityStage | null>(null)
+const transitionComment = ref('')
+
+function startTransition(s: OpportunityStage) {
+  if (!props.initial) return
+  if (s === props.initial.stage) return
+  pendingStage.value = s
+  transitionComment.value = ''
+}
+
+function cancelTransition() {
+  pendingStage.value = null
+  transitionComment.value = ''
+}
+
+function confirmTransition() {
+  if (!props.initial || !pendingStage.value) return
+  const target = pendingStage.value
+  if (target === 'lost' && !transitionComment.value.trim()) {
+    return // dialog UI shows the required-field hint
+  }
+  emit('move-stage', props.initial, target, transitionComment.value.trim() || null)
+  pendingStage.value = null
+  transitionComment.value = ''
+}
 
 const stageOptions = OPPORTUNITY_STAGES.map((s) => ({
   label: OPPORTUNITY_STAGE_LABEL[s],
@@ -46,7 +80,6 @@ const state = reactive<{
   deadline: string
   estimatedValue: string
   currency: string
-  winProbability: number | null
   ownerUserId: string | null
   primaryClientId: string | null
 }>({
@@ -56,7 +89,6 @@ const state = reactive<{
   deadline: '',
   estimatedValue: '',
   currency: 'USD',
-  winProbability: null,
   ownerUserId: null,
   primaryClientId: null,
 })
@@ -124,44 +156,62 @@ const ownerOptions = computed(() => [
   })),
 ])
 
-const sourceOptions = OPPORTUNITY_SOURCES.map((s) => ({
-  label: OPPORTUNITY_SOURCE_LABEL[s],
-  value: s,
-}))
-const typeOptions = OPPORTUNITY_TYPES.map((t) => ({
-  label: OPPORTUNITY_TYPE_LABEL[t],
-  value: t,
-}))
+// S5b — source + type options come from the org's admin-editable lookup table.
+interface LookupRow {
+  kind: string
+  key: string
+  label: string
+}
+const { data: lookupData } = await useFetch<{ sources: LookupRow[]; types: LookupRow[] }>(
+  '/api/crm/opportunity-lookup-values',
+  { key: 'opportunity-lookup-values', default: () => ({ sources: [], types: [] }) }
+)
+const sourceOptions = computed(() =>
+  (lookupData.value?.sources ?? []).map((s) => ({ label: s.label, value: s.key }))
+)
+const typeOptions = computed(() =>
+  (lookupData.value?.types ?? []).map((t) => ({ label: t.label, value: t.key }))
+)
+
+function resetFromInitial() {
+  if (props.initial) {
+    state.title = props.initial.title
+    state.source = props.initial.source
+    state.type = props.initial.type
+    state.deadline = props.initial.deadline ?? ''
+    state.estimatedValue = props.initial.estimatedValue ?? ''
+    state.currency = props.initial.currency
+    state.ownerUserId = props.initial.ownerUserId
+    state.primaryClientId = props.initial.primaryClientId
+  } else {
+    state.title = ''
+    state.source = 'other'
+    state.type = 'consulting'
+    state.deadline = ''
+    state.estimatedValue = ''
+    state.currency = 'USD'
+    state.ownerUserId = null
+    state.primaryClientId = null
+  }
+}
 
 watch(
   () => [props.open, props.initial] as const,
   ([open, initial]) => {
     if (!open) return
     pendingFiles.value = []
-    if (initial) {
-      state.title = initial.title
-      state.source = initial.source
-      state.type = initial.type
-      state.deadline = initial.deadline ?? ''
-      state.estimatedValue = initial.estimatedValue ?? ''
-      state.currency = initial.currency
-      state.winProbability = initial.winProbability
-      state.ownerUserId = initial.ownerUserId
-      state.primaryClientId = initial.primaryClientId
-    } else {
-      state.title = ''
-      state.source = 'other'
-      state.type = 'consulting'
-      state.deadline = ''
-      state.estimatedValue = ''
-      state.currency = 'USD'
-      state.winProbability = null
-      state.ownerUserId = null
-      state.primaryClientId = null
-    }
+    resetFromInitial()
+    // New opportunities open in edit mode (there's nothing to view yet);
+    // existing ones open in view mode so admins can't accidentally mutate.
+    editMode.value = !initial
   },
   { immediate: true }
 )
+
+function cancelEdit() {
+  resetFromInitial()
+  editMode.value = false
+}
 
 function onSubmit(_e: FormSubmitEvent<unknown>) {
   emit(
@@ -173,7 +223,6 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
       deadline: state.deadline || null,
       estimatedValue: state.estimatedValue || null,
       currency: state.currency,
-      winProbability: state.winProbability,
       ownerUserId: state.ownerUserId,
       primaryClientId: state.primaryClientId,
     },
@@ -186,7 +235,15 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
 <template>
   <UModal
     :open="open"
-    :title="readOnly ? 'Opportunity details' : initial ? 'Edit opportunity' : 'New opportunity'"
+    :title="
+      !initial
+        ? 'New opportunity'
+        : readOnly
+          ? 'Opportunity details'
+          : editMode
+            ? 'Edit opportunity'
+            : 'Opportunity details'
+    "
     :ui="{ content: 'sm:max-w-2xl' }"
     @update:open="emit('update:open', $event)"
   >
@@ -218,10 +275,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
           value-key="value"
           size="sm"
           class="w-full sm:w-48"
-          @update:model-value="
-            (s: OpportunityStage) =>
-              initial && s !== initial.stage && emit('move-stage', initial, s)
-          "
+          @update:model-value="(s: OpportunityStage) => startTransition(s)"
         />
       </div>
 
@@ -238,7 +292,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
             placeholder="Tender / grant title"
             size="lg"
             class="w-full"
-            :disabled="readOnly"
+            :disabled="readOnly || !editMode"
           />
         </UFormField>
 
@@ -249,7 +303,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
             value-key="value"
             size="lg"
             class="w-full"
-            :disabled="readOnly"
+            :disabled="readOnly || !editMode"
           />
         </UFormField>
 
@@ -260,7 +314,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
             value-key="value"
             size="lg"
             class="w-full"
-            :disabled="readOnly"
+            :disabled="readOnly || !editMode"
           />
         </UFormField>
 
@@ -270,7 +324,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
             type="date"
             size="lg"
             class="w-full"
-            :disabled="readOnly"
+            :disabled="readOnly || !editMode"
           />
         </UFormField>
 
@@ -282,36 +336,26 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
               placeholder="0"
               size="lg"
               class="flex-1"
-              :disabled="readOnly"
+              :disabled="readOnly || !editMode"
             />
             <UInput
               v-model="state.currency"
               maxlength="3"
               size="lg"
               class="w-20"
-              :disabled="readOnly"
+              :disabled="readOnly || !editMode"
             />
           </div>
         </UFormField>
 
-        <UFormField label="Win probability (%)" name="winProbability">
-          <UInputNumber
-            v-model="state.winProbability"
-            :min="0"
-            :max="100"
-            class="w-full"
-            :disabled="readOnly"
-          />
-        </UFormField>
-
-        <UFormField label="Owner" name="ownerUserId">
+        <UFormField label="Assigned to" name="ownerUserId">
           <USelectMenu
             v-model="state.ownerUserId"
             :items="ownerOptions"
             value-key="value"
             size="lg"
             class="w-full"
-            :disabled="readOnly"
+            :disabled="readOnly || !editMode"
           />
         </UFormField>
 
@@ -322,13 +366,14 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
             value-key="value"
             size="lg"
             class="w-full"
-            :disabled="readOnly"
+            :disabled="readOnly || !editMode"
           />
         </UFormField>
       </UForm>
 
-      <!-- Existing opportunity: live attachment list. -->
-      <div v-if="initial" class="mt-6 border-t border-default pt-6">
+      <!-- Existing opportunity: stage-aware workflow panel + live attachments. -->
+      <div v-if="initial" class="mt-6 space-y-6 border-t border-default pt-6">
+        <OpportunityWorkflowPanel :opportunity-id="initial.id" :can-edit="!readOnly" />
         <OpportunityAttachments
           :opportunity-id="initial.id"
           :can-upload="!readOnly"
@@ -392,6 +437,8 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
     <template #footer>
       <div class="flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
+          <!-- Approval + Delete always available on an existing opp (when the
+               user has permission) — they're discrete actions, not form mutations. -->
           <UButton
             v-if="initial && !readOnly"
             :color="isApproved ? 'warning' : 'success'"
@@ -410,20 +457,86 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
           />
         </div>
         <div class="ml-auto flex gap-3">
-          <UButton
-            variant="ghost"
-            :label="readOnly ? 'Close' : 'Cancel'"
-            @click="emit('update:open', false)"
-          />
-          <UButton
-            v-if="!readOnly"
-            type="submit"
-            form="opportunity-form"
-            :loading="submitting"
-            :label="initial ? 'Save changes' : 'Create opportunity'"
-            trailing-icon="i-lucide-check"
-          />
+          <!-- VIEW mode on an existing opp: Close + Edit details -->
+          <template v-if="initial && !editMode">
+            <UButton variant="ghost" label="Close" @click="emit('update:open', false)" />
+            <UButton
+              v-if="!readOnly"
+              icon="i-lucide-pencil"
+              label="Edit details"
+              @click="editMode = true"
+            />
+          </template>
+          <!-- EDIT mode (or new opp): Cancel + Save / Create -->
+          <template v-else>
+            <UButton
+              variant="ghost"
+              :label="initial ? 'Cancel' : 'Discard'"
+              @click="initial ? cancelEdit() : emit('update:open', false)"
+            />
+            <UButton
+              v-if="!readOnly"
+              type="submit"
+              form="opportunity-form"
+              :loading="submitting"
+              :label="initial ? 'Save changes' : 'Create opportunity'"
+              trailing-icon="i-lucide-check"
+            />
+          </template>
         </div>
+      </div>
+    </template>
+  </UModal>
+
+  <!-- Stage-transition confirmation. Opens when the user picks a new stage in
+       the header dropdown. Captures an optional comment (required when moving
+       to Lost). The actual move only fires on Confirm. -->
+  <UModal
+    :open="pendingStage !== null"
+    :title="
+      pendingStage && initial
+        ? `Move “${initial.title}” to ${OPPORTUNITY_STAGE_LABEL[pendingStage]}?`
+        : 'Move stage?'
+    "
+    @update:open="(v: boolean) => !v && cancelTransition()"
+  >
+    <template #body>
+      <div class="space-y-3">
+        <p class="text-sm text-muted">
+          {{
+            pendingStage === 'lost'
+              ? 'A rejection reason is required when marking an opportunity as Lost.'
+              : pendingStage === 'won'
+                ? 'Capture any notes about how the win was secured (optional).'
+                : 'Add a short note about why you’re moving this opportunity (optional).'
+          }}
+        </p>
+        <UFormField
+          :label="pendingStage === 'lost' ? 'Rejection reason' : 'Comment'"
+          :required="pendingStage === 'lost'"
+        >
+          <UTextarea
+            v-model="transitionComment"
+            :rows="4"
+            :placeholder="
+              pendingStage === 'lost'
+                ? 'e.g. Budget too small; did not meet eligibility criteria'
+                : 'Optional context'
+            "
+            class="w-full"
+          />
+        </UFormField>
+      </div>
+    </template>
+    <template #footer>
+      <div class="ml-auto flex gap-3">
+        <UButton variant="ghost" label="Cancel" @click="cancelTransition" />
+        <UButton
+          :disabled="pendingStage === 'lost' && !transitionComment.trim()"
+          :color="pendingStage === 'lost' ? 'error' : 'primary'"
+          :label="pendingStage === 'lost' ? 'Mark as Lost' : 'Confirm move'"
+          @click="confirmTransition"
+        />
       </div>
     </template>
   </UModal>

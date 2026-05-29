@@ -21,6 +21,20 @@ export default defineEventHandler(async (event) => {
     const db = useDrizzle()
     const now = new Date()
 
+    // S5b — block deactivation of the super admin. Only a transfer (which
+    // demotes the previous super admin) can remove super-admin status.
+    const [target] = await db
+      .select({ isSuperAdmin: users.isSuperAdmin })
+      .from(users)
+      .where(and(eq(users.id, targetId), eq(users.organizationId, admin.organizationId)))
+      .limit(1)
+    if (target?.isSuperAdmin) {
+      throw createError({
+        statusCode: 403,
+        statusMessage: 'The super admin cannot be deactivated. Transfer the role first.',
+      })
+    }
+
     const [updated] = await db
       .update(users)
       .set({ deactivatedAt: now, status: 'suspended', updatedAt: now })

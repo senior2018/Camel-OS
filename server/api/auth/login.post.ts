@@ -173,15 +173,32 @@ export default defineEventHandler(async (event) => {
       })
       const mfaChallengeToken = encrypt(challengePayload)
 
+      // Email-method users get a code emailed as soon as we issue the challenge —
+      // they have nothing to "check on the authenticator app", the email IS the
+      // factor. Failures here are logged but don't block the challenge UI from
+      // appearing (the user can hit "Resend code" from the challenge page).
+      if (existingAuthAccount.mfaMethod === 'email') {
+        try {
+          const { dispatchEmailCode } = await import('@@/server/utils/mfa-email')
+          await dispatchEmailCode(existingUser.id)
+        } catch (err) {
+          consola.error('Failed to dispatch MFA email code at login:', err)
+        }
+      }
+
       await logAuditEvent({
         organizationId: existingUser.organizationId,
         userId: existingUser.id,
         resource: 'auth',
         action: 'mfa_challenge_issued',
-        meta: { ip },
+        meta: { ip, method: existingAuthAccount.mfaMethod },
       })
 
-      return { mfaRequired: true, mfaChallengeToken }
+      return {
+        mfaRequired: true,
+        mfaChallengeToken,
+        mfaMethod: existingAuthAccount.mfaMethod,
+      }
     }
 
     // Track session in DB

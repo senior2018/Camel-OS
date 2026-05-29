@@ -59,7 +59,9 @@ function ownerLabel(opp: Opportunity) {
           <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted">
             Deadline
           </th>
-          <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted">Owner</th>
+          <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted">
+            Assigned to
+          </th>
         </tr>
       </thead>
       <tbody class="divide-y divide-default">

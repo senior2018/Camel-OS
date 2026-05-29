@@ -1,11 +1,7 @@
 <script setup lang="ts">
 import {
-  OPPORTUNITY_SOURCES,
-  OPPORTUNITY_SOURCE_LABEL,
   OPPORTUNITY_STAGES,
   OPPORTUNITY_STAGE_LABEL,
-  OPPORTUNITY_TYPES,
-  OPPORTUNITY_TYPE_LABEL,
   type OpportunitySource,
   type OpportunityStage,
   type OpportunityType,
@@ -50,14 +46,22 @@ function push() {
 
 watch(state, push, { deep: true })
 
-const sourceOptions = OPPORTUNITY_SOURCES.map((s) => ({
-  label: OPPORTUNITY_SOURCE_LABEL[s],
-  value: s,
-}))
-const typeOptions = OPPORTUNITY_TYPES.map((t) => ({
-  label: OPPORTUNITY_TYPE_LABEL[t],
-  value: t,
-}))
+// S5b — source + type come from admin-editable lookup values.
+interface LookupRow {
+  kind: string
+  key: string
+  label: string
+}
+const { data: lookupData } = await useFetch<{ sources: LookupRow[]; types: LookupRow[] }>(
+  '/api/crm/opportunity-lookup-values',
+  { key: 'opportunity-lookup-values', default: () => ({ sources: [], types: [] }) }
+)
+const sourceOptions = computed(() =>
+  (lookupData.value?.sources ?? []).map((s) => ({ label: s.label, value: s.key }))
+)
+const typeOptions = computed(() =>
+  (lookupData.value?.types ?? []).map((t) => ({ label: t.label, value: t.key }))
+)
 const stageOptions = OPPORTUNITY_STAGES.map((s) => ({
   label: OPPORTUNITY_STAGE_LABEL[s],
   value: s,

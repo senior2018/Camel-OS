@@ -5,10 +5,12 @@ export interface AdminUser {
   email: string
   firstName: string
   lastName: string
+  role: 'system_admin' | 'org_admin' | 'member'
   status: 'active' | 'suspended' | 'pending_verification'
   deactivatedAt: string | null
   emailVerifiedAt: string | null
   lockedUntil: string | null
+  isSuperAdmin: boolean
   createdAt: string
   roles: Array<{ id: string; name: string }>
 }
@@ -25,6 +27,7 @@ export interface PendingInvitation {
 interface AdminUsersResponse {
   users: AdminUser[]
   pendingInvitations: PendingInvitation[]
+  callerIsSuperAdmin: boolean
 }
 
 /**
@@ -37,7 +40,7 @@ export function useAdminUsers() {
 
   const { data, refresh, status, error } = useFetch<AdminUsersResponse>('/api/admin/users', {
     key: 'admin-users-list',
-    default: () => ({ users: [], pendingInvitations: [] }),
+    default: () => ({ users: [], pendingInvitations: [], callerIsSuperAdmin: false }),
   })
 
   function extractMessage(err: unknown, fallback: string) {
@@ -75,6 +78,22 @@ export function useAdminUsers() {
         description: extractMessage(err, 'Could not deactivate.'),
         color: 'error',
       })
+    }
+  }
+
+  async function deleteUser(user: AdminUser): Promise<boolean> {
+    try {
+      await $fetch(`/api/admin/users/${user.id}`, { method: 'DELETE' })
+      toast.add({ title: 'User deleted', description: user.email, color: 'success' })
+      await refresh()
+      return true
+    } catch (err) {
+      toast.add({
+        title: 'Could not delete',
+        description: extractMessage(err, 'Delete failed.'),
+        color: 'error',
+      })
+      return false
     }
   }
 
@@ -127,6 +146,7 @@ export function useAdminUsers() {
     refresh,
     inviteUser,
     deactivateUser,
+    deleteUser,
     reactivateUser,
     revokeInvitation,
     resendInvitation,

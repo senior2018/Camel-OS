@@ -4,7 +4,7 @@ import type {
   OpportunityStage,
   OpportunityStage as _Stage,
 } from '@@/shared/schemas/opportunity'
-import { OPPORTUNITY_STAGES } from '@@/shared/schemas/opportunity'
+import { OPPORTUNITY_STAGES, OPPORTUNITY_STAGE_LABEL } from '@@/shared/schemas/opportunity'
 import type { Opportunity } from '@/composables/useOpportunities'
 import type { OpportunityFilterState } from '@/components/opportunity/OpportunityFilters.vue'
 
@@ -150,9 +150,32 @@ async function handleSubmit(
   if (ok) showFormModal.value = false
 }
 
-async function handleMove(opp: Opportunity, toStage: OpportunityStage) {
+// S5b — drag-and-drop now opens a confirmation dialog so the user can supply
+// the move comment (required for 'lost'). The same dialog is used by Kanban,
+// Stages view, and the in-modal stage selector.
+const pendingMove = ref<{ opp: Opportunity; toStage: OpportunityStage } | null>(null)
+const pendingMoveComment = ref('')
+
+function handleMove(opp: Opportunity, toStage: OpportunityStage) {
   if (!canUpdate.value) return
-  await moveStage(opp, toStage)
+  if (opp.stage === toStage) return
+  pendingMove.value = { opp, toStage }
+  pendingMoveComment.value = ''
+}
+
+function cancelPendingMove() {
+  pendingMove.value = null
+  pendingMoveComment.value = ''
+}
+
+async function confirmPendingMove() {
+  if (!pendingMove.value) return
+  if (pendingMove.value.toStage === 'lost' && !pendingMoveComment.value.trim()) return
+  const { opp, toStage } = pendingMove.value
+  const note = pendingMoveComment.value.trim() || undefined
+  pendingMove.value = null
+  pendingMoveComment.value = ''
+  await moveStage(opp, toStage, note)
 }
 
 const confirmDelete = ref<Opportunity | null>(null)
@@ -327,9 +350,9 @@ const filteredCount = computed(() => filteredItems.value.length)
         }
       "
       @move-stage="
-        async (opp, toStage) => {
+        async (opp, toStage, comment) => {
           if (!canUpdate) return
-          const ok = await moveStage(opp, toStage)
+          const ok = await moveStage(opp, toStage, comment ?? undefined)
           if (ok) {
             // Reflect the new stage so the modal's badge updates in place.
             editing = { ...opp, stage: toStage }
@@ -337,6 +360,47 @@ const filteredCount = computed(() => filteredItems.value.length)
         }
       "
     />
+
+    <!-- Drag-and-drop stage transitions also funnel through this dialog so the
+         comment / rejection-reason flow is the same everywhere. -->
+    <UModal
+      :open="!!pendingMove"
+      :title="
+        pendingMove
+          ? `Move “${pendingMove.opp.title}” to ${OPPORTUNITY_STAGE_LABEL[pendingMove.toStage]}?`
+          : ''
+      "
+      @update:open="(v: boolean) => !v && cancelPendingMove()"
+    >
+      <template #body>
+        <div class="space-y-3">
+          <p class="text-sm text-muted">
+            {{
+              pendingMove?.toStage === 'lost'
+                ? 'A rejection reason is required when marking an opportunity as Lost.'
+                : 'Optionally capture why this opportunity is moving.'
+            }}
+          </p>
+          <UFormField
+            :label="pendingMove?.toStage === 'lost' ? 'Rejection reason' : 'Comment'"
+            :required="pendingMove?.toStage === 'lost'"
+          >
+            <UTextarea v-model="pendingMoveComment" :rows="4" class="w-full" />
+          </UFormField>
+        </div>
+      </template>
+      <template #footer>
+        <div class="ml-auto flex gap-3">
+          <UButton variant="ghost" label="Cancel" @click="cancelPendingMove" />
+          <UButton
+            :disabled="pendingMove?.toStage === 'lost' && !pendingMoveComment.trim()"
+            :color="pendingMove?.toStage === 'lost' ? 'error' : 'primary'"
+            :label="pendingMove?.toStage === 'lost' ? 'Mark as Lost' : 'Confirm move'"
+            @click="confirmPendingMove"
+          />
+        </div>
+      </template>
+    </UModal>
 
     <UModal
       :open="!!confirmDelete"

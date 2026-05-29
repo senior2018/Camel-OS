@@ -35,7 +35,6 @@ export default defineEventHandler(async (event) => {
           deadline: data.deadline ?? null,
           estimatedValue: data.estimatedValue ?? null,
           currency: data.currency,
-          winProbability: data.winProbability ?? null,
           ownerUserId: data.ownerUserId ?? null,
           createdByUserId: ctx.userId,
         })

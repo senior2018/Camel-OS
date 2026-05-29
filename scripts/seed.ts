@@ -9,6 +9,7 @@ import consola from 'consola'
 import * as schema from '../server/database/schema'
 import {
   authAccounts,
+  crmLookupValues,
   organizationMembers,
   organizations,
   rolePermissions,
@@ -71,6 +72,7 @@ async function seed() {
         lastName: SEED_ADMIN.lastName,
         status: 'active',
         role: 'system_admin',
+        isSuperAdmin: true, // S5b: seed boots exactly one super admin per org.
         emailVerifiedAt: new Date(),
       })
       .returning()
@@ -121,6 +123,40 @@ async function seed() {
         })
       }
     }
+
+    // S5b — seed admin-editable lookup values. These mirror the keys that
+    // used to live in the `opportunity_source` / `opportunity_type` enums.
+    const SEED_SOURCES = [
+      { key: 'tender', label: 'Tender' },
+      { key: 'grant', label: 'Grant' },
+      { key: 'partnership', label: 'Partnership' },
+      { key: 'referral', label: 'Referral' },
+      { key: 'inbound', label: 'Inbound' },
+      { key: 'other', label: 'Other' },
+    ]
+    const SEED_TYPES = [
+      { key: 'consulting', label: 'Consulting' },
+      { key: 'training', label: 'Training' },
+      { key: 'research', label: 'Research' },
+      { key: 'advisory', label: 'Advisory' },
+      { key: 'other', label: 'Other' },
+    ]
+    await tx.insert(crmLookupValues).values([
+      ...SEED_SOURCES.map((v, i) => ({
+        organizationId: org.id,
+        kind: 'opportunity_source',
+        key: v.key,
+        label: v.label,
+        sortOrder: i,
+      })),
+      ...SEED_TYPES.map((v, i) => ({
+        organizationId: org.id,
+        kind: 'opportunity_type',
+        key: v.key,
+        label: v.label,
+        sortOrder: i,
+      })),
+    ])
 
     consola.success(`Organization : ${org.name} (${org.id})`)
     consola.success(`Admin user   : ${adminUser.email} (${adminUser.id})`)

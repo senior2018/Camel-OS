@@ -9,6 +9,7 @@ import { useDrizzle } from '@@/server/utils/drizzle'
 import { authAccounts, mfaRecoveryCodes } from '@@/server/database/schema'
 import { decrypt, sha256 } from '@@/server/utils/crypto'
 import { logAuditEvent } from '@@/server/utils/audit'
+import { verifyEmailCode } from '@@/server/utils/mfa-email'
 
 const otp = new OTP()
 const RECOVERY_CODE_COUNT = 10
@@ -17,6 +18,19 @@ function generateRecoveryCode(): string {
   const part = () => randomBytes(3).toString('hex').toUpperCase()
   return `${part()}-${part()}-${part()}`
 }
+
+/**
+ * Confirms MFA enrollment by verifying a fresh code the user just entered.
+ *
+ * - TOTP method: code is the 6-digit token from their authenticator app
+ * - Email method: code is the 6-digit token from the email we sent at setup
+ *
+ * In both cases, success flips `mfaEnabled=true` and seeds 10 single-use
+ * recovery codes that work for either method as a fallback.
+ */
+const schema = z.object({
+  code: z.string().min(6).max(8),
+})
 
 export default defineEventHandler(async (event) => {
   try {
@@ -27,34 +41,43 @@ export default defineEventHandler(async (event) => {
 
     const sessionUser = session.user as { id: string }
 
-    const schema = z.object({
-      code: z
-        .string()
-        .length(6, 'TOTP code must be 6 digits')
-        .regex(/^\d+$/, 'TOTP code must be numeric'),
-    })
-
-    const body = await readBody(event)
-    const parsed = schema.safeParse(body)
-
+    const parsed = schema.safeParse(await readBody(event))
     if (!parsed.success) {
       throw createError({ statusCode: 400, statusMessage: 'Invalid request payload' })
     }
 
     const [localAccount] = await findAuthAccountByUserIdAndProvider(sessionUser.id, 'local')
-    if (!localAccount?.mfaSecret) {
-      throw createError({ statusCode: 400, statusMessage: 'MFA setup not initiated' })
+    if (!localAccount) {
+      throw createError({ statusCode: 400, statusMessage: 'No local account' })
     }
-
     if (localAccount.mfaEnabled) {
       throw createError({ statusCode: 409, statusMessage: 'MFA is already enabled' })
     }
 
-    const totpSecret = decrypt(localAccount.mfaSecret)
-    const result = otp.verifySync({ token: parsed.data.code, secret: totpSecret })
-
-    if (!result.valid) {
-      throw createError({ statusCode: 400, statusMessage: 'Invalid TOTP code' })
+    // Branch on the chosen method.
+    if (localAccount.mfaMethod === 'email') {
+      const result = await verifyEmailCode(sessionUser.id, parsed.data.code)
+      if (!result.ok) {
+        throw createError({
+          statusCode: 400,
+          statusMessage:
+            result.reason === 'exhausted'
+              ? 'Too many attempts. Request a fresh code.'
+              : result.reason === 'expired'
+                ? 'Code expired. Request a fresh code.'
+                : 'Invalid code',
+        })
+      }
+    } else {
+      // TOTP method (the default).
+      if (!localAccount.mfaSecret) {
+        throw createError({ statusCode: 400, statusMessage: 'MFA setup not initiated' })
+      }
+      const totpSecret = decrypt(localAccount.mfaSecret)
+      const result = otp.verifySync({ token: parsed.data.code, secret: totpSecret })
+      if (!result.valid) {
+        throw createError({ statusCode: 400, statusMessage: 'Invalid TOTP code' })
+      }
     }
 
     const rawCodes = Array.from({ length: RECOVERY_CODE_COUNT }, generateRecoveryCode)
@@ -81,10 +104,9 @@ export default defineEventHandler(async (event) => {
       userId: sessionUser.id,
       resource: 'auth',
       action: 'mfa_enabled',
-      meta: {},
+      meta: { method: localAccount.mfaMethod },
     })
 
-    // Clear the `mustSetupMfa` gate so middleware lets them into the app.
     await setUserSession(event, {
       user: { ...session.user, mustSetupMfa: false },
     })

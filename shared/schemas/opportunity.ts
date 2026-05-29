@@ -9,26 +9,31 @@ export const OPPORTUNITY_STAGES = [
   'lost',
 ] as const
 
-export const OPPORTUNITY_SOURCES = [
-  'tender',
-  'grant',
-  'partnership',
-  'referral',
-  'inbound',
-  'other',
-] as const
-
-export const OPPORTUNITY_TYPES = [
-  'consulting',
-  'training',
-  'research',
-  'advisory',
-  'other',
-] as const
-
+// S5b — Source and Type are no longer enums; admins manage them as lookup
+// values per organization. These string aliases stay for typing convenience.
 export type OpportunityStage = (typeof OPPORTUNITY_STAGES)[number]
-export type OpportunitySource = (typeof OPPORTUNITY_SOURCES)[number]
-export type OpportunityType = (typeof OPPORTUNITY_TYPES)[number]
+export type OpportunitySource = string
+export type OpportunityType = string
+
+// Seeded defaults still used by audit-log formatters and any UI that hasn't
+// loaded the lookup values yet. The /opportunities/lookup-values endpoint is
+// the live source of truth.
+export const DEFAULT_OPPORTUNITY_SOURCE_LABELS: Record<string, string> = {
+  tender: 'Tender',
+  grant: 'Grant',
+  partnership: 'Partnership',
+  referral: 'Referral',
+  inbound: 'Inbound',
+  other: 'Other',
+}
+
+export const DEFAULT_OPPORTUNITY_TYPE_LABELS: Record<string, string> = {
+  consulting: 'Consulting',
+  training: 'Training',
+  research: 'Research',
+  advisory: 'Advisory',
+  other: 'Other',
+}
 
 /**
  * Stable display labels for the Kanban columns and source/type pickers.
@@ -43,22 +48,23 @@ export const OPPORTUNITY_STAGE_LABEL: Record<OpportunityStage, string> = {
   lost: 'Lost',
 }
 
-export const OPPORTUNITY_SOURCE_LABEL: Record<OpportunitySource, string> = {
-  tender: 'Tender',
-  grant: 'Grant',
-  partnership: 'Partnership',
-  referral: 'Referral',
-  inbound: 'Inbound',
-  other: 'Other',
+// Backward-compatibility: existing UI references these via direct lookup.
+// Returns the seeded default label if known, else the raw key humanised.
+function humanise(key: string): string {
+  return key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ')
 }
 
-export const OPPORTUNITY_TYPE_LABEL: Record<OpportunityType, string> = {
-  consulting: 'Consulting',
-  training: 'Training',
-  research: 'Research',
-  advisory: 'Advisory',
-  other: 'Other',
-}
+export const OPPORTUNITY_SOURCE_LABEL = new Proxy(DEFAULT_OPPORTUNITY_SOURCE_LABELS, {
+  get(target, prop: string) {
+    return target[prop] ?? humanise(prop)
+  },
+}) as Record<string, string>
+
+export const OPPORTUNITY_TYPE_LABEL = new Proxy(DEFAULT_OPPORTUNITY_TYPE_LABELS, {
+  get(target, prop: string) {
+    return target[prop] ?? humanise(prop)
+  },
+}) as Record<string, string>
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -84,12 +90,26 @@ const optionalDate = z
  */
 export const createOpportunitySchema = z.object({
   title: z.string().trim().min(1, 'Title is required').max(200),
-  source: z.enum(OPPORTUNITY_SOURCES).default('other'),
-  type: z.enum(OPPORTUNITY_TYPES).default('consulting'),
+  // Source + type are now admin-editable lookup keys. The endpoint validates
+  // them against `crm_lookup_values` for the caller's org, so we don't enum
+  // them here — Zod only enforces shape (lowercase snake key).
+  source: z
+    .string()
+    .trim()
+    .min(1)
+    .max(60)
+    .regex(/^[a-z0-9_]+$/)
+    .default('other'),
+  type: z
+    .string()
+    .trim()
+    .min(1)
+    .max(60)
+    .regex(/^[a-z0-9_]+$/)
+    .default('consulting'),
   deadline: optionalDate,
   estimatedValue: monetary,
   currency: z.string().trim().length(3).toUpperCase().default('USD'),
-  winProbability: z.number().int().min(0).max(100).optional().nullable(),
   ownerUserId: z.string().uuid().optional().nullable(),
   // CR-03: primary client link. Optional — opportunities can exist without one.
   primaryClientId: z.string().uuid().optional().nullable(),

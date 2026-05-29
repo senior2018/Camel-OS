@@ -236,7 +236,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
           />
         </UFormField>
 
-        <UFormField label="Owner" name="ownerUserId" class="sm:col-span-2">
+        <UFormField label="Assigned to" name="ownerUserId" class="sm:col-span-2">
           <USelectMenu
             v-model="state.ownerUserId"
             :items="ownerOptions"

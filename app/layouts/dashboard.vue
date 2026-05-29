@@ -70,10 +70,16 @@ const adminItems = computed(() => {
       icon: 'i-lucide-scroll-text',
       active: route.path.startsWith('/admin/audit-log'),
     },
+    {
+      label: 'Lookup values',
+      to: '/admin/lookup-values',
+      icon: 'i-lucide-list-tree',
+      active: route.path.startsWith('/admin/lookup-values'),
+    },
   ]
 })
 
-const settingsItems = [{ label: 'Security', to: '/dashboard#security', icon: 'i-lucide-shield' }]
+const settingsItems = [{ label: 'My profile', to: '/settings/profile', icon: 'i-lucide-user' }]
 
 const userInitials = computed(() => {
   if (!user.value) return '?'

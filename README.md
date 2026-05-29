@@ -163,6 +163,20 @@ shared/
   permissions.ts       # RBAC module + action catalog
 ```
 
+## How password-history reuse-prevention works
+
+The password policy can require that a user's new password doesn't match any of their last N passwords. Common question: **how does this work when passwords are stored hashed?**
+
+Plaintext passwords are **never** stored — anywhere, ever. What we store in `password_history` is each previous password's full hash (scrypt with a random per-password salt). On a password change:
+
+1. The user submits a new plaintext password.
+2. We pull the last N hashes from `password_history`.
+3. For each historical hash, we run `verifyPassword(newPlaintext, oldHash)` — scrypt re-derives a hash from the new plaintext using the **salt embedded in the old hash**, then compares.
+4. If any verification succeeds, the new password is a reuse and is rejected.
+5. Otherwise, we hash the new password with a fresh salt, store it in `users`, and push the previous hash into `password_history`.
+
+Salts are unique per password, so the same plaintext password used by two users produces different stored hashes — but we always verify against the matching salt, so the comparison is always meaningful. This is the standard pattern used by Auth0, AWS Cognito, and Microsoft Identity. No exotic tricks, no plaintext anywhere.
+
 ## Coding standards
 
 See [CODING_STANDARDS.md](CODING_STANDARDS.md) (gitignored, local). Highlights:

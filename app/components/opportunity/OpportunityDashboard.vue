@@ -11,14 +11,14 @@ import type { Opportunity } from '@/composables/useOpportunities'
 /**
  * OM-06 — Manager dashboard for opportunities. Aggregates the same in-memory
  * list the Kanban/List use, so adding it costs zero round-trips. Numbers shown:
- *  - Headline cards: total, pipeline value, weighted value, won YTD
+ *  - Headline cards: total count, total pipeline value, active pipeline value, won YTD
  *  - By-stage breakdown with count + total value (horizontal bars)
  *  - By-source breakdown
  *  - Top 5 opportunities by estimated value
  *
- * "Weighted value" = sum of (value × winProbability/100) — the standard pipeline
- * forecast metric. Falls back to 50% probability when not set, mirroring how
- * most BD tools handle missing probability.
+ * Active pipeline = sum of estimated_value for opportunities not yet in Won or
+ * Lost. The previous weighted-forecast metric was driven by `winProbability`,
+ * removed in S5b as it added noise without analytic value for the firm.
  */
 interface Props {
   items: Opportunity[]
@@ -39,11 +39,10 @@ const totalCount = computed(() => props.items.length)
 
 const totalValue = computed(() => props.items.reduce((sum, o) => sum + valueOf(o), 0))
 
-const weightedValue = computed(() =>
-  props.items.reduce((sum, o) => {
-    const prob = o.winProbability ?? 50
-    return sum + (valueOf(o) * prob) / 100
-  }, 0)
+const activePipelineValue = computed(() =>
+  props.items
+    .filter((o) => o.stage !== 'won' && o.stage !== 'lost')
+    .reduce((sum, o) => sum + valueOf(o), 0)
 )
 
 const wonValue = computed(() =>
@@ -84,16 +83,18 @@ const bySource = computed<SourceStat[]>(() => {
   const grouped: Record<string, SourceStat> = {}
   for (const opp of props.items) {
     const key = opp.source
-    if (!grouped[key]) {
-      grouped[key] = {
+    let entry = grouped[key]
+    if (!entry) {
+      entry = {
         source: key,
-        label: OPPORTUNITY_SOURCE_LABEL[key],
+        label: OPPORTUNITY_SOURCE_LABEL[key] ?? key,
         count: 0,
         value: 0,
       }
+      grouped[key] = entry
     }
-    grouped[key].count++
-    grouped[key].value += valueOf(opp)
+    entry.count++
+    entry.value += valueOf(opp)
   }
   return Object.values(grouped).sort((a, b) => b.count - a.count)
 })
@@ -125,9 +126,11 @@ function formatMoney(n: number, currency = 'USD'): string {
         <p class="mt-2 text-3xl font-semibold text-default">{{ formatMoney(totalValue) }}</p>
       </UCard>
       <UCard :ui="{ body: 'p-5' }">
-        <p class="text-xs uppercase tracking-wide text-muted">Weighted forecast</p>
-        <p class="mt-2 text-3xl font-semibold text-default">{{ formatMoney(weightedValue) }}</p>
-        <p class="mt-1 text-xs text-dimmed">value × win probability</p>
+        <p class="text-xs uppercase tracking-wide text-muted">Active pipeline</p>
+        <p class="mt-2 text-3xl font-semibold text-default">
+          {{ formatMoney(activePipelineValue) }}
+        </p>
+        <p class="mt-1 text-xs text-dimmed">excluding won &amp; lost</p>
       </UCard>
       <UCard :ui="{ body: 'p-5' }">
         <p class="text-xs uppercase tracking-wide text-muted">Won</p>

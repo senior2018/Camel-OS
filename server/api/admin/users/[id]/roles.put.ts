@@ -24,13 +24,21 @@ export default defineEventHandler(async (event) => {
     const db = useDrizzle()
 
     const [target] = await db
-      .select({ id: users.id })
+      .select({ id: users.id, isSuperAdmin: users.isSuperAdmin })
       .from(users)
       .where(and(eq(users.id, targetId), eq(users.organizationId, admin.organizationId)))
       .limit(1)
 
     if (!target) {
       throw createError({ statusCode: 404, statusMessage: 'User not found' })
+    }
+
+    // S5b — only the super admin themselves can change their roles.
+    if (target.isSuperAdmin && admin.userId !== target.id) {
+      throw createError({
+        statusCode: 403,
+        statusMessage: "Only the super admin can change the super admin's roles.",
+      })
     }
 
     // Reject if any roleId belongs to a different org (defence in depth — the IDs

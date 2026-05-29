@@ -101,6 +101,10 @@ export const users = pgTable('users', {
   mustChangePassword: boolean('must_change_password').notNull().default(false),
   // Soft-deactivation flag (UM-01)
   deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
+  // S5b: exactly one user per org may have this flag. Normal admins cannot
+  // delete, demote, or change the super admin's password. Transferable by the
+  // current super admin via a password-confirmed flow.
+  isSuperAdmin: boolean('is_super_admin').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
@@ -139,6 +143,10 @@ export const authAccounts = pgTable(
     passwordHash: text('password_hash'),
     mfaSecret: text('mfa_secret'),
     mfaEnabled: boolean('mfa_enabled').notNull().default(false),
+    // S5b: which second factor the user picked during setup. Drives the
+    // login challenge UX — TOTP shows the 6-digit input, email triggers a
+    // code-via-Brevo flow. Recovery codes work for both.
+    mfaMethod: text('mfa_method').notNull().default('totp'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
@@ -199,6 +207,27 @@ export const passwordResetTokens = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [index('password_reset_tokens_user_id_idx').on(table.userId)]
+)
+
+// ─── MFA Email Codes (S5b — alternate second factor) ──────────────────────────
+// Short-lived (5 min) 6-digit codes emailed during the MFA challenge when the
+// user's `mfaMethod` is 'email'. Stored hashed to match the same hygiene as
+// password reset / email verification tokens.
+
+export const mfaEmailCodes = pgTable(
+  'mfa_email_codes',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    codeHash: text('code_hash').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+    attempts: integer('attempts').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('mfa_email_codes_user_id_idx').on(table.userId)]
 )
 
 // ─── MFA Recovery Codes ────────────────────────────────────────────────────────
@@ -371,6 +400,35 @@ export const auditLog = pgTable(
   ]
 )
 
+// ─── CRM lookup values (S5b — admin-editable enums) ───────────────────────────
+// Generic per-org lookup table. Today it powers opportunity sources and types;
+// the `kind` column lets future modules add new lookup categories without
+// another migration. `key` is the stable machine identifier we still store on
+// the parent record (e.g. `opportunities.source`); `label` is the human name
+// admins can rename freely. `archived_at` removes a value from new pickers
+// without orphaning historical references.
+
+export const crmLookupValues = pgTable(
+  'crm_lookup_values',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    kind: text().notNull(),
+    key: text().notNull(),
+    label: text().notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    unique('crm_lookup_values_org_kind_key_uq').on(table.organizationId, table.kind, table.key),
+    index('crm_lookup_values_org_kind_idx').on(table.organizationId, table.kind),
+  ]
+)
+
 // ─── Opportunities (S2 — OM-02, OM-03, OM-09) ──────────────────────────────────
 
 export const opportunities = pgTable(
@@ -381,16 +439,18 @@ export const opportunities = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: 'cascade' }),
     title: text().notNull(),
-    source: opportunitySourceEnum().notNull().default('other'),
-    type: opportunityTypeEnum().notNull().default('consulting'),
+    // S5b — formerly opportunitySourceEnum / opportunityTypeEnum. Now plain
+    // text keys, validated against `crm_lookup_values` (kind='opportunity_source'
+    // / kind='opportunity_type') so admins can add new options without a
+    // migration. The original enum keys are preserved as the seeded defaults.
+    source: text().notNull().default('other'),
+    type: text().notNull().default('consulting'),
     stage: opportunityStageEnum().notNull().default('discovery'),
     // ISO date — RFPs and grant calls usually quote a calendar deadline, not an instant.
     deadline: date('deadline'),
     // Monetary value in `currency`; numeric(14,2) gives room up to 999,999,999,999.99.
     estimatedValue: numeric('estimated_value', { precision: 14, scale: 2 }),
     currency: varchar('currency', { length: 3 }).notNull().default('USD'),
-    // 0-100 — used by the manager dashboard (OM-06) once it ships.
-    winProbability: integer('win_probability'),
     ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
     // OM-08: "Approved to Pursue" stamp. Null until an approver flips it.
     approvedToPursueAt: timestamp('approved_to_pursue_at', { withTimezone: true }),
@@ -408,6 +468,69 @@ export const opportunities = pgTable(
     index('opportunities_stage_idx').on(table.stage),
     index('opportunities_owner_user_id_idx').on(table.ownerUserId),
     index('opportunities_deadline_idx').on(table.deadline),
+  ]
+)
+
+// ─── Opportunity Stage Activities + Transitions (S5b — workflow engine) ──────
+// CR feedback from the client: "every stage has activities that should be done
+// before moving to the next stage". This pair of tables turns drag-and-drop
+// into a real workflow:
+//
+//   - `opportunity_stage_activities` — the per-stage checklist. Seeded for the
+//     opp's current stage on entry so every teammate opens the modal and sees
+//     the same to-do list. Users tick items off as they're done; custom items
+//     can be added.
+//
+//   - `opportunity_stage_transitions` — every stage move captures the from →
+//     to plus a comment. For 'lost', the comment is required (rejection
+//     reason); for others it's optional context. The audit_log records who
+//     moved what when; this table records why.
+
+export const opportunityStageActivities = pgTable(
+  'opportunity_stage_activities',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    opportunityId: uuid('opportunity_id')
+      .notNull()
+      .references(() => opportunities.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    stage: opportunityStageEnum().notNull(),
+    label: text().notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    completedByUserId: uuid('completed_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('opportunity_stage_activities_opp_stage_idx').on(table.opportunityId, table.stage),
+    index('opportunity_stage_activities_organization_id_idx').on(table.organizationId),
+  ]
+)
+
+export const opportunityStageTransitions = pgTable(
+  'opportunity_stage_transitions',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    opportunityId: uuid('opportunity_id')
+      .notNull()
+      .references(() => opportunities.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    fromStage: opportunityStageEnum('from_stage').notNull(),
+    toStage: opportunityStageEnum('to_stage').notNull(),
+    comment: text(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('opportunity_stage_transitions_opp_idx').on(table.opportunityId, table.createdAt),
+    index('opportunity_stage_transitions_organization_id_idx').on(table.organizationId),
   ]
 )
 
@@ -689,6 +812,18 @@ export type NewPasswordResetToken = typeof passwordResetTokens.$inferInsert
 
 export type MfaRecoveryCode = typeof mfaRecoveryCodes.$inferSelect
 export type NewMfaRecoveryCode = typeof mfaRecoveryCodes.$inferInsert
+
+export type MfaEmailCode = typeof mfaEmailCodes.$inferSelect
+export type NewMfaEmailCode = typeof mfaEmailCodes.$inferInsert
+
+export type CrmLookupValue = typeof crmLookupValues.$inferSelect
+export type NewCrmLookupValue = typeof crmLookupValues.$inferInsert
+
+export type OpportunityStageActivity = typeof opportunityStageActivities.$inferSelect
+export type NewOpportunityStageActivity = typeof opportunityStageActivities.$inferInsert
+
+export type OpportunityStageTransition = typeof opportunityStageTransitions.$inferSelect
+export type NewOpportunityStageTransition = typeof opportunityStageTransitions.$inferInsert
 
 export type Role = typeof roles.$inferSelect
 export type NewRole = typeof roles.$inferInsert

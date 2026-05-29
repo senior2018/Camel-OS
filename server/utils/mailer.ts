@@ -85,10 +85,30 @@ export async function sendOpportunityAssignmentEmail(
       subject: `You've been assigned to "${options.title}"`,
       htmlContent: `
         <p>Hi ${options.recipientName},</p>
-        <p><strong>${options.assignerName}</strong> has assigned you as the owner of the opportunity <strong>${options.title}</strong>.</p>
+        <p><strong>${options.assignerName}</strong> has assigned the opportunity <strong>${options.title}</strong> to you.</p>
         ${options.deadline ? `<p>Deadline: <strong>${options.deadline}</strong></p>` : ''}
         ${options.valueLabel ? `<p>Estimated value: <strong>${options.valueLabel}</strong></p>` : ''}
         <p><a href="${options.url}">Open in Camel OS</a></p>
+      `,
+    })
+  } catch (err) {
+    throw new Error(`Failed to send email: ${(err as Error).message}`)
+  }
+}
+
+export async function sendMfaEmailCode(
+  to: string,
+  options: { code: string; expiresInMinutes: number }
+): Promise<void> {
+  try {
+    await getClient().transactionalEmails.sendTransacEmail({
+      sender: { name: 'Camel OS', email: getFromEmail() },
+      to: [{ email: to }],
+      subject: `Your Camel OS sign-in code: ${options.code}`,
+      htmlContent: `
+        <p>Your one-time sign-in code is:</p>
+        <p style="font-size:28px;letter-spacing:6px;font-weight:600;font-family:monospace;">${options.code}</p>
+        <p>This code expires in <strong>${options.expiresInMinutes} minutes</strong>. If you didn't try to sign in, ignore this email and consider rotating your password.</p>
       `,
     })
   } catch (err) {

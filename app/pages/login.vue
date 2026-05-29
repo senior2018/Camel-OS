@@ -63,14 +63,18 @@ const resent = ref(false)
 
 async function onSubmit(payload: FormSubmitEvent<Schema>) {
   try {
-    const result = await $fetch<{ mfaRequired?: boolean; mfaChallengeToken?: string }>(
-      '/api/auth/login',
-      { method: 'POST', body: payload.data }
-    )
+    const result = await $fetch<{
+      mfaRequired?: boolean
+      mfaChallengeToken?: string
+      mfaMethod?: 'totp' | 'email'
+    }>('/api/auth/login', { method: 'POST', body: payload.data })
     if (result.mfaRequired && result.mfaChallengeToken) {
-      await navigateTo(
-        `/mfa-challenge?token=${encodeURIComponent(result.mfaChallengeToken)}&redirect=${encodeURIComponent(redirectTo.value)}`
-      )
+      const params = new URLSearchParams({
+        token: result.mfaChallengeToken,
+        redirect: redirectTo.value,
+      })
+      if (result.mfaMethod) params.set('method', result.mfaMethod)
+      await navigateTo(`/mfa-challenge?${params.toString()}`)
       return
     }
     // Sync the client-side session before navigating so the global auth middleware
