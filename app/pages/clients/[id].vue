@@ -7,6 +7,8 @@ import type {
   UpdateClientPayload,
   UpdateGrantPayload,
 } from '@@/shared/schemas/client'
+import type { CreateAgreementPayload, UpdateAgreementPayload } from '@@/shared/schemas/partnership'
+import type { LinkDonorProjectPayload, UpdateDonorProjectPayload } from '@@/shared/schemas/project'
 import { CLIENT_HEALTH_LABEL, clientHealth } from '@/composables/useClients'
 
 definePageMeta({
@@ -49,6 +51,12 @@ const {
   createGrant,
   updateGrant,
   removeGrant,
+  linkProject,
+  updateProjectLink,
+  unlinkProject,
+  createAgreement,
+  updateAgreement,
+  removeAgreement,
 } = useClient(clientId)
 
 // Roster used by the reminder assignee picker.
@@ -369,6 +377,7 @@ function healthColor(level: ReturnType<typeof clientHealth>): 'success' | 'warni
             :interactions="data.interactions"
             :contacts="data.contacts"
             :can-edit="canUpdate"
+            :client-type="data.client.type"
             @log="(p) => logInteraction(p)"
             @remove="(id) => removeInteraction(id)"
           />
@@ -388,6 +397,27 @@ function healthColor(level: ReturnType<typeof clientHealth>): 'success' | 'warni
             @create="(p: CreateGrantPayload) => createGrant(p)"
             @update="(id: string, p: UpdateGrantPayload) => updateGrant(id, p)"
             @remove="(id: string) => removeGrant(id)"
+          />
+
+          <ClientFundedProjectsCard
+            v-if="data.client.type === 'donor'"
+            :funded-projects="data.fundedProjects"
+            :can-edit="canUpdate"
+            @link="(p: LinkDonorProjectPayload) => linkProject(p)"
+            @update="
+              (projectId: string, p: UpdateDonorProjectPayload) => updateProjectLink(projectId, p)
+            "
+            @unlink="(projectId: string) => unlinkProject(projectId)"
+            @project-created="refresh"
+          />
+
+          <ClientPartnershipAgreementsCard
+            v-if="data.client.type === 'partner'"
+            :agreements="data.agreements"
+            :can-edit="canUpdate"
+            @create="(p: CreateAgreementPayload) => createAgreement(p)"
+            @update="(id: string, p: UpdateAgreementPayload) => updateAgreement(id, p)"
+            @remove="(id: string) => removeAgreement(id)"
           />
 
           <ClientRemindersCard

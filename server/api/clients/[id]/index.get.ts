@@ -7,8 +7,11 @@ import {
   clientReminders,
   clients,
   donorGrants,
+  donorProjects,
   opportunities,
   opportunityClients,
+  partnershipAgreements,
+  projects,
   users,
 } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
@@ -127,7 +130,48 @@ export default defineEventHandler(async (event) => {
             .orderBy(asc(donorGrants.endDate), desc(donorGrants.createdAt))
         : []
 
-    return { client, contacts, interactions, linkedOpportunities, reminders, grants }
+    // CR-10 — Donor → projects link with the project record joined in.
+    const fundedProjects =
+      client.type === 'donor'
+        ? await db
+            .select({
+              projectId: projects.id,
+              name: projects.name,
+              code: projects.code,
+              status: projects.status,
+              startDate: projects.startDate,
+              endDate: projects.endDate,
+              fundingAmount: donorProjects.fundingAmount,
+              currency: donorProjects.currency,
+              notes: donorProjects.notes,
+              createdAt: donorProjects.createdAt,
+            })
+            .from(donorProjects)
+            .innerJoin(projects, eq(projects.id, donorProjects.projectId))
+            .where(eq(donorProjects.donorId, client.id))
+            .orderBy(desc(donorProjects.createdAt))
+        : []
+
+    // CR-11 — Partnership agreements appear only for partner clients.
+    const agreements =
+      client.type === 'partner'
+        ? await db
+            .select()
+            .from(partnershipAgreements)
+            .where(eq(partnershipAgreements.partnerId, client.id))
+            .orderBy(asc(partnershipAgreements.endDate), desc(partnershipAgreements.createdAt))
+        : []
+
+    return {
+      client,
+      contacts,
+      interactions,
+      linkedOpportunities,
+      reminders,
+      grants,
+      fundedProjects,
+      agreements,
+    }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
     consola.error('Error fetching client', error)

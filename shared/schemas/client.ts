@@ -54,7 +54,18 @@ export const clientMetadataSchema = z
 
 export type ClientMetadata = z.output<typeof clientMetadataSchema>
 
-export const CLIENT_INTERACTION_TYPES = ['meeting', 'call', 'email', 'note', 'other'] as const
+export const CLIENT_INTERACTION_TYPES = [
+  'meeting',
+  'call',
+  'email',
+  'note',
+  'other',
+  // CR-13 — donor/partner-specific communication categories. The interaction
+  // form surfaces these only when the parent client is a donor or partner.
+  'donor_reporting',
+  'grant_negotiation',
+  'partnership_meeting',
+] as const
 export type ClientInteractionType = (typeof CLIENT_INTERACTION_TYPES)[number]
 
 export const CLIENT_INTERACTION_TYPE_LABEL: Record<ClientInteractionType, string> = {
@@ -63,6 +74,43 @@ export const CLIENT_INTERACTION_TYPE_LABEL: Record<ClientInteractionType, string
   email: 'Email',
   note: 'Note',
   other: 'Other',
+  donor_reporting: 'Donor reporting',
+  grant_negotiation: 'Grant negotiation',
+  partnership_meeting: 'Partnership meeting',
+}
+
+// CR-13 — Types only available for donor clients.
+export const DONOR_INTERACTION_TYPES = ['donor_reporting', 'grant_negotiation'] as const
+// CR-13 — Type only available for partner clients.
+export const PARTNER_INTERACTION_TYPES = ['partnership_meeting'] as const
+
+/**
+ * Subset of interaction types available for a given client type. Donors get the
+ * default set + their donor-only types; partners get the default set + their
+ * partner-only type; everyone else only sees the defaults. CR-13.
+ */
+export function interactionTypesForClient(
+  clientType: ClientType
+): readonly ClientInteractionType[] {
+  if (clientType === 'donor') {
+    return [
+      ...CLIENT_INTERACTION_TYPES.filter(
+        (t) => !PARTNER_INTERACTION_TYPES.includes(t as 'partnership_meeting')
+      ),
+    ]
+  }
+  if (clientType === 'partner') {
+    return [
+      ...CLIENT_INTERACTION_TYPES.filter(
+        (t) => !DONOR_INTERACTION_TYPES.includes(t as 'donor_reporting' | 'grant_negotiation')
+      ),
+    ]
+  }
+  return CLIENT_INTERACTION_TYPES.filter(
+    (t) =>
+      !DONOR_INTERACTION_TYPES.includes(t as 'donor_reporting' | 'grant_negotiation') &&
+      !PARTNER_INTERACTION_TYPES.includes(t as 'partnership_meeting')
+  )
 }
 
 // ─── Shared building blocks ───────────────────────────────────────────────────

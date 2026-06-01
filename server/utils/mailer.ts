@@ -143,6 +143,34 @@ export async function sendDonorGrantDeadlineEmail(
   }
 }
 
+export async function sendPartnershipRenewalEmail(
+  to: string,
+  options: {
+    recipientName: string
+    partnerName: string
+    agreementTitle: string
+    daysUntil: number
+    endDate: string
+    url: string
+  }
+): Promise<void> {
+  const when = options.daysUntil <= 0 ? 'is now overdue' : `expires in ${options.daysUntil} days`
+  try {
+    await getClient().transactionalEmails.sendTransacEmail({
+      sender: { name: 'Camel OS', email: getFromEmail() },
+      to: [{ email: to }],
+      subject: `Partnership renewal — ${options.partnerName} / ${options.agreementTitle}`,
+      htmlContent: `
+        <p>Hi ${options.recipientName},</p>
+        <p>The partnership agreement <strong>${options.agreementTitle}</strong> with <strong>${options.partnerName}</strong> ${when} (ends <strong>${options.endDate}</strong>). Now is a good time to start the renewal conversation.</p>
+        <p><a href="${options.url}">Open in Camel OS</a></p>
+      `,
+    })
+  } catch (err) {
+    throw new Error(`Failed to send email: ${(err as Error).message}`)
+  }
+}
+
 export async function sendClientReminderEmail(
   to: string,
   options: {

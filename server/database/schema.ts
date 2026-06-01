@@ -65,6 +65,12 @@ export const clientInteractionTypeEnum = pgEnum('client_interaction_type', [
   'email',
   'note',
   'other',
+  // CR-13 — donor/partner-specific communication types. UI shows these only on
+  // donor or partner profiles; the engagement report counts them separately so
+  // donor stewardship effort is visible.
+  'donor_reporting',
+  'grant_negotiation',
+  'partnership_meeting',
 ])
 
 // ─── Organizations ─────────────────────────────────────────────────────────────
@@ -787,6 +793,129 @@ export const clientReminders = pgTable(
   ]
 )
 
+// ─── Projects (CR-10 stub — S13+ expands) ─────────────────────────────────────
+// Minimal projects table introduced in S6 so we can link donors to the projects
+// they fund. The real project-management module lands from S13; everything here
+// is a forward-compatible subset (name, code, status window, budget) that the
+// expanded module will read directly.
+
+export const projectStatusEnum = pgEnum('project_status', [
+  'planning',
+  'active',
+  'on_hold',
+  'completed',
+  'cancelled',
+])
+
+export const projects = pgTable(
+  'projects',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    name: text().notNull(),
+    // Internal project code (optional) — many firms use a prefix like "TZ-2026-04".
+    code: text(),
+    description: text(),
+    status: projectStatusEnum().notNull().default('planning'),
+    startDate: date('start_date'),
+    endDate: date('end_date'),
+    totalBudget: numeric('total_budget', { precision: 14, scale: 2 }),
+    currency: varchar('currency', { length: 3 }).notNull().default('USD'),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('projects_organization_id_idx').on(table.organizationId),
+    index('projects_status_idx').on(table.status),
+  ]
+)
+
+// CR-10 — Donor ↔ project pivot. Funding amount is per-link (the same donor may
+// contribute to many projects, the same project may have many donors). Currency
+// follows the donor's preferred currency, not the project's, so each link carries
+// its own.
+export const donorProjects = pgTable(
+  'donor_projects',
+  {
+    donorId: uuid('donor_id')
+      .notNull()
+      .references(() => clients.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    fundingAmount: numeric('funding_amount', { precision: 14, scale: 2 }),
+    currency: varchar('currency', { length: 3 }).notNull().default('USD'),
+    notes: text(),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.donorId, table.projectId] }),
+    index('donor_projects_donor_id_idx').on(table.donorId),
+    index('donor_projects_project_id_idx').on(table.projectId),
+    index('donor_projects_organization_id_idx').on(table.organizationId),
+  ]
+)
+
+// ─── Partnership agreements (CR-11) ────────────────────────────────────────────
+// Tracks a single MOU / consortium / sub-grantee agreement with a partner. The
+// renewal cron (server/utils/partnership-renewals.ts) emails the owner 90 days
+// and again 30 days before `endDate`. Each window has its own idempotency stamp
+// so each notification fires once.
+
+export const partnershipAgreementStatusEnum = pgEnum('partnership_agreement_status', [
+  'draft',
+  'active',
+  'expired',
+  'terminated',
+])
+
+export const partnershipAgreements = pgTable(
+  'partnership_agreements',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    partnerId: uuid('partner_id')
+      .notNull()
+      .references(() => clients.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    title: text().notNull(),
+    startDate: date('start_date'),
+    endDate: date('end_date'),
+    value: numeric('value', { precision: 14, scale: 2 }),
+    currency: varchar('currency', { length: 3 }).notNull().default('USD'),
+    status: partnershipAgreementStatusEnum().notNull().default('draft'),
+    documentUrl: text('document_url'),
+    notes: text(),
+    // Idempotency stamps — once a window fires, it stays fired until the
+    // endDate changes (PATCH endpoint clears the stamp when endDate moves).
+    renewalNotifiedAt90: timestamp('renewal_notified_at_90', { withTimezone: true }),
+    renewalNotifiedAt30: timestamp('renewal_notified_at_30', { withTimezone: true }),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('partnership_agreements_partner_id_idx').on(table.partnerId),
+    index('partnership_agreements_organization_id_idx').on(table.organizationId),
+    index('partnership_agreements_end_date_idx').on(table.endDate),
+    index('partnership_agreements_status_idx').on(table.status),
+  ]
+)
+
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 export type Organization = typeof organizations.$inferSelect
@@ -866,6 +995,15 @@ export type NewOpportunityClient = typeof opportunityClients.$inferInsert
 
 export type ClientReminder = typeof clientReminders.$inferSelect
 export type NewClientReminder = typeof clientReminders.$inferInsert
+
+export type Project = typeof projects.$inferSelect
+export type NewProject = typeof projects.$inferInsert
+
+export type DonorProject = typeof donorProjects.$inferSelect
+export type NewDonorProject = typeof donorProjects.$inferInsert
+
+export type PartnershipAgreement = typeof partnershipAgreements.$inferSelect
+export type NewPartnershipAgreement = typeof partnershipAgreements.$inferInsert
 
 export type DonorGrant = typeof donorGrants.$inferSelect
 export type NewDonorGrant = typeof donorGrants.$inferInsert
