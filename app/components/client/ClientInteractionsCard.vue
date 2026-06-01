@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import {
-  CLIENT_INTERACTION_TYPES,
   CLIENT_INTERACTION_TYPE_LABEL,
+  interactionTypesForClient,
   type ClientInteractionType,
+  type ClientType,
   type CreateInteractionPayload,
 } from '@@/shared/schemas/client'
 import type { ClientContact, ClientInteraction } from '@/composables/useClient'
@@ -11,6 +12,7 @@ interface Props {
   interactions: ClientInteraction[]
   contacts: ClientContact[]
   canEdit: boolean
+  clientType: ClientType
 }
 
 const props = defineProps<Props>()
@@ -37,10 +39,14 @@ const form = reactive<{
   followUpAction: '',
 })
 
-const typeOptions = CLIENT_INTERACTION_TYPES.map((t) => ({
-  label: CLIENT_INTERACTION_TYPE_LABEL[t],
-  value: t,
-}))
+// CR-13 — donor and partner clients get their own communication categories on
+// top of the defaults. Everyone else only sees the common types.
+const typeOptions = computed(() =>
+  interactionTypesForClient(props.clientType).map((t) => ({
+    label: CLIENT_INTERACTION_TYPE_LABEL[t],
+    value: t,
+  }))
+)
 
 const contactOptions = computed(() => [
   { label: 'No specific contact', value: null as string | null },
@@ -81,6 +87,9 @@ const TYPE_ICON: Record<ClientInteractionType, string> = {
   email: 'i-lucide-mail',
   note: 'i-lucide-sticky-note',
   other: 'i-lucide-message-square',
+  donor_reporting: 'i-lucide-file-bar-chart',
+  grant_negotiation: 'i-lucide-handshake',
+  partnership_meeting: 'i-lucide-handshake',
 }
 
 function authorLabel(i: ClientInteraction): string {

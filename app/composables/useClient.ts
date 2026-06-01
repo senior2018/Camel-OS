@@ -14,6 +14,16 @@ import type {
   UpdateReminderPayload,
 } from '@@/shared/schemas/client'
 import type { OpportunityStage } from '@@/shared/schemas/opportunity'
+import type {
+  CreateAgreementPayload,
+  PartnershipAgreementStatus,
+  UpdateAgreementPayload,
+} from '@@/shared/schemas/partnership'
+import type {
+  LinkDonorProjectPayload,
+  ProjectStatus,
+  UpdateDonorProjectPayload,
+} from '@@/shared/schemas/project'
 
 export interface ClientDetail {
   id: string
@@ -102,6 +112,36 @@ export interface DonorGrant {
   updatedAt: string
 }
 
+export interface DonorFundedProject {
+  projectId: string
+  name: string
+  code: string | null
+  status: ProjectStatus
+  startDate: string | null
+  endDate: string | null
+  fundingAmount: string | null
+  currency: string
+  notes: string | null
+  createdAt: string
+}
+
+export interface PartnershipAgreement {
+  id: string
+  partnerId: string
+  title: string
+  startDate: string | null
+  endDate: string | null
+  value: string | null
+  currency: string
+  status: PartnershipAgreementStatus
+  documentUrl: string | null
+  notes: string | null
+  renewalNotifiedAt90: string | null
+  renewalNotifiedAt30: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export interface ClientDetailResponse {
   client: ClientDetail
   contacts: ClientContact[]
@@ -109,6 +149,8 @@ export interface ClientDetailResponse {
   linkedOpportunities: ClientLinkedOpportunity[]
   reminders: ClientReminder[]
   grants: DonorGrant[]
+  fundedProjects: DonorFundedProject[]
+  agreements: PartnershipAgreement[]
 }
 
 /**
@@ -276,6 +318,60 @@ export function useClient(id: Ref<string>) {
     )
   }
 
+  // Funded projects (CR-10) ----------------------------------------------------
+  function linkProject(payload: LinkDonorProjectPayload) {
+    return withToast(
+      () => $fetch(`/api/clients/${id.value}/projects`, { method: 'POST', body: payload }),
+      'Project linked',
+      'Could not link project'
+    )
+  }
+  function updateProjectLink(projectId: string, payload: UpdateDonorProjectPayload) {
+    return withToast(
+      () =>
+        $fetch(`/api/clients/${id.value}/projects/${projectId}`, {
+          method: 'PATCH',
+          body: payload,
+        }),
+      'Funding updated',
+      'Update failed'
+    )
+  }
+  function unlinkProject(projectId: string) {
+    return withToast(
+      () => $fetch(`/api/clients/${id.value}/projects/${projectId}`, { method: 'DELETE' }),
+      'Project unlinked',
+      'Could not unlink project'
+    )
+  }
+
+  // Partnership agreements (CR-11) ---------------------------------------------
+  function createAgreement(payload: CreateAgreementPayload) {
+    return withToast(
+      () => $fetch(`/api/clients/${id.value}/agreements`, { method: 'POST', body: payload }),
+      'Agreement added',
+      'Could not add agreement'
+    )
+  }
+  function updateAgreement(agreementId: string, payload: UpdateAgreementPayload) {
+    return withToast(
+      () =>
+        $fetch(`/api/clients/${id.value}/agreements/${agreementId}`, {
+          method: 'PATCH',
+          body: payload,
+        }),
+      'Agreement updated',
+      'Update failed'
+    )
+  }
+  function removeAgreement(agreementId: string) {
+    return withToast(
+      () => $fetch(`/api/clients/${id.value}/agreements/${agreementId}`, { method: 'DELETE' }),
+      'Agreement removed',
+      'Delete failed'
+    )
+  }
+
   // Reminders ------------------------------------------------------------------
   function createReminder(payload: CreateReminderPayload) {
     return withToast(
@@ -322,5 +418,11 @@ export function useClient(id: Ref<string>) {
     createGrant,
     updateGrant,
     removeGrant,
+    linkProject,
+    updateProjectLink,
+    unlinkProject,
+    createAgreement,
+    updateAgreement,
+    removeAgreement,
   }
 }

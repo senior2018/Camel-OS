@@ -32,10 +32,16 @@ const navItems = computed(() => {
       active: route.path.startsWith('/clients'),
     })
     items.push({
-      label: 'Reports',
+      label: 'Donor & partner',
+      to: '/reports/donor-partner-dashboard',
+      icon: 'i-lucide-handshake',
+      active: route.path.startsWith('/reports/donor-partner'),
+    })
+    items.push({
+      label: 'CRM activity',
       to: '/reports/crm-activity',
       icon: 'i-lucide-bar-chart-3',
-      active: route.path.startsWith('/reports'),
+      active: route.path === '/reports/crm-activity',
     })
   }
   return items

@@ -27,15 +27,18 @@ Internal operating platform for Sahara Consult — a PSA (Professional Services 
 - 30-minute idle timeout
 - Hash-chained audit log with viewer + CSV export
 
-### S4–S5 — CRM (Clients, Prospects, Donors, Partners)
+### S4–S6 — CRM (Clients, Prospects, Donors, Partners)
 - **Account types**: client / prospect / donor / partner — one table, type-specific extras in a JSONB `metadata` column
 - **Contacts**: many per client, with a primary-contact flag
-- **Interactions timeline**: meetings, calls, emails, notes, with optional follow-up date + action
+- **Interactions timeline**: meetings, calls, emails, notes — plus donor-only **donor reporting** and **grant negotiation**, and partner-only **partnership meeting** categories
 - **Opportunity links**: primary client shown on each opportunity card; many-to-many with secondary clients
 - **Follow-up reminders**: per-assignee, time-of-day precision, dispatched every 5 minutes, with an admin **Run now** trigger
 - **Relationship health score**: green/yellow/red dot per account based on recency of interaction; "At risk" once 60+ days idle
 - **CSV import**: bulk-load contacts onto a client from a CSV template, with skip / overwrite duplicate handling and row-level error reporting
 - **Donor grants**: funding cycles with start/end, total value, currency, tranches, reporting schedule, status; daily cron emails account owners 30 days before each deadline
+- **Donor-funded projects (S6)**: link a donor to many projects with per-link funding amount + currency. Project records are a forward-compatible stub until the full Project Management module ships.
+- **Partnership agreements (S6)**: per-partner agreements with start/end, value, status, document URL; daily cron emails the partner-account owner 90 and 30 days before each `endDate` (idempotency stamps per window)
+- **Donor & partner dashboard (S6)**: totals, active grants + funding totals, active agreement totals, upcoming grant deadlines (60 days) and renewal radar (90 days), communication mix per type, recent communications, at-risk relationships (60+ days silent)
 - **CRM activity report**: contacts reached, meetings held, pipeline value by period and staff member; CSV export + browser print
 
 ### S2–S3 — Opportunity Management
@@ -112,11 +115,13 @@ Configured via Nitro `scheduledTasks` in `nuxt.config.ts`:
 |---|---|---|
 | `opportunities:deadline-reminders` | `0 8 * * *` (08:00 UTC daily) | Emails opportunity owners 14 / 7 / 2 days before deadline |
 | `clients:grants` | `0 8 * * *` (08:00 UTC daily) | Emails donor account owners 30 days before each grant end / next reporting deadline |
+| `clients:partnership-renewals` | `0 8 * * *` (08:00 UTC daily) | Emails partner account owners 90 + 30 days before each partnership agreement `endDate` |
 | `clients:reminders` | `*/5 * * * *` (every 5 minutes) | Emails assignees when a client follow-up reminder is due |
 
 Admins can manually trigger any task via `POST /api/admin/tasks/<task>`:
 - `/api/admin/tasks/opportunity-reminders`
 - `/api/admin/tasks/donor-grants`
+- `/api/admin/tasks/partnership-renewals`
 - `/api/admin/tasks/client-reminders` (also exposed as a **Run now** button on the client detail page)
 
 Each task uses a `notified_at` (or `endDateNotifiedAt` / `nextReportingNotifiedAt`) stamp on its target rows so it never re-sends the same email.
