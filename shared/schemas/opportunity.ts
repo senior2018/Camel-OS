@@ -1,5 +1,23 @@
 import { z } from 'zod'
 
+// S7 — Opportunity is now a 3-status review pipeline. The legacy 6-stage list
+// stays in the codebase so audit-log entries and migrated stage rows can still
+// be labelled, but the live UI only references `OPPORTUNITY_STATUSES`.
+export const OPPORTUNITY_STATUSES = ['pending', 'accepted', 'rejected'] as const
+export type OpportunityStatus = (typeof OPPORTUNITY_STATUSES)[number]
+
+export const OPPORTUNITY_STATUS_LABEL: Record<OpportunityStatus, string> = {
+  pending: 'Pending',
+  accepted: 'Accepted',
+  rejected: 'Rejected',
+}
+
+export const OPPORTUNITY_STATUS_DESCRIPTION: Record<OpportunityStatus, string> = {
+  pending: 'Found, awaiting review',
+  accepted: 'Approved to pursue — proposal in flight',
+  rejected: 'Decision: not pursuing',
+}
+
 export const OPPORTUNITY_STAGES = [
   'discovery',
   'qualifying',
@@ -88,6 +106,31 @@ const optionalDate = z
  * Required fields mirror the user-story acceptance criteria:
  * "title, source, deadline, value, type".
  */
+// Free-form description added on the create form.
+const optionalDescription = z
+  .string()
+  .trim()
+  .max(5000)
+  .optional()
+  .nullable()
+  .or(z.literal('').transform(() => null))
+
+// 0–100 inclusive. Manual today; AI-driven later.
+const winProbability = z.number().int().min(0, 'Min 0').max(100, 'Max 100').optional().nullable()
+
+// Multi-select tag chips. Lowercase keys, no spaces, max 12.
+const tagsSchema = z
+  .array(
+    z
+      .string()
+      .trim()
+      .min(1)
+      .max(40)
+      .regex(/^[a-z0-9][a-z0-9_-]*$/, 'Use lowercase letters, numbers, _ or -')
+  )
+  .max(12, 'Up to 12 tags')
+  .optional()
+
 export const createOpportunitySchema = z.object({
   title: z.string().trim().min(1, 'Title is required').max(200),
   // Source + type are now admin-editable lookup keys. The endpoint validates
@@ -107,6 +150,9 @@ export const createOpportunitySchema = z.object({
     .max(60)
     .regex(/^[a-z0-9_]+$/)
     .default('consulting'),
+  description: optionalDescription,
+  tags: tagsSchema,
+  winProbability,
   deadline: optionalDate,
   estimatedValue: monetary,
   currency: z.string().trim().length(3).toUpperCase().default('USD'),
@@ -125,7 +171,24 @@ export const updateOpportunitySchema = createOpportunitySchema.partial()
 
 export type UpdateOpportunityPayload = z.output<typeof updateOpportunitySchema>
 
-/** Body for `POST /api/opportunities/:id/stage` (OM-09 stage transition). */
+/**
+ * Body for `POST /api/opportunities/:id/status`. Comment is required when
+ * moving to 'rejected' so the reason lives in the comments thread — the API
+ * inserts the comment automatically.
+ */
+export const updateOpportunityStatusSchema = z
+  .object({
+    status: z.enum(OPPORTUNITY_STATUSES),
+    comment: z.string().trim().max(2000).optional(),
+  })
+  .refine((v) => v.status !== 'rejected' || (v.comment && v.comment.trim().length > 0), {
+    message: 'A reason is required when rejecting an opportunity.',
+    path: ['comment'],
+  })
+
+export type UpdateOpportunityStatusPayload = z.output<typeof updateOpportunityStatusSchema>
+
+/** Legacy stage endpoint (still used by stage activities + audit log). */
 export const updateOpportunityStageSchema = z.object({
   stage: z.enum(OPPORTUNITY_STAGES),
   note: z.string().trim().max(1000).optional(),

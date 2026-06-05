@@ -41,6 +41,9 @@ export default defineEventHandler(async (event) => {
     if (data.title !== undefined) updates.title = data.title
     if (data.source !== undefined) updates.source = data.source
     if (data.type !== undefined) updates.type = data.type
+    if (data.description !== undefined) updates.description = data.description ?? null
+    if (data.tags !== undefined) updates.tags = data.tags ?? []
+    if (data.winProbability !== undefined) updates.winProbability = data.winProbability ?? null
     if (data.deadline !== undefined) updates.deadline = data.deadline ?? null
     if (data.estimatedValue !== undefined) updates.estimatedValue = data.estimatedValue ?? null
     if (data.currency !== undefined) updates.currency = data.currency

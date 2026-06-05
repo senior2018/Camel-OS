@@ -57,6 +57,9 @@ export default defineEventHandler(async (event) => {
       .select({
         id: clients.id,
         name: clients.name,
+        firstName: clients.firstName,
+        lastName: clients.lastName,
+        organization: clients.organization,
         type: clients.type,
         industry: clients.industry,
         country: clients.country,

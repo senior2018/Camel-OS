@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import type { FormSubmitEvent } from '@nuxt/ui'
 import {
-  OPPORTUNITY_STAGES,
-  OPPORTUNITY_STAGE_LABEL,
+  OPPORTUNITY_STATUSES,
+  OPPORTUNITY_STATUS_DESCRIPTION,
+  OPPORTUNITY_STATUS_LABEL,
   createOpportunitySchema,
   type CreateOpportunityPayload,
   type OpportunitySource,
-  type OpportunityStage,
+  type OpportunityStatus,
   type OpportunityType,
 } from '@@/shared/schemas/opportunity'
 import type { Opportunity } from '@/composables/useOpportunities'
@@ -25,58 +26,55 @@ const emit = defineEmits<{
   submit: [payload: CreateOpportunityPayload, id: string | null, pendingFiles: File[]]
   delete: [opp: Opportunity]
   approve: [opp: Opportunity, approved: boolean]
-  // S5b: stage moves now carry a comment (required for 'lost', optional otherwise).
-  'move-stage': [opp: Opportunity, toStage: OpportunityStage, comment: string | null]
+  // S7 — status changes replace the old stage transition. Comment is required
+  // when moving to 'rejected'; otherwise optional. The API also persists the
+  // comment into the comments thread.
+  'move-status': [opp: Opportunity, toStatus: OpportunityStatus, comment: string | null]
 }>()
 
-// S5b — view-by-default for existing opportunities. The form fields are
-// rendered disabled until the user explicitly clicks "Edit details"; this
-// prevents accidental mutations while still showing all the information
-// clearly. New opportunities open straight into edit mode (no existing data
-// to view). The workflow checklist + attachments + stage selector live
-// outside this gate because they're discrete actions, not form mutations.
+// S5b — view-by-default mode for existing opportunities; new opps open in edit.
 const editMode = ref(false)
 
-// Buffered stage transition: the dropdown changes a *pending* value, then
-// opens the dialog. Only when the user confirms (with a comment if needed)
-// do we emit `move-stage` to the parent.
-const pendingStage = ref<OpportunityStage | null>(null)
+// Buffered status transition (S7). Status buttons set a pending value; the
+// dialog captures the comment (required for Reject) and the parent fires
+// `move-status` on confirm.
+const pendingStatus = ref<OpportunityStatus | null>(null)
 const transitionComment = ref('')
 
-function startTransition(s: OpportunityStage) {
+function startStatusChange(s: OpportunityStatus) {
   if (!props.initial) return
-  if (s === props.initial.stage) return
-  pendingStage.value = s
+  if (s === props.initial.status) return
+  pendingStatus.value = s
   transitionComment.value = ''
 }
 
-function cancelTransition() {
-  pendingStage.value = null
+function cancelStatusChange() {
+  pendingStatus.value = null
   transitionComment.value = ''
 }
 
-function confirmTransition() {
-  if (!props.initial || !pendingStage.value) return
-  const target = pendingStage.value
-  if (target === 'lost' && !transitionComment.value.trim()) {
-    return // dialog UI shows the required-field hint
-  }
-  emit('move-stage', props.initial, target, transitionComment.value.trim() || null)
-  pendingStage.value = null
+function confirmStatusChange() {
+  if (!props.initial || !pendingStatus.value) return
+  const target = pendingStatus.value
+  if (target === 'rejected' && !transitionComment.value.trim()) return
+  emit('move-status', props.initial, target, transitionComment.value.trim() || null)
+  pendingStatus.value = null
   transitionComment.value = ''
 }
 
-const stageOptions = OPPORTUNITY_STAGES.map((s) => ({
-  label: OPPORTUNITY_STAGE_LABEL[s],
-  value: s,
-}))
+function statusColor(s: OpportunityStatus): 'warning' | 'success' | 'error' {
+  return s === 'pending' ? 'warning' : s === 'accepted' ? 'success' : 'error'
+}
 
 const isApproved = computed(() => !!props.initial?.approvedToPursueAt)
 
 const state = reactive<{
   title: string
+  description: string
   source: OpportunitySource
   type: OpportunityType
+  tagsText: string
+  winProbability: number | null
   deadline: string
   estimatedValue: string
   currency: string
@@ -84,14 +82,26 @@ const state = reactive<{
   primaryClientId: string | null
 }>({
   title: '',
+  description: '',
   source: 'other',
   type: 'consulting',
+  tagsText: '',
+  winProbability: null,
   deadline: '',
   estimatedValue: '',
   currency: 'USD',
   ownerUserId: null,
   primaryClientId: null,
 })
+
+// Tags input is a comma/space-separated text field that we normalise on submit.
+// Display chips live below the input for clarity.
+const parsedTags = computed(() =>
+  state.tagsText
+    .split(/[,\s]+/)
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length > 0 && /^[a-z0-9][a-z0-9_-]*$/.test(t))
+)
 
 const pendingFiles = ref<File[]>([])
 const pendingFileInput = ref<HTMLInputElement | null>(null)
@@ -131,7 +141,6 @@ const { data: teamData } = await useFetch<{ members: TeamMember[] }>('/api/users
   default: () => ({ members: [] }),
 })
 
-// Client roster for the primary-client picker (CR-03).
 interface ClientPickerItem {
   id: string
   name: string
@@ -156,7 +165,6 @@ const ownerOptions = computed(() => [
   })),
 ])
 
-// S5b — source + type options come from the org's admin-editable lookup table.
 interface LookupRow {
   kind: string
   key: string
@@ -176,8 +184,11 @@ const typeOptions = computed(() =>
 function resetFromInitial() {
   if (props.initial) {
     state.title = props.initial.title
+    state.description = props.initial.description ?? ''
     state.source = props.initial.source
     state.type = props.initial.type
+    state.tagsText = (props.initial.tags ?? []).join(', ')
+    state.winProbability = props.initial.winProbability ?? null
     state.deadline = props.initial.deadline ?? ''
     state.estimatedValue = props.initial.estimatedValue ?? ''
     state.currency = props.initial.currency
@@ -185,8 +196,11 @@ function resetFromInitial() {
     state.primaryClientId = props.initial.primaryClientId
   } else {
     state.title = ''
+    state.description = ''
     state.source = 'other'
     state.type = 'consulting'
+    state.tagsText = ''
+    state.winProbability = null
     state.deadline = ''
     state.estimatedValue = ''
     state.currency = 'USD'
@@ -201,8 +215,6 @@ watch(
     if (!open) return
     pendingFiles.value = []
     resetFromInitial()
-    // New opportunities open in edit mode (there's nothing to view yet);
-    // existing ones open in view mode so admins can't accidentally mutate.
     editMode.value = !initial
   },
   { immediate: true }
@@ -220,6 +232,9 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
       title: state.title,
       source: state.source,
       type: state.type,
+      description: state.description || null,
+      tags: parsedTags.value,
+      winProbability: state.winProbability,
       deadline: state.deadline || null,
       estimatedValue: state.estimatedValue || null,
       currency: state.currency,
@@ -253,30 +268,39 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
         color="neutral"
         variant="subtle"
         icon="i-lucide-eye"
-        title="View only"
-        description="You don't have permission to edit opportunities. Contact your administrator to request access."
+        title="Read-only view"
+        description="You can review the details and post a comment with your opinion, but you can't edit fields, change the status, or approve. Contact your administrator if you need wider access."
         class="mb-4"
       />
 
+      <!-- Status bar — replaces the old stage dropdown. Three buttons for the
+           three statuses; clicking a non-current status opens the comment dialog. -->
       <div
         v-if="initial && !readOnly"
-        class="mb-4 flex flex-col gap-2 rounded-lg border border-default bg-elevated/40 p-3 sm:flex-row sm:items-center sm:justify-between"
+        class="mb-4 flex flex-col gap-3 rounded-lg border border-default bg-elevated/40 p-3"
       >
         <div class="flex items-center gap-2 text-sm">
-          <UIcon name="i-lucide-layers" class="size-4 text-muted" />
-          <span class="text-muted">Stage</span>
-          <UBadge variant="subtle" color="primary" size="sm">
-            {{ OPPORTUNITY_STAGE_LABEL[initial.stage] }}
+          <UIcon name="i-lucide-circle-dot" class="size-4 text-muted" />
+          <span class="text-muted">Status</span>
+          <UBadge variant="subtle" :color="statusColor(initial.status)" size="sm">
+            {{ OPPORTUNITY_STATUS_LABEL[initial.status] }}
           </UBadge>
+          <span class="text-xs text-muted">{{
+            OPPORTUNITY_STATUS_DESCRIPTION[initial.status]
+          }}</span>
         </div>
-        <USelectMenu
-          :model-value="initial.stage"
-          :items="stageOptions"
-          value-key="value"
-          size="sm"
-          class="w-full sm:w-48"
-          @update:model-value="(s: OpportunityStage) => startTransition(s)"
-        />
+        <div class="flex flex-wrap items-center gap-2">
+          <UButton
+            v-for="s in OPPORTUNITY_STATUSES"
+            :key="s"
+            :variant="s === initial.status ? 'solid' : 'outline'"
+            :color="statusColor(s)"
+            size="sm"
+            :label="OPPORTUNITY_STATUS_LABEL[s]"
+            :disabled="s === initial.status"
+            @click="startStatusChange(s)"
+          />
+        </div>
       </div>
 
       <UForm
@@ -291,6 +315,21 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
             v-model="state.title"
             placeholder="Tender / grant title"
             size="lg"
+            class="w-full"
+            :disabled="readOnly || !editMode"
+          />
+        </UFormField>
+
+        <UFormField
+          label="Description"
+          name="description"
+          class="sm:col-span-2"
+          hint="Anything else useful — eligibility quirks, contacts, links."
+        >
+          <UTextarea
+            v-model="state.description"
+            :rows="3"
+            placeholder="Optional extra details about this opportunity"
             class="w-full"
             :disabled="readOnly || !editMode"
           />
@@ -316,6 +355,31 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
             class="w-full"
             :disabled="readOnly || !editMode"
           />
+        </UFormField>
+
+        <UFormField
+          label="Tags"
+          name="tags"
+          class="sm:col-span-2"
+          hint="Lowercase words separated by spaces or commas (e.g. tech health education)."
+        >
+          <UInput
+            v-model="state.tagsText"
+            placeholder="tech, health, education"
+            size="lg"
+            class="w-full"
+            :disabled="readOnly || !editMode"
+          />
+          <div v-if="parsedTags.length" class="mt-2 flex flex-wrap gap-1">
+            <UBadge
+              v-for="t in parsedTags"
+              :key="t"
+              variant="subtle"
+              color="primary"
+              size="xs"
+              :label="t"
+            />
+          </div>
         </UFormField>
 
         <UFormField label="Deadline" name="deadline">
@@ -348,6 +412,23 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
           </div>
         </UFormField>
 
+        <UFormField
+          label="Win probability (%)"
+          name="winProbability"
+          hint="Manual estimate for now; AI-driven later."
+        >
+          <UInput
+            v-model.number="state.winProbability"
+            type="number"
+            min="0"
+            max="100"
+            placeholder="—"
+            size="lg"
+            class="w-full"
+            :disabled="readOnly || !editMode"
+          />
+        </UFormField>
+
         <UFormField label="Assigned to" name="ownerUserId">
           <USelectMenu
             v-model="state.ownerUserId"
@@ -371,9 +452,12 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
         </UFormField>
       </UForm>
 
-      <!-- Existing opportunity: stage-aware workflow panel + live attachments. -->
+      <!-- Existing opp: comments timeline + attachments. -->
       <div v-if="initial" class="mt-6 space-y-6 border-t border-default pt-6">
-        <OpportunityWorkflowPanel :opportunity-id="initial.id" :can-edit="!readOnly" />
+        <!-- Comments are open to every reviewer who can see the opp — even
+             read-only roles like Staff Member. The decision (Accept/Reject)
+             requires update permission, but anyone can post their opinion. -->
+        <OpportunityCommentsCard :opportunity-id="initial.id" :can-post="true" />
         <OpportunityAttachments
           :opportunity-id="initial.id"
           :can-upload="!readOnly"
@@ -381,7 +465,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
         />
       </div>
 
-      <!-- New opportunity: buffer files client-side; upload after create. -->
+      <!-- New opp: client-side buffered files. -->
       <div v-else class="mt-6 space-y-3 border-t border-default pt-6">
         <div class="flex items-center justify-between">
           <h3 class="text-sm font-semibold text-default">Attachments</h3>
@@ -437,8 +521,6 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
     <template #footer>
       <div class="flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
-          <!-- Approval + Delete always available on an existing opp (when the
-               user has permission) — they're discrete actions, not form mutations. -->
           <UButton
             v-if="initial && !readOnly"
             :color="isApproved ? 'warning' : 'success'"
@@ -457,7 +539,6 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
           />
         </div>
         <div class="ml-auto flex gap-3">
-          <!-- VIEW mode on an existing opp: Close + Edit details -->
           <template v-if="initial && !editMode">
             <UButton variant="ghost" label="Close" @click="emit('update:open', false)" />
             <UButton
@@ -467,7 +548,6 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
               @click="editMode = true"
             />
           </template>
-          <!-- EDIT mode (or new opp): Cancel + Save / Create -->
           <template v-else>
             <UButton
               variant="ghost"
@@ -488,38 +568,45 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
     </template>
   </UModal>
 
-  <!-- Stage-transition confirmation. Opens when the user picks a new stage in
-       the header dropdown. Captures an optional comment (required when moving
-       to Lost). The actual move only fires on Confirm. -->
+  <!-- Status-change dialog. Reject requires a reason; the API persists it into
+       the comments thread automatically. -->
   <UModal
-    :open="pendingStage !== null"
+    :open="pendingStatus !== null"
     :title="
-      pendingStage && initial
-        ? `Move “${initial.title}” to ${OPPORTUNITY_STAGE_LABEL[pendingStage]}?`
-        : 'Move stage?'
+      pendingStatus && initial
+        ? `Mark “${initial.title}” as ${OPPORTUNITY_STATUS_LABEL[pendingStatus]}?`
+        : 'Change status?'
     "
-    @update:open="(v: boolean) => !v && cancelTransition()"
+    @update:open="(v: boolean) => !v && cancelStatusChange()"
   >
     <template #body>
       <div class="space-y-3">
+        <UAlert
+          v-if="pendingStatus === 'accepted'"
+          color="success"
+          variant="subtle"
+          icon="i-lucide-rocket"
+          title="A proposal will be created"
+          description="Accepting this opportunity auto-creates a Proposal in 'Writing' state, so the bid team can start work."
+        />
         <p class="text-sm text-muted">
           {{
-            pendingStage === 'lost'
-              ? 'A rejection reason is required when marking an opportunity as Lost.'
-              : pendingStage === 'won'
-                ? 'Capture any notes about how the win was secured (optional).'
-                : 'Add a short note about why you’re moving this opportunity (optional).'
+            pendingStatus === 'rejected'
+              ? 'A reason is required when rejecting an opportunity — it goes into the comments thread so other reviewers can see why.'
+              : pendingStatus === 'accepted'
+                ? 'Add an optional note about why this opportunity is worth pursuing.'
+                : 'Add an optional note (it will appear in the comments thread).'
           }}
         </p>
         <UFormField
-          :label="pendingStage === 'lost' ? 'Rejection reason' : 'Comment'"
-          :required="pendingStage === 'lost'"
+          :label="pendingStatus === 'rejected' ? 'Rejection reason' : 'Comment'"
+          :required="pendingStatus === 'rejected'"
         >
           <UTextarea
             v-model="transitionComment"
             :rows="4"
             :placeholder="
-              pendingStage === 'lost'
+              pendingStatus === 'rejected'
                 ? 'e.g. Budget too small; did not meet eligibility criteria'
                 : 'Optional context'
             "
@@ -530,12 +617,24 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
     </template>
     <template #footer>
       <div class="ml-auto flex gap-3">
-        <UButton variant="ghost" label="Cancel" @click="cancelTransition" />
+        <UButton variant="ghost" label="Cancel" @click="cancelStatusChange" />
         <UButton
-          :disabled="pendingStage === 'lost' && !transitionComment.trim()"
-          :color="pendingStage === 'lost' ? 'error' : 'primary'"
-          :label="pendingStage === 'lost' ? 'Mark as Lost' : 'Confirm move'"
-          @click="confirmTransition"
+          :disabled="pendingStatus === 'rejected' && !transitionComment.trim()"
+          :color="
+            pendingStatus === 'rejected'
+              ? 'error'
+              : pendingStatus === 'accepted'
+                ? 'success'
+                : 'primary'
+          "
+          :label="
+            pendingStatus === 'rejected'
+              ? 'Mark as Rejected'
+              : pendingStatus === 'accepted'
+                ? 'Accept'
+                : 'Confirm'
+          "
+          @click="confirmStatusChange"
         />
       </div>
     </template>

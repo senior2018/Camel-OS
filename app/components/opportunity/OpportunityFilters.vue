@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import {
-  OPPORTUNITY_STAGES,
-  OPPORTUNITY_STAGE_LABEL,
+  OPPORTUNITY_STATUSES,
+  OPPORTUNITY_STATUS_LABEL,
   type OpportunitySource,
-  type OpportunityStage,
+  type OpportunityStatus,
   type OpportunityType,
 } from '@@/shared/schemas/opportunity'
 
@@ -12,12 +12,16 @@ import {
  * Stays as a plain reactive bag rather than a Zod schema because none of these
  * fields ever cross the wire — filtering is fully client-side over the small
  * per-org dataset.
+ *
+ * S7 — `stages` replaced by `statuses` to mirror the new 3-state pipeline. Tag
+ * search is a single string; we OR-match against the row's tags array.
  */
 export interface OpportunityFilterState {
   search: string
   sources: OpportunitySource[]
   types: OpportunityType[]
-  stages: OpportunityStage[]
+  statuses: OpportunityStatus[]
+  tag: string
   deadlineFrom: string
   deadlineTo: string
   valueMin: number | null
@@ -62,8 +66,8 @@ const sourceOptions = computed(() =>
 const typeOptions = computed(() =>
   (lookupData.value?.types ?? []).map((t) => ({ label: t.label, value: t.key }))
 )
-const stageOptions = OPPORTUNITY_STAGES.map((s) => ({
-  label: OPPORTUNITY_STAGE_LABEL[s],
+const statusOptions = OPPORTUNITY_STATUSES.map((s) => ({
+  label: OPPORTUNITY_STATUS_LABEL[s],
   value: s,
 }))
 
@@ -72,7 +76,8 @@ const activeCount = computed(() => {
   if (state.search.trim()) n++
   if (state.sources.length) n++
   if (state.types.length) n++
-  if (state.stages.length) n++
+  if (state.statuses.length) n++
+  if (state.tag.trim()) n++
   if (state.deadlineFrom) n++
   if (state.deadlineTo) n++
   if (state.valueMin !== null) n++
@@ -84,7 +89,8 @@ function clearAll() {
   state.search = ''
   state.sources = []
   state.types = []
-  state.stages = []
+  state.statuses = []
+  state.tag = ''
   state.deadlineFrom = ''
   state.deadlineTo = ''
   state.valueMin = null
@@ -117,16 +123,19 @@ function clearAll() {
       </div>
 
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <UFormField label="Stage">
+        <UFormField label="Status">
           <USelectMenu
-            v-model="state.stages"
-            :items="stageOptions"
+            v-model="state.statuses"
+            :items="statusOptions"
             value-key="value"
             multiple
-            placeholder="Any stage"
+            placeholder="Any status"
             size="md"
             class="w-full"
           />
+        </UFormField>
+        <UFormField label="Tag">
+          <UInput v-model="state.tag" placeholder="e.g. tech" size="md" class="w-full" />
         </UFormField>
         <UFormField label="Source">
           <USelectMenu

@@ -89,7 +89,16 @@ function formatMoney(amount: number, currency: string): string {
   <div class="space-y-6">
     <header class="space-y-3 print:space-y-1">
       <div>
-        <h1 class="text-2xl font-semibold tracking-tight text-default">CRM Activity Report</h1>
+        <UButton
+          variant="ghost"
+          color="neutral"
+          icon="i-lucide-arrow-left"
+          label="Back to Customer Management"
+          size="xs"
+          class="print:hidden"
+          @click="navigateTo('/clients')"
+        />
+        <h1 class="mt-2 text-2xl font-semibold tracking-tight text-default">CRM Activity Report</h1>
         <p class="mt-1 text-sm text-muted">
           Interactions logged, meetings held, and pipeline movement by date range and staff member.
         </p>

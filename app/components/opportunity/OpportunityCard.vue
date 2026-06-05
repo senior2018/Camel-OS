@@ -84,6 +84,27 @@ const valueLabel = computed(() => {
         icon="i-lucide-circle-check"
         label="Approved"
       />
+      <UBadge
+        v-if="opportunity.winProbability !== null"
+        variant="subtle"
+        color="info"
+        size="xs"
+        :label="`${opportunity.winProbability}%`"
+      />
+    </div>
+
+    <div v-if="opportunity.tags?.length" class="mt-2 flex flex-wrap gap-1">
+      <UBadge
+        v-for="t in opportunity.tags.slice(0, 4)"
+        :key="t"
+        variant="soft"
+        color="neutral"
+        size="xs"
+        :label="`#${t}`"
+      />
+      <span v-if="opportunity.tags.length > 4" class="text-xs text-dimmed">
+        +{{ opportunity.tags.length - 4 }}
+      </span>
     </div>
 
     <div v-if="valueLabel" class="mt-2 text-xs font-medium text-default">

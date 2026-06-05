@@ -4,14 +4,21 @@ import { asc, desc, eq, sql } from 'drizzle-orm'
 import { clients, opportunities, opportunityClients, users } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
-import { OPPORTUNITY_STAGES, type OpportunityStage } from '@@/shared/schemas/opportunity'
+import {
+  OPPORTUNITY_STAGES,
+  OPPORTUNITY_STATUSES,
+  type OpportunityStage,
+  type OpportunityStatus,
+} from '@@/shared/schemas/opportunity'
 
 /**
  * Returns all opportunities for the caller's organization, sorted by deadline asc
- * (nulls last) then created_at desc. The response includes an extra `grouped`
- * field keyed by stage so the Kanban view can render without a second fetch.
+ * (nulls last) then created_at desc. The response includes an extra `groupedByStatus`
+ * field keyed by status so the status-columns view can render without a second fetch.
  *
- * OM-03: Kanban-style pipeline reads this endpoint.
+ * S7: replaced stage Kanban with Pending / Accepted / Rejected status columns.
+ * Legacy `grouped` (by stage) is kept on the response for any caller that
+ * still reads it; remove once every reader is migrated.
  */
 export default defineEventHandler(async (event) => {
   try {
@@ -41,9 +48,13 @@ export default defineEventHandler(async (event) => {
       .select({
         id: opportunities.id,
         title: opportunities.title,
+        description: opportunities.description,
         source: opportunities.source,
         type: opportunities.type,
         stage: opportunities.stage,
+        status: opportunities.status,
+        tags: opportunities.tags,
+        winProbability: opportunities.winProbability,
         deadline: opportunities.deadline,
         estimatedValue: opportunities.estimatedValue,
         currency: opportunities.currency,
@@ -62,14 +73,19 @@ export default defineEventHandler(async (event) => {
       .where(eq(opportunities.organizationId, ctx.organizationId))
       .orderBy(asc(opportunities.deadline), desc(opportunities.createdAt))
 
-    // Initialise every stage so the Kanban renders empty columns too.
+    // Status columns (S7) — Pending / Accepted / Rejected.
+    const groupedByStatus: Record<OpportunityStatus, typeof rows> = Object.fromEntries(
+      OPPORTUNITY_STATUSES.map((s) => [s, [] as typeof rows])
+    ) as Record<OpportunityStatus, typeof rows>
+    for (const row of rows) groupedByStatus[row.status].push(row)
+
+    // Legacy stage groups — kept until every UI reader is migrated to status.
     const grouped: Record<OpportunityStage, typeof rows> = Object.fromEntries(
       OPPORTUNITY_STAGES.map((stage) => [stage, [] as typeof rows])
     ) as Record<OpportunityStage, typeof rows>
-
     for (const row of rows) grouped[row.stage].push(row)
 
-    return { items: rows, grouped }
+    return { items: rows, grouped, groupedByStatus }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
     consola.error('Error listing opportunities', error)

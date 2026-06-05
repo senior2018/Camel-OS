@@ -8,7 +8,7 @@ definePageMeta({
   layout: 'dashboard',
 })
 
-useHead({ title: 'Clients — Camel OS' })
+useHead({ title: 'Customer Management — Camel OS' })
 
 const { can } = await usePermissions()
 
@@ -142,12 +142,32 @@ function ownerInitials(c: ClientListItem): string {
 <template>
   <div class="space-y-6">
     <header class="space-y-4">
-      <div>
-        <h1 class="text-2xl font-semibold tracking-tight text-default">Clients</h1>
-        <p class="mt-1 text-sm text-muted">
-          Clients, prospects, donors, and partners — contacts, interactions, grants, and linked
-          opportunities.
-        </p>
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-tight text-default">Customer Management</h1>
+          <p class="mt-1 text-sm text-muted">
+            Clients, prospects, donors, and partners — contacts, interactions, grants, and linked
+            opportunities.
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <UButton
+            variant="outline"
+            color="neutral"
+            size="sm"
+            icon="i-lucide-handshake"
+            label="Donor & partner dashboard"
+            @click="navigateTo('/reports/donor-partner-dashboard')"
+          />
+          <UButton
+            variant="outline"
+            color="neutral"
+            size="sm"
+            icon="i-lucide-bar-chart-3"
+            label="Activity report"
+            @click="navigateTo('/reports/crm-activity')"
+          />
+        </div>
       </div>
 
       <div class="flex flex-wrap items-center gap-2">

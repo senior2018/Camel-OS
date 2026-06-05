@@ -203,16 +203,29 @@ async function confirmDelete() {
               :class="['group transition-colors', v.archivedAt ? 'bg-elevated/20' : '']"
             >
               <td class="px-3 py-1.5 align-middle">
-                <input
-                  :value="v.label"
-                  type="text"
-                  :class="[
-                    'w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-sm text-default outline-none transition-colors',
-                    'hover:border-default focus:border-primary focus:bg-default',
-                  ]"
-                  @blur="(e: FocusEvent) => renameValue(v, (e.target as HTMLInputElement).value)"
-                  @keydown.enter="(e: KeyboardEvent) => (e.target as HTMLInputElement).blur()"
-                />
+                <!-- S7 — inline-editable label. Always shows a visible border
+                     + pencil affordance so admins know the cell is editable
+                     without hovering first. Enter or blur saves; Esc cancels. -->
+                <div class="flex items-center gap-2">
+                  <input
+                    :value="v.label"
+                    type="text"
+                    aria-label="Edit label"
+                    :class="[
+                      'w-full rounded-md border border-default bg-default/40 px-2 py-1 text-sm text-default outline-none transition-colors',
+                      'hover:border-primary/40 focus:border-primary focus:bg-default',
+                    ]"
+                    @blur="(e: FocusEvent) => renameValue(v, (e.target as HTMLInputElement).value)"
+                    @keydown.enter="(e: KeyboardEvent) => (e.target as HTMLInputElement).blur()"
+                    @keydown.escape="
+                      (e: KeyboardEvent) => {
+                        ;(e.target as HTMLInputElement).value = v.label
+                        ;(e.target as HTMLInputElement).blur()
+                      }
+                    "
+                  />
+                  <UIcon name="i-lucide-pencil" class="size-3.5 shrink-0 text-muted" />
+                </div>
               </td>
               <td class="px-4 py-1.5 align-middle">
                 <code class="rounded bg-elevated/60 px-1.5 py-0.5 text-xs text-muted">{{
