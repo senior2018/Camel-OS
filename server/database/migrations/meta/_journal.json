@@ -120,6 +120,13 @@
       "when": 1780325640679,
       "tag": "0016_rare_nuke",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1780622596452,
+      "tag": "0017_tan_obadiah_stane",
+      "breakpoints": true
     }
   ]
 }
