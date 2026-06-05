@@ -2,6 +2,7 @@ import type {
   CreateOpportunityPayload,
   OpportunityStage,
   OpportunitySource,
+  OpportunityStatus,
   OpportunityType,
   UpdateOpportunityPayload,
 } from '@@/shared/schemas/opportunity'
@@ -9,9 +10,13 @@ import type {
 export interface Opportunity {
   id: string
   title: string
+  description: string | null
   source: OpportunitySource
   type: OpportunityType
   stage: OpportunityStage
+  status: OpportunityStatus
+  tags: string[]
+  winProbability: number | null
   deadline: string | null
   estimatedValue: string | null
   currency: string
@@ -29,6 +34,7 @@ export interface Opportunity {
 interface OpportunitiesResponse {
   items: Opportunity[]
   grouped: Record<OpportunityStage, Opportunity[]>
+  groupedByStatus: Record<OpportunityStatus, Opportunity[]>
 }
 
 /**
@@ -124,27 +130,27 @@ export function useOpportunities() {
     }
   }
 
-  async function moveStage(
+  async function moveStatus(
     opp: Opportunity,
-    toStage: OpportunityStage,
-    note?: string
+    toStatus: OpportunityStatus,
+    comment?: string | null
   ): Promise<boolean> {
-    if (opp.stage === toStage) return true
+    if (opp.status === toStatus) return true
     try {
-      await $fetch(`/api/opportunities/${opp.id}/stage`, {
+      await $fetch(`/api/opportunities/${opp.id}/status`, {
         method: 'POST',
-        body: { stage: toStage, note },
+        body: { status: toStatus, comment: comment ?? undefined },
       })
       toast.add({
-        title: 'Stage updated',
-        description: `${opp.title} → ${toStage}`,
+        title: 'Status updated',
+        description: `${opp.title} → ${toStatus}`,
         color: 'success',
       })
       await refresh()
       return true
     } catch (err) {
       toast.add({
-        title: 'Could not move stage',
+        title: 'Could not change status',
         description: extractMessage(err, 'Please try again.'),
         color: 'error',
       })
@@ -160,7 +166,7 @@ export function useOpportunities() {
     createOpportunity,
     updateOpportunity,
     deleteOpportunity,
-    moveStage,
+    moveStatus,
     setApproved,
   }
 }

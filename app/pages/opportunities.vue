@@ -1,10 +1,6 @@
 <script setup lang="ts">
-import type {
-  CreateOpportunityPayload,
-  OpportunityStage,
-  OpportunityStage as _Stage,
-} from '@@/shared/schemas/opportunity'
-import { OPPORTUNITY_STAGES, OPPORTUNITY_STAGE_LABEL } from '@@/shared/schemas/opportunity'
+import type { CreateOpportunityPayload, OpportunityStatus } from '@@/shared/schemas/opportunity'
+import { OPPORTUNITY_STATUSES } from '@@/shared/schemas/opportunity'
 import type { Opportunity } from '@/composables/useOpportunities'
 import type { OpportunityFilterState } from '@/components/opportunity/OpportunityFilters.vue'
 
@@ -34,19 +30,20 @@ const {
   createOpportunity,
   updateOpportunity,
   deleteOpportunity,
-  moveStage,
+  moveStatus,
   setApproved,
 } = useOpportunities()
 
-// ─── Filters + view toggle (OM-04, OM-06) ─────────────────────────────────────
-const view = ref<'stages' | 'list' | 'dashboard' | 'kanban'>('stages')
+// ─── Filters + view toggle ─────────────────────────────────────────────────────
+const view = ref<'board' | 'list' | 'dashboard'>('board')
 const showFilters = ref(false)
 
 const filters = ref<OpportunityFilterState>({
   search: '',
   sources: [],
   types: [],
-  stages: [],
+  statuses: [],
+  tag: '',
   deadlineFrom: '',
   deadlineTo: '',
   valueMin: null,
@@ -54,13 +51,20 @@ const filters = ref<OpportunityFilterState>({
 })
 
 function matchesFilters(opp: Opportunity, f: OpportunityFilterState): boolean {
-  if (f.stages.length && !f.stages.includes(opp.stage)) return false
+  if (f.statuses.length && !f.statuses.includes(opp.status)) return false
   if (f.sources.length && !f.sources.includes(opp.source)) return false
   if (f.types.length && !f.types.includes(opp.type)) return false
 
   if (f.search.trim()) {
     const q = f.search.trim().toLowerCase()
-    if (!opp.title.toLowerCase().includes(q)) return false
+    const inTitle = opp.title.toLowerCase().includes(q)
+    const inDesc = (opp.description ?? '').toLowerCase().includes(q)
+    if (!inTitle && !inDesc) return false
+  }
+
+  if (f.tag.trim()) {
+    const q = f.tag.trim().toLowerCase()
+    if (!opp.tags?.some((t) => t.toLowerCase().includes(q))) return false
   }
 
   if (f.deadlineFrom && (!opp.deadline || opp.deadline < f.deadlineFrom)) return false
@@ -81,11 +85,11 @@ const filteredItems = computed<Opportunity[]>(() => {
   return data.value.items.filter((opp) => matchesFilters(opp, filters.value))
 })
 
-const filteredGrouped = computed<Record<_Stage, Opportunity[]>>(() => {
+const filteredGroupedByStatus = computed<Record<OpportunityStatus, Opportunity[]>>(() => {
   const grouped = Object.fromEntries(
-    OPPORTUNITY_STAGES.map((s) => [s, [] as Opportunity[]])
-  ) as Record<_Stage, Opportunity[]>
-  for (const opp of filteredItems.value) grouped[opp.stage].push(opp)
+    OPPORTUNITY_STATUSES.map((s) => [s, [] as Opportunity[]])
+  ) as Record<OpportunityStatus, Opportunity[]>
+  for (const opp of filteredItems.value) grouped[opp.status].push(opp)
   return grouped
 })
 
@@ -100,8 +104,6 @@ function openCreate() {
 }
 
 function openEdit(opp: Opportunity) {
-  // Anyone with `opportunity:read` can open the modal — it falls back to
-  // read-only when the viewer lacks update permission.
   editing.value = opp
   showFormModal.value = true
 }
@@ -150,34 +152,6 @@ async function handleSubmit(
   if (ok) showFormModal.value = false
 }
 
-// S5b — drag-and-drop now opens a confirmation dialog so the user can supply
-// the move comment (required for 'lost'). The same dialog is used by Kanban,
-// Stages view, and the in-modal stage selector.
-const pendingMove = ref<{ opp: Opportunity; toStage: OpportunityStage } | null>(null)
-const pendingMoveComment = ref('')
-
-function handleMove(opp: Opportunity, toStage: OpportunityStage) {
-  if (!canUpdate.value) return
-  if (opp.stage === toStage) return
-  pendingMove.value = { opp, toStage }
-  pendingMoveComment.value = ''
-}
-
-function cancelPendingMove() {
-  pendingMove.value = null
-  pendingMoveComment.value = ''
-}
-
-async function confirmPendingMove() {
-  if (!pendingMove.value) return
-  if (pendingMove.value.toStage === 'lost' && !pendingMoveComment.value.trim()) return
-  const { opp, toStage } = pendingMove.value
-  const note = pendingMoveComment.value.trim() || undefined
-  pendingMove.value = null
-  pendingMoveComment.value = ''
-  await moveStage(opp, toStage, note)
-}
-
 const confirmDelete = ref<Opportunity | null>(null)
 async function confirmAndDelete() {
   if (!confirmDelete.value) return
@@ -196,19 +170,20 @@ const filteredCount = computed(() => filteredItems.value.length)
       <div>
         <h1 class="text-2xl font-semibold tracking-tight text-default">Opportunities</h1>
         <p class="mt-1 text-sm text-muted">
-          Track tenders, grants, and partnership leads through the pipeline.
+          Review pipeline — Pending → Accepted → Rejected. Accepted opportunities spawn a proposal
+          in the Proposals module.
         </p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <UFieldGroup>
           <UButton
-            :color="view === 'stages' ? 'primary' : 'neutral'"
-            :variant="view === 'stages' ? 'solid' : 'outline'"
-            icon="i-lucide-layers"
-            aria-label="Stages view"
-            @click="view = 'stages'"
+            :color="view === 'board' ? 'primary' : 'neutral'"
+            :variant="view === 'board' ? 'solid' : 'outline'"
+            icon="i-lucide-columns-3"
+            aria-label="Board view"
+            @click="view = 'board'"
           >
-            <span class="hidden sm:inline">Stages</span>
+            <span class="hidden sm:inline">Board</span>
           </UButton>
           <UButton
             :color="view === 'list' ? 'primary' : 'neutral'"
@@ -227,15 +202,6 @@ const filteredCount = computed(() => filteredItems.value.length)
             @click="view = 'dashboard'"
           >
             <span class="hidden sm:inline">Dashboard</span>
-          </UButton>
-          <UButton
-            :color="view === 'kanban' ? 'primary' : 'neutral'"
-            :variant="view === 'kanban' ? 'solid' : 'outline'"
-            icon="i-lucide-columns-3"
-            aria-label="Kanban view"
-            @click="view = 'kanban'"
-          >
-            <span class="hidden sm:inline">Kanban</span>
           </UButton>
         </UFieldGroup>
         <UButton
@@ -267,7 +233,6 @@ const filteredCount = computed(() => filteredItems.value.length)
     </div>
 
     <template v-else>
-      <!-- Truly empty: no opportunities at all -->
       <div
         v-if="totalCount === 0"
         class="flex flex-col items-center gap-3 rounded-xl border border-dashed border-default p-12 text-center"
@@ -275,7 +240,7 @@ const filteredCount = computed(() => filteredItems.value.length)
         <UIcon name="i-lucide-target" class="size-10 text-muted" />
         <h2 class="text-lg font-semibold text-default">No opportunities yet</h2>
         <p class="max-w-md text-sm text-muted">
-          Add your first opportunity to start tracking your pipeline.
+          Add your first opportunity to start tracking your review pipeline.
         </p>
         <UButton
           v-if="canCreate"
@@ -286,7 +251,6 @@ const filteredCount = computed(() => filteredItems.value.length)
         />
       </div>
 
-      <!-- Filtered to zero -->
       <div
         v-else-if="filteredCount === 0"
         class="flex flex-col items-center gap-3 rounded-xl border border-dashed border-default p-12 text-center"
@@ -299,12 +263,10 @@ const filteredCount = computed(() => filteredItems.value.length)
       <template v-else>
         <p class="text-xs text-muted">Showing {{ filteredCount }} of {{ totalCount }}</p>
 
-        <OpportunityStagesView
-          v-if="view === 'stages'"
-          :grouped="filteredGrouped"
-          :can-move="canUpdate"
+        <OpportunityStatusBoard
+          v-if="view === 'board'"
+          :grouped="filteredGroupedByStatus"
           @select-opportunity="openEdit"
-          @move-stage="handleMove"
         />
 
         <OpportunityList
@@ -313,19 +275,7 @@ const filteredCount = computed(() => filteredItems.value.length)
           @select-opportunity="openEdit"
         />
 
-        <OpportunityDashboard
-          v-else-if="view === 'dashboard'"
-          :items="filteredItems"
-          @select-opportunity="openEdit"
-        />
-
-        <OpportunityKanban
-          v-else
-          :grouped="filteredGrouped"
-          :can-move="canUpdate"
-          @select-opportunity="openEdit"
-          @move-stage="handleMove"
-        />
+        <OpportunityDashboard v-else :items="filteredItems" @select-opportunity="openEdit" />
       </template>
     </template>
 
@@ -349,58 +299,16 @@ const filteredCount = computed(() => filteredItems.value.length)
           showFormModal = false
         }
       "
-      @move-stage="
-        async (opp, toStage, comment) => {
+      @move-status="
+        async (opp, toStatus, comment) => {
           if (!canUpdate) return
-          const ok = await moveStage(opp, toStage, comment ?? undefined)
+          const ok = await moveStatus(opp, toStatus, comment)
           if (ok) {
-            // Reflect the new stage so the modal's badge updates in place.
-            editing = { ...opp, stage: toStage }
+            editing = { ...opp, status: toStatus }
           }
         }
       "
     />
-
-    <!-- Drag-and-drop stage transitions also funnel through this dialog so the
-         comment / rejection-reason flow is the same everywhere. -->
-    <UModal
-      :open="!!pendingMove"
-      :title="
-        pendingMove
-          ? `Move “${pendingMove.opp.title}” to ${OPPORTUNITY_STAGE_LABEL[pendingMove.toStage]}?`
-          : ''
-      "
-      @update:open="(v: boolean) => !v && cancelPendingMove()"
-    >
-      <template #body>
-        <div class="space-y-3">
-          <p class="text-sm text-muted">
-            {{
-              pendingMove?.toStage === 'lost'
-                ? 'A rejection reason is required when marking an opportunity as Lost.'
-                : 'Optionally capture why this opportunity is moving.'
-            }}
-          </p>
-          <UFormField
-            :label="pendingMove?.toStage === 'lost' ? 'Rejection reason' : 'Comment'"
-            :required="pendingMove?.toStage === 'lost'"
-          >
-            <UTextarea v-model="pendingMoveComment" :rows="4" class="w-full" />
-          </UFormField>
-        </div>
-      </template>
-      <template #footer>
-        <div class="ml-auto flex gap-3">
-          <UButton variant="ghost" label="Cancel" @click="cancelPendingMove" />
-          <UButton
-            :disabled="pendingMove?.toStage === 'lost' && !pendingMoveComment.trim()"
-            :color="pendingMove?.toStage === 'lost' ? 'error' : 'primary'"
-            :label="pendingMove?.toStage === 'lost' ? 'Mark as Lost' : 'Confirm move'"
-            @click="confirmPendingMove"
-          />
-        </div>
-      </template>
-    </UModal>
 
     <UModal
       :open="!!confirmDelete"

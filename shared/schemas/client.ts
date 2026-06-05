@@ -35,19 +35,29 @@ export const PARTNERSHIP_TYPE_LABEL: Record<PartnershipType, string> = {
  * relevant fields are sent based on `type`. Unknown keys are ignored on read so
  * admins can drop in extra fields without breaking older clients.
  */
+// Empty-string-tolerant helper — the form binds these inputs to `''` by
+// default, so plain `.optional()` would treat the empty string as "present"
+// and fire validation errors for fields the user never touched. Mapping `''`
+// → undefined makes the field genuinely optional.
+const optionalMetaString = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : undefined))
+
 export const clientMetadataSchema = z
   .object({
     // Donor fields
     focusAreas: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
-    reportingLanguage: z.string().trim().max(20).optional(),
-    fiscalYearStart: z
-      .string()
-      .trim()
-      .regex(/^\d{2}-\d{2}$/, 'Use MM-DD')
-      .optional(),
+    reportingLanguage: optionalMetaString(20),
+    // Free-form MM-DD or any short label — kept lenient so an empty input or
+    // a free-text value ("July 1") doesn't block the whole form silently.
+    fiscalYearStart: optionalMetaString(20),
     // Partner fields
     partnershipType: z.enum(PARTNERSHIP_TYPES).optional(),
-    scope: z.string().trim().max(2000).optional(),
+    scope: optionalMetaString(2000),
   })
   .partial()
   .nullable()
@@ -153,10 +163,42 @@ const optionalDate = z
 
 // ─── Client ───────────────────────────────────────────────────────────────────
 
-/** Body for `POST /api/clients` (CR-01 + CR-08). */
-export const createClientSchema = z.object({
-  name: z.string().trim().min(1, 'Name is required').max(200),
-  type: z.enum(CLIENT_TYPES).default('prospect'),
+/**
+ * Body for `POST /api/clients` (CR-01 + CR-08).
+ *
+ * S7 — the single "name" field is split into `firstName` + `lastName` (for
+ * individuals) plus `organization` (for B2B clients or an individual's
+ * affiliation). At least one must be present; the server computes the legacy
+ * `name` column from these for backwards-compatible display.
+ */
+export const createClientSchema = z
+  .object({
+    firstName: optionalText(100),
+    lastName: optionalText(100),
+    organization: optionalText(200),
+    type: z.enum(CLIENT_TYPES).default('prospect'),
+    industry: optionalText(100),
+    country: optionalText(100),
+    website: optionalUrl,
+    phone: optionalText(50),
+    email: optionalEmail,
+    notes: optionalText(2000),
+    metadata: clientMetadataSchema.optional(),
+    ownerUserId: z.string().uuid().optional().nullable(),
+  })
+  .refine((v) => Boolean(v.firstName || v.lastName || v.organization), {
+    message: 'Provide a first/last name or an organization.',
+    path: ['firstName'],
+  })
+
+export type CreateClientPayload = z.output<typeof createClientSchema>
+
+/** Body for `PATCH /api/clients/:id`. Every field optional. */
+export const updateClientSchema = z.object({
+  firstName: optionalText(100),
+  lastName: optionalText(100),
+  organization: optionalText(200),
+  type: z.enum(CLIENT_TYPES).optional(),
   industry: optionalText(100),
   country: optionalText(100),
   website: optionalUrl,
@@ -167,12 +209,27 @@ export const createClientSchema = z.object({
   ownerUserId: z.string().uuid().optional().nullable(),
 })
 
-export type CreateClientPayload = z.output<typeof createClientSchema>
-
-/** Body for `PATCH /api/clients/:id`. Every field optional. */
-export const updateClientSchema = createClientSchema.partial()
-
 export type UpdateClientPayload = z.output<typeof updateClientSchema>
+
+/**
+ * Derive the canonical display name from the structured fields. Prefers
+ * "FirstName LastName" when both are set, otherwise falls back to the
+ * organization, otherwise to whichever single piece is present.
+ */
+export function deriveClientName(input: {
+  firstName?: string | null
+  lastName?: string | null
+  organization?: string | null
+}): string {
+  const f = input.firstName?.trim()
+  const l = input.lastName?.trim()
+  const o = input.organization?.trim()
+  if (f && l) return `${f} ${l}`
+  if (o) return o
+  if (f) return f
+  if (l) return l
+  return ''
+}
 
 // ─── Client contact ───────────────────────────────────────────────────────────
 

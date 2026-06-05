@@ -23,25 +23,25 @@ const navItems = computed(() => {
       icon: 'i-lucide-target',
       active: route.path.startsWith('/opportunities'),
     })
+    items.push({
+      label: 'Proposals',
+      to: '/proposals',
+      icon: 'i-lucide-file-text',
+      active: route.path.startsWith('/proposals'),
+    })
   }
   if (can.value('crm', 'read')) {
+    // Customer Management covers clients, prospects, donors, and partners —
+    // the page itself has tab filters per type and surfaces the two reports
+    // (donor & partner dashboard, activity report) in its header.
     items.push({
-      label: 'Clients',
+      label: 'Customer Management',
       to: '/clients',
       icon: 'i-lucide-users',
-      active: route.path.startsWith('/clients'),
-    })
-    items.push({
-      label: 'Donor & partner',
-      to: '/reports/donor-partner-dashboard',
-      icon: 'i-lucide-handshake',
-      active: route.path.startsWith('/reports/donor-partner'),
-    })
-    items.push({
-      label: 'CRM activity',
-      to: '/reports/crm-activity',
-      icon: 'i-lucide-bar-chart-3',
-      active: route.path === '/reports/crm-activity',
+      active:
+        route.path.startsWith('/clients') ||
+        route.path.startsWith('/reports/donor-partner') ||
+        route.path === '/reports/crm-activity',
     })
   }
   return items

@@ -1,24 +1,22 @@
 <script setup lang="ts">
 import {
   OPPORTUNITY_SOURCE_LABEL,
-  OPPORTUNITY_STAGES,
-  OPPORTUNITY_STAGE_LABEL,
+  OPPORTUNITY_STATUSES,
+  OPPORTUNITY_STATUS_LABEL,
   type OpportunitySource,
-  type OpportunityStage,
+  type OpportunityStatus,
 } from '@@/shared/schemas/opportunity'
 import type { Opportunity } from '@/composables/useOpportunities'
 
 /**
- * OM-06 — Manager dashboard for opportunities. Aggregates the same in-memory
- * list the Kanban/List use, so adding it costs zero round-trips. Numbers shown:
- *  - Headline cards: total count, total pipeline value, active pipeline value, won YTD
- *  - By-stage breakdown with count + total value (horizontal bars)
+ * OM-06 — Manager dashboard for opportunities (S7).
+ *  - Headline cards: total count, accepted count, pending count, total value
+ *  - By-status breakdown
  *  - By-source breakdown
  *  - Top 5 opportunities by estimated value
  *
- * Active pipeline = sum of estimated_value for opportunities not yet in Won or
- * Lost. The previous weighted-forecast metric was driven by `winProbability`,
- * removed in S5b as it added noise without analytic value for the firm.
+ * Won / Lost numbers live in the Proposal module now; the opportunity dashboard
+ * focuses on the *review* pipeline.
  */
 interface Props {
   items: Opportunity[]
@@ -39,38 +37,32 @@ const totalCount = computed(() => props.items.length)
 
 const totalValue = computed(() => props.items.reduce((sum, o) => sum + valueOf(o), 0))
 
-const activePipelineValue = computed(() =>
-  props.items
-    .filter((o) => o.stage !== 'won' && o.stage !== 'lost')
-    .reduce((sum, o) => sum + valueOf(o), 0)
+const pendingCount = computed(() => props.items.filter((o) => o.status === 'pending').length)
+const acceptedCount = computed(() => props.items.filter((o) => o.status === 'accepted').length)
+const acceptedValue = computed(() =>
+  props.items.filter((o) => o.status === 'accepted').reduce((sum, o) => sum + valueOf(o), 0)
 )
 
-const wonValue = computed(() =>
-  props.items.filter((o) => o.stage === 'won').reduce((sum, o) => sum + valueOf(o), 0)
-)
-
-const wonCount = computed(() => props.items.filter((o) => o.stage === 'won').length)
-
-interface StageStat {
-  stage: OpportunityStage
+interface StatusStat {
+  status: OpportunityStatus
   label: string
   count: number
   value: number
 }
 
-const byStage = computed<StageStat[]>(() =>
-  OPPORTUNITY_STAGES.map((stage) => {
-    const subset = props.items.filter((o) => o.stage === stage)
+const byStatus = computed<StatusStat[]>(() =>
+  OPPORTUNITY_STATUSES.map((status) => {
+    const subset = props.items.filter((o) => o.status === status)
     return {
-      stage,
-      label: OPPORTUNITY_STAGE_LABEL[stage],
+      status,
+      label: OPPORTUNITY_STATUS_LABEL[status],
       count: subset.length,
       value: subset.reduce((sum, o) => sum + valueOf(o), 0),
     }
   })
 )
 
-const maxStageValue = computed(() => Math.max(1, ...byStage.value.map((s) => s.value)))
+const maxStatusValue = computed(() => Math.max(1, ...byStatus.value.map((s) => s.value)))
 
 interface SourceStat {
   source: OpportunitySource
@@ -122,32 +114,30 @@ function formatMoney(n: number, currency = 'USD'): string {
         <p class="mt-2 text-3xl font-semibold text-default">{{ totalCount }}</p>
       </UCard>
       <UCard :ui="{ body: 'p-5' }">
+        <p class="text-xs uppercase tracking-wide text-muted">Pending review</p>
+        <p class="mt-2 text-3xl font-semibold text-warning">{{ pendingCount }}</p>
+        <p class="mt-1 text-xs text-dimmed">awaiting decision</p>
+      </UCard>
+      <UCard :ui="{ body: 'p-5' }">
+        <p class="text-xs uppercase tracking-wide text-muted">Accepted</p>
+        <p class="mt-2 text-3xl font-semibold text-success">{{ acceptedCount }}</p>
+        <p class="mt-1 text-xs text-dimmed">{{ formatMoney(acceptedValue) }} in proposals</p>
+      </UCard>
+      <UCard :ui="{ body: 'p-5' }">
         <p class="text-xs uppercase tracking-wide text-muted">Pipeline value</p>
         <p class="mt-2 text-3xl font-semibold text-default">{{ formatMoney(totalValue) }}</p>
       </UCard>
-      <UCard :ui="{ body: 'p-5' }">
-        <p class="text-xs uppercase tracking-wide text-muted">Active pipeline</p>
-        <p class="mt-2 text-3xl font-semibold text-default">
-          {{ formatMoney(activePipelineValue) }}
-        </p>
-        <p class="mt-1 text-xs text-dimmed">excluding won &amp; lost</p>
-      </UCard>
-      <UCard :ui="{ body: 'p-5' }">
-        <p class="text-xs uppercase tracking-wide text-muted">Won</p>
-        <p class="mt-2 text-3xl font-semibold text-success">{{ formatMoney(wonValue) }}</p>
-        <p class="mt-1 text-xs text-dimmed">{{ wonCount }} closed</p>
-      </UCard>
     </section>
 
-    <!-- By stage -->
+    <!-- By status -->
     <section>
       <UCard>
         <template #header>
-          <h2 class="font-semibold">Pipeline by stage</h2>
+          <h2 class="font-semibold">Pipeline by status</h2>
         </template>
 
         <ul class="space-y-3">
-          <li v-for="stat in byStage" :key="stat.stage" class="space-y-1">
+          <li v-for="stat in byStatus" :key="stat.status" class="space-y-1">
             <div class="flex items-center justify-between text-sm">
               <span class="font-medium text-default">{{ stat.label }}</span>
               <span class="text-muted">{{ stat.count }} · {{ formatMoney(stat.value) }}</span>
@@ -155,7 +145,7 @@ function formatMoney(n: number, currency = 'USD'): string {
             <div class="h-2 overflow-hidden rounded-full bg-elevated">
               <div
                 class="h-full rounded-full bg-primary transition-all"
-                :style="{ width: `${(stat.value / maxStageValue) * 100}%` }"
+                :style="{ width: `${(stat.value / maxStatusValue) * 100}%` }"
               />
             </div>
           </li>
@@ -215,7 +205,7 @@ function formatMoney(n: number, currency = 'USD'): string {
                   </span>
                 </div>
                 <p class="mt-0.5 truncate text-xs text-muted">
-                  {{ OPPORTUNITY_STAGE_LABEL[opp.stage] }} ·
+                  {{ OPPORTUNITY_STATUS_LABEL[opp.status] }} ·
                   {{ OPPORTUNITY_SOURCE_LABEL[opp.source] }}
                 </p>
               </button>

@@ -75,6 +75,17 @@ export default defineEventHandler(async (event) => {
 
     await recordPasswordHistory(user.id, newPasswordHash)
 
+    // The session cookie still carries the `mustChangePassword: true` flag that
+    // was baked in at login time, so the auth middleware would bounce the user
+    // straight back to /change-password if we don't update it. `setUserSession`
+    // merges into the existing session so we only need to flip the one field.
+    await setUserSession(event, {
+      user: {
+        ...(session.user as Record<string, unknown>),
+        mustChangePassword: false,
+      },
+    })
+
     await logAuditEvent({
       organizationId: user.organizationId,
       userId: user.id,

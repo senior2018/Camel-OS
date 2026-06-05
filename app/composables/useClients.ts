@@ -3,6 +3,9 @@ import type { ClientType, CreateClientPayload, UpdateClientPayload } from '@@/sh
 export interface ClientListItem {
   id: string
   name: string
+  firstName: string | null
+  lastName: string | null
+  organization: string | null
   type: ClientType
   industry: string | null
   country: string | null

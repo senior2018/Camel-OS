@@ -89,7 +89,9 @@ useHead({ title: computed(() => `${data.value?.client.name ?? 'Client'} — Came
 // Edit-mode for the profile card.
 const editing = ref(false)
 const editState = reactive<{
-  name: string
+  firstName: string
+  lastName: string
+  organization: string
   type: ClientType
   industry: string
   country: string
@@ -99,7 +101,9 @@ const editState = reactive<{
   notes: string
   metadata: ClientMetadata
 }>({
-  name: '',
+  firstName: '',
+  lastName: '',
+  organization: '',
   type: 'prospect',
   industry: '',
   country: '',
@@ -115,7 +119,11 @@ const typeOptions = CLIENT_TYPES.map((t) => ({ label: CLIENT_TYPE_LABEL[t], valu
 function startEdit() {
   if (!data.value) return
   const c = data.value.client
-  editState.name = c.name
+  editState.firstName = c.firstName ?? ''
+  editState.lastName = c.lastName ?? ''
+  // Pre-S7 rows have everything stuffed into `name`; surface it under
+  // Organization so the admin can split it manually.
+  editState.organization = c.organization ?? (!c.firstName && !c.lastName ? c.name : '')
   editState.type = c.type
   editState.industry = c.industry ?? ''
   editState.country = c.country ?? ''
@@ -129,7 +137,9 @@ function startEdit() {
 
 async function saveEdit() {
   const payload: UpdateClientPayload = {
-    name: editState.name,
+    firstName: editState.firstName || null,
+    lastName: editState.lastName || null,
+    organization: editState.organization || null,
     type: editState.type,
     industry: editState.industry || null,
     country: editState.country || null,
@@ -256,6 +266,16 @@ function healthColor(level: ReturnType<typeof clientHealth>): 'success' | 'warni
             </template>
 
             <div v-if="!editing" class="space-y-3 text-sm">
+              <div v-if="data.client.firstName || data.client.lastName">
+                <p class="text-xs uppercase tracking-wide text-muted">Contact name</p>
+                <p class="text-default">
+                  {{ [data.client.firstName, data.client.lastName].filter(Boolean).join(' ') }}
+                </p>
+              </div>
+              <div v-if="data.client.organization">
+                <p class="text-xs uppercase tracking-wide text-muted">Organization</p>
+                <p class="text-default">{{ data.client.organization }}</p>
+              </div>
               <div>
                 <p class="text-xs uppercase tracking-wide text-muted">Email</p>
                 <p class="text-default">{{ data.client.email || '—' }}</p>
@@ -323,8 +343,16 @@ function healthColor(level: ReturnType<typeof clientHealth>): 'success' | 'warni
             </div>
 
             <div v-else class="space-y-3">
-              <UFormField label="Name" required>
-                <UInput v-model="editState.name" class="w-full" />
+              <div class="grid grid-cols-2 gap-2">
+                <UFormField label="First name">
+                  <UInput v-model="editState.firstName" class="w-full" />
+                </UFormField>
+                <UFormField label="Last name">
+                  <UInput v-model="editState.lastName" class="w-full" />
+                </UFormField>
+              </div>
+              <UFormField label="Organization" hint="Company, foundation, or institution.">
+                <UInput v-model="editState.organization" class="w-full" />
               </UFormField>
               <UFormField label="Type">
                 <USelectMenu

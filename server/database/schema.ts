@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm'
 import {
   bigserial,
   boolean,
@@ -25,6 +26,17 @@ export const organizationMemberRoleEnum = pgEnum('organization_member_role', [
   'owner',
   'admin',
   'member',
+])
+
+// S7 refactor — Client feedback split: opportunity is now a 3-status pipeline
+// (Pending / Accepted / Rejected) and the writing/submitting/winning happens on
+// a separate Proposal record. The old `opportunity_stage` enum stays in the
+// schema so the legacy `stage` column and the existing stage-activity tables
+// keep migrating cleanly, but no UI references it any more.
+export const opportunityStatusEnum = pgEnum('opportunity_status', [
+  'pending',
+  'accepted',
+  'rejected',
 ])
 
 export const opportunityStageEnum = pgEnum('opportunity_stage', [
@@ -445,13 +457,32 @@ export const opportunities = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: 'cascade' }),
     title: text().notNull(),
+    // Free-text description added by the requester. Surfaced as the "extra
+    // details" textarea on the create form.
+    description: text(),
     // S5b — formerly opportunitySourceEnum / opportunityTypeEnum. Now plain
     // text keys, validated against `crm_lookup_values` (kind='opportunity_source'
     // / kind='opportunity_type') so admins can add new options without a
     // migration. The original enum keys are preserved as the seeded defaults.
     source: text().notNull().default('other'),
     type: text().notNull().default('consulting'),
+    // Legacy stage column (S2–S5b). Kept so old data + the stage-activity
+    // tables still resolve; UI now uses `status` exclusively.
     stage: opportunityStageEnum().notNull().default('discovery'),
+    // S7 — Pending / Accepted / Rejected is the real review-pipeline column.
+    // Pending = found, awaiting decision. Accepted = green-lit, a proposal
+    // record is auto-created and the work moves there. Rejected = will not
+    // pursue; comments thread captures the why.
+    status: opportunityStatusEnum().notNull().default('pending'),
+    // Reviewer-estimated win likelihood (0–100). Manual today; the spec calls
+    // for an AI-driven calculation off historical wins later.
+    winProbability: integer('win_probability'),
+    // Free-form categorisation chips — re-introduced after client feedback.
+    // Stored as a text[] so admins can search/filter without a join table.
+    tags: text()
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
     // ISO date — RFPs and grant calls usually quote a calendar deadline, not an instant.
     deadline: date('deadline'),
     // Monetary value in `currency`; numeric(14,2) gives room up to 999,999,999,999.99.
@@ -472,8 +503,97 @@ export const opportunities = pgTable(
   (table) => [
     index('opportunities_organization_id_idx').on(table.organizationId),
     index('opportunities_stage_idx').on(table.stage),
+    index('opportunities_status_idx').on(table.status),
     index('opportunities_owner_user_id_idx').on(table.ownerUserId),
     index('opportunities_deadline_idx').on(table.deadline),
+  ]
+)
+
+// ─── Opportunity Comments (S7) ─────────────────────────────────────────────────
+// Every reviewer can post a comment on an opportunity — used to capture the
+// rationale behind accept/reject decisions and ongoing owner updates. A single
+// optional attachment URL keeps the model simple while still letting the owner
+// drop a link to a relevant doc (bulk file uploads live in opportunity_attachments).
+
+export const opportunityCommentTypeEnum = pgEnum('opportunity_comment_type', ['comment', 'update'])
+
+export const opportunityComments = pgTable(
+  'opportunity_comments',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    opportunityId: uuid('opportunity_id')
+      .notNull()
+      .references(() => opportunities.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    // 'comment' = reviewer opinion (often paired with a Reject decision).
+    // 'update' = owner status note as the opp progresses.
+    kind: opportunityCommentTypeEnum().notNull().default('comment'),
+    body: text().notNull(),
+    attachmentUrl: text('attachment_url'),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('opportunity_comments_opportunity_id_idx').on(table.opportunityId),
+    index('opportunity_comments_organization_id_idx').on(table.organizationId),
+    index('opportunity_comments_created_at_idx').on(table.createdAt),
+  ]
+)
+
+// ─── Proposals (S7) ────────────────────────────────────────────────────────────
+// When an opportunity is Accepted, a Proposal record is auto-created in the
+// 'writing' state. The proposal carries its own lifecycle (writing → submitted
+// → won / lost), its own deadline, and its own reminder recipients. Won and
+// Lost no longer live on the opportunity — they belong to the proposal.
+
+export const proposalStatusEnum = pgEnum('proposal_status', ['writing', 'submitted', 'won', 'lost'])
+
+export const proposals = pgTable(
+  'proposals',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    opportunityId: uuid('opportunity_id')
+      .notNull()
+      .references(() => opportunities.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    title: text().notNull(),
+    status: proposalStatusEnum().notNull().default('writing'),
+    // ISO date — usually the bid submission deadline, separate from the
+    // opportunity's discovery-stage deadline so a proposal team can manage its
+    // own runway.
+    deadline: date('deadline'),
+    // Free-form draft content while writing — a richer editor can replace this
+    // textarea later without changing the schema.
+    contentDraft: text('content_draft'),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    // Optional reason for Lost — captured in the same field for Won/decided
+    // notes if the team wants to leave context.
+    decisionNote: text('decision_note'),
+    // Reminder fan-out list (S7). The opportunity's own deadline emails the
+    // owner; the proposal's deadline emails this whole list. Identity of the
+    // recipients is the team's call — empty array is fine.
+    reminderRecipientUserIds: uuid('reminder_recipient_user_ids')
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('proposals_opportunity_id_idx').on(table.opportunityId),
+    index('proposals_organization_id_idx').on(table.organizationId),
+    index('proposals_status_idx').on(table.status),
+    index('proposals_deadline_idx').on(table.deadline),
   ]
 )
 
@@ -578,7 +698,16 @@ export const clients = pgTable(
     organizationId: uuid('organization_id')
       .notNull()
       .references(() => organizations.id, { onDelete: 'cascade' }),
+    // `name` stays as the canonical display label and the primary duplicate-
+    // detection key. Server-side it's auto-populated from firstName+lastName
+    // or organization so the UI form never has to ask for it explicitly.
     name: text().notNull(),
+    // S7 — split contact name + add organization. Donors and individual
+    // partners often need a person's name; B2B clients have an organization.
+    // All three are optional; at least one must be present at create time.
+    firstName: text('first_name'),
+    lastName: text('last_name'),
+    organization: text(),
     type: clientTypeEnum().notNull().default('prospect'),
     // Industry / sector tag — free text since the firm covers many verticals.
     industry: text(),
@@ -1004,6 +1133,12 @@ export type NewDonorProject = typeof donorProjects.$inferInsert
 
 export type PartnershipAgreement = typeof partnershipAgreements.$inferSelect
 export type NewPartnershipAgreement = typeof partnershipAgreements.$inferInsert
+
+export type OpportunityComment = typeof opportunityComments.$inferSelect
+export type NewOpportunityComment = typeof opportunityComments.$inferInsert
+
+export type Proposal = typeof proposals.$inferSelect
+export type NewProposal = typeof proposals.$inferInsert
 
 export type DonorGrant = typeof donorGrants.$inferSelect
 export type NewDonorGrant = typeof donorGrants.$inferInsert

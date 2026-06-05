@@ -5,7 +5,7 @@ import { clients } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import { logAuditEvent } from '@@/server/utils/audit'
-import { createClientSchema } from '@@/shared/schemas/client'
+import { createClientSchema, deriveClientName } from '@@/shared/schemas/client'
 
 /**
  * Create a client/prospect (CR-01). Duplicate detection runs *before* the
@@ -27,6 +27,12 @@ export default defineEventHandler(async (event) => {
     }
 
     const data = parsed.data
+    // Compute the canonical display name from the structured fields.
+    const displayName = deriveClientName({
+      firstName: data.firstName,
+      lastName: data.lastName,
+      organization: data.organization,
+    })
     const db = useDrizzle()
 
     const dupConds = [eq(clients.organizationId, ctx.organizationId)]
@@ -37,9 +43,7 @@ export default defineEventHandler(async (event) => {
         and(
           ...dupConds,
           // Either an email match OR a case-insensitive name match counts as a dup.
-          // Drizzle's `or()` doesn't accept undefined branches, so we build the
-          // list and run a second query if neither applies (skipped below).
-          data.email ? eq(clients.email, data.email) : ilike(clients.name, data.name)
+          data.email ? eq(clients.email, data.email) : ilike(clients.name, displayName)
         )
       )
       .limit(5)
@@ -50,7 +54,9 @@ export default defineEventHandler(async (event) => {
       const nameMatches = await db
         .select({ id: clients.id, name: clients.name, email: clients.email })
         .from(clients)
-        .where(and(eq(clients.organizationId, ctx.organizationId), ilike(clients.name, data.name)))
+        .where(
+          and(eq(clients.organizationId, ctx.organizationId), ilike(clients.name, displayName))
+        )
         .limit(5)
       for (const m of nameMatches) if (!matches.find((x) => x.id === m.id)) matches.push(m)
     }
@@ -67,7 +73,10 @@ export default defineEventHandler(async (event) => {
       .insert(clients)
       .values({
         organizationId: ctx.organizationId,
-        name: data.name,
+        name: displayName,
+        firstName: data.firstName ?? null,
+        lastName: data.lastName ?? null,
+        organization: data.organization ?? null,
         type: data.type,
         industry: data.industry ?? null,
         country: data.country ?? null,

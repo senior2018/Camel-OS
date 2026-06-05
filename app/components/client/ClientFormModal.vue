@@ -54,7 +54,9 @@ const typeOptions = CLIENT_TYPES.map((t) => ({
 }))
 
 const state = reactive<{
-  name: string
+  firstName: string
+  lastName: string
+  organization: string
   type: ClientType
   industry: string
   country: string
@@ -65,7 +67,9 @@ const state = reactive<{
   metadata: ClientMetadata
   ownerUserId: string | null
 }>({
-  name: '',
+  firstName: '',
+  lastName: '',
+  organization: '',
   type: 'prospect',
   industry: '',
   country: '',
@@ -82,7 +86,12 @@ watch(
   ([open, initial]) => {
     if (!open) return
     if (initial) {
-      state.name = initial.name
+      state.firstName = initial.firstName ?? ''
+      state.lastName = initial.lastName ?? ''
+      // Fall back to the legacy `name` field for pre-S7 rows that never had
+      // firstName/lastName/organization populated — the user can split it.
+      state.organization =
+        initial.organization ?? (!initial.firstName && !initial.lastName ? initial.name : '')
       state.type = initial.type
       state.industry = initial.industry ?? ''
       state.country = initial.country ?? ''
@@ -93,7 +102,9 @@ watch(
       state.metadata = {}
       state.ownerUserId = initial.ownerUserId
     } else {
-      state.name = ''
+      state.firstName = ''
+      state.lastName = ''
+      state.organization = ''
       state.type = 'prospect'
       state.industry = ''
       state.country = ''
@@ -112,7 +123,9 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
   emit(
     'submit',
     {
-      name: state.name,
+      firstName: state.firstName || null,
+      lastName: state.lastName || null,
+      organization: state.organization || null,
       type: state.type,
       industry: state.industry || null,
       country: state.country || null,
@@ -133,6 +146,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
   <UModal
     :open="open"
     :title="readOnly ? 'Client details' : initial ? 'Edit client' : 'New client'"
+    description="Create or edit client information."
     :ui="{ content: 'sm:max-w-2xl' }"
     @update:open="emit('update:open', $event)"
   >
@@ -177,9 +191,34 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
         class="grid grid-cols-1 gap-4 sm:grid-cols-2"
         @submit="onSubmit"
       >
-        <UFormField label="Name" name="name" required class="sm:col-span-2">
+        <UFormField label="First name" name="firstName">
           <UInput
-            v-model="state.name"
+            v-model="state.firstName"
+            placeholder="Aisha"
+            size="lg"
+            class="w-full"
+            :disabled="readOnly"
+          />
+        </UFormField>
+
+        <UFormField label="Last name" name="lastName">
+          <UInput
+            v-model="state.lastName"
+            placeholder="Karim"
+            size="lg"
+            class="w-full"
+            :disabled="readOnly"
+          />
+        </UFormField>
+
+        <UFormField
+          label="Organization"
+          name="organization"
+          class="sm:col-span-2"
+          hint="The company, foundation, or institution this client represents (or works for)."
+        >
+          <UInput
+            v-model="state.organization"
             placeholder="Acme Consulting Ltd."
             size="lg"
             class="w-full"

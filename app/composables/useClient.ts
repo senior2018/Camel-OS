@@ -28,6 +28,9 @@ import type {
 export interface ClientDetail {
   id: string
   name: string
+  firstName: string | null
+  lastName: string | null
+  organization: string | null
   type: ClientType
   industry: string | null
   country: string | null

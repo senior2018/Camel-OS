@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import {
   OPPORTUNITY_SOURCE_LABEL,
-  OPPORTUNITY_STAGE_LABEL,
+  OPPORTUNITY_STATUS_LABEL,
   OPPORTUNITY_TYPE_LABEL,
+  type OpportunityStatus,
 } from '@@/shared/schemas/opportunity'
 import type { Opportunity } from '@/composables/useOpportunities'
 
@@ -43,6 +44,10 @@ function ownerLabel(opp: Opportunity) {
   if (!opp.ownerUserId) return '—'
   return [opp.ownerFirstName, opp.ownerLastName].filter(Boolean).join(' ') || opp.ownerEmail || '—'
 }
+
+function statusColor(s: OpportunityStatus): 'warning' | 'success' | 'error' {
+  return s === 'pending' ? 'warning' : s === 'accepted' ? 'success' : 'error'
+}
 </script>
 
 <template>
@@ -51,7 +56,9 @@ function ownerLabel(opp: Opportunity) {
       <thead class="bg-elevated/50 text-left">
         <tr>
           <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted">Title</th>
-          <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted">Stage</th>
+          <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted">
+            Status
+          </th>
           <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted">
             Source
           </th>
@@ -87,10 +94,23 @@ function ownerLabel(opp: Opportunity) {
           <td class="px-4 py-3">
             <UBadge
               variant="subtle"
-              color="primary"
+              :color="statusColor(opp.status)"
               size="xs"
-              :label="OPPORTUNITY_STAGE_LABEL[opp.stage]"
+              :label="OPPORTUNITY_STATUS_LABEL[opp.status]"
             />
+            <div v-if="opp.tags?.length" class="mt-1 flex flex-wrap gap-1">
+              <UBadge
+                v-for="t in opp.tags.slice(0, 3)"
+                :key="t"
+                variant="subtle"
+                color="neutral"
+                size="xs"
+                :label="t"
+              />
+              <span v-if="opp.tags.length > 3" class="text-xs text-dimmed">
+                +{{ opp.tags.length - 3 }}
+              </span>
+            </div>
           </td>
           <td class="px-4 py-3 text-xs text-muted">
             {{ OPPORTUNITY_SOURCE_LABEL[opp.source] }} ·
