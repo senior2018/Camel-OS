@@ -1,1 +1,0 @@
-ALTER TABLE "opportunities" DROP COLUMN "tags";

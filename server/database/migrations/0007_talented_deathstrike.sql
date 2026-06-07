@@ -1,1 +1,0 @@
-ALTER TABLE "client_reminders" ALTER COLUMN "due_at" SET DATA TYPE timestamp with time zone;
