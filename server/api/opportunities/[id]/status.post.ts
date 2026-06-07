@@ -12,7 +12,7 @@ import { updateOpportunityStatusSchema } from '@@/shared/schemas/opportunity'
  * S7 — Move an opportunity between Pending / Accepted / Rejected.
  *
  * Side effects:
- *   - Accepting an opp auto-creates a Proposal in 'writing' status if one
+ *   - Accepting an opp auto-creates a Proposal in 'assigned' status if one
  *     doesn't already exist for that opp. The proposal inherits the opp's
  *     title and deadline; the proposal team takes it from there.
  *   - Rejecting requires a comment; the API inserts it into the comments

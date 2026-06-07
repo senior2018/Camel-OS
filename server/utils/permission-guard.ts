@@ -10,6 +10,10 @@ export interface PermissionContext {
   userId: string
   organizationId: string
   email: string
+  // True for the legacy system-admin (god-mode). Lets endpoints apply an
+  // admin bypass on record-level checks (e.g. edit any opportunity) without a
+  // second query.
+  isSystemAdmin: boolean
 }
 
 /**
@@ -57,6 +61,7 @@ export async function requirePermission(
       userId: userRow.id,
       organizationId: userRow.organizationId,
       email: userRow.email,
+      isSystemAdmin: true,
     }
   }
 
@@ -65,6 +70,7 @@ export async function requirePermission(
       userId: userRow.id,
       organizationId: userRow.organizationId,
       email: userRow.email,
+      isSystemAdmin: false,
     }
   }
 

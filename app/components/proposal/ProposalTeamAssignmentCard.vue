@@ -16,7 +16,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{ changed: [] }>()
 
-const { assignments, assignTeamMember } = useProposalReview(computed(() => props.proposalId))
+const { assignments, saveAssignments } = useProposalReview(computed(() => props.proposalId))
 
 interface TeamMember {
   id: string
@@ -29,55 +29,54 @@ const { data: teamData } = await useFetch<{ members: TeamMember[] }>('/api/users
   default: () => ({ members: [] }),
 })
 
-const userOptions = computed(() =>
-  (teamData.value?.members ?? []).map((m) => ({
+// Unassigned + every team member, reused for each role's picker.
+const userItems = computed(() => [
+  { label: 'Unassigned', value: null as string | null },
+  ...(teamData.value?.members ?? []).map((m) => ({
     label: [m.firstName, m.lastName].filter(Boolean).join(' ') || m.email,
-    value: m.id,
-  }))
-)
+    value: m.id as string | null,
+  })),
+])
 
-function assignedFor(role: ProposalAssignmentRole) {
-  return assignments.value.find((a) => a.roleType === role)
-}
-
-const roleOptions = computed(() =>
-  PROPOSAL_ASSIGNMENT_ROLES.filter((r) => !assignedFor(r)).map((r) => ({
-    label: PROPOSAL_ASSIGNMENT_ROLE_LABEL[r],
-    value: r,
-  }))
-)
-
-function personName(role: ProposalAssignmentRole): string {
-  const a = assignedFor(role)
-  if (!a) return ''
-  return (
-    [a.assignedUserFirstName, a.assignedUserLastName].filter(Boolean).join(' ') ||
-    a.assignedUserEmail
-  )
-}
-
-const selectedRole = ref<ProposalAssignmentRole | undefined>(undefined)
-const selectedUserId = ref<string | undefined>(undefined)
-const saving = ref(false)
-
-async function assign() {
-  if (!selectedRole.value || !selectedUserId.value) return
-  saving.value = true
-  const ok = await assignTeamMember({
-    roleType: selectedRole.value,
-    assignedUserId: selectedUserId.value,
-  })
-  saving.value = false
-  if (ok) {
-    clearSelection()
-    emit('changed')
+// Editable draft: one entry per role, prefilled from the saved assignments.
+// Resets whenever the saved set changes (i.e. after a successful save).
+type Draft = Record<ProposalAssignmentRole, string | null>
+function buildDraft(): Draft {
+  const d = {} as Draft
+  for (const role of PROPOSAL_ASSIGNMENT_ROLES) {
+    d[role] = assignments.value.find((a) => a.roleType === role)?.assignedUserId ?? null
   }
+  return d
+}
+const draft = reactive<Draft>(buildDraft())
+watch(assignments, () => Object.assign(draft, buildDraft()))
+
+const dirty = computed(() =>
+  PROPOSAL_ASSIGNMENT_ROLES.some((role) => {
+    const saved = assignments.value.find((a) => a.roleType === role)?.assignedUserId ?? null
+    return draft[role] !== saved
+  })
+)
+
+const saving = ref(false)
+async function save() {
+  saving.value = true
+  const payload = {
+    assignments: PROPOSAL_ASSIGNMENT_ROLES.filter((role) => draft[role]).map((role) => ({
+      roleType: role,
+      assignedUserId: draft[role] as string,
+    })),
+  }
+  const ok = await saveAssignments(payload)
+  saving.value = false
+  if (ok) emit('changed')
 }
 
-function clearSelection() {
-  selectedRole.value = undefined
-  selectedUserId.value = undefined
+function reset() {
+  Object.assign(draft, buildDraft())
 }
+
+const assignedCount = computed(() => assignments.value.length)
 </script>
 
 <template>
@@ -85,64 +84,45 @@ function clearSelection() {
     <template #header>
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-semibold text-default">Team assignment</h3>
-        <span class="text-xs text-muted">{{ assignments.length }} assigned</span>
+        <span class="text-xs text-muted">{{ assignedCount }} assigned</span>
       </div>
     </template>
 
     <div class="space-y-3">
-      <div class="grid gap-2">
-        <div
-          v-for="role in PROPOSAL_ASSIGNMENT_ROLES"
-          :key="role"
-          class="flex items-center justify-between rounded-lg border border-default bg-default/40 p-3"
-        >
-          <div>
-            <p class="text-sm font-medium text-default">
-              {{ PROPOSAL_ASSIGNMENT_ROLE_LABEL[role] }}
-            </p>
-            <p class="text-xs text-muted">{{ PROPOSAL_ASSIGNMENT_ROLE_DESCRIPTION[role] }}</p>
-          </div>
-          <div class="text-right">
-            <span
-              v-if="assignedFor(role)"
-              class="inline-flex items-center gap-1 text-sm font-medium text-success"
-            >
-              <UIcon name="i-lucide-check" class="size-4" />
-              {{ personName(role) }}
-            </span>
-            <span v-else class="text-xs text-muted">Unassigned</span>
-          </div>
+      <div
+        v-for="role in PROPOSAL_ASSIGNMENT_ROLES"
+        :key="role"
+        class="rounded-lg border border-default bg-default/40 p-3"
+      >
+        <div class="mb-2">
+          <p class="text-sm font-medium text-default">{{ PROPOSAL_ASSIGNMENT_ROLE_LABEL[role] }}</p>
+          <p class="text-xs text-muted">{{ PROPOSAL_ASSIGNMENT_ROLE_DESCRIPTION[role] }}</p>
         </div>
+        <USelect
+          v-if="canAssign"
+          v-model="draft[role]"
+          :items="userItems"
+          value-key="value"
+          placeholder="Unassigned"
+          class="w-full"
+        />
+        <p v-else class="text-sm text-muted">
+          {{ userItems.find((u) => u.value === draft[role])?.label ?? 'Unassigned' }}
+        </p>
       </div>
 
-      <div v-if="canAssign && roleOptions.length" class="space-y-2 border-t border-default pt-3">
-        <UFormField label="Role">
-          <USelect
-            v-model="selectedRole"
-            :items="roleOptions"
-            value-key="value"
-            placeholder="Select a role…"
-            class="w-full"
-          />
-        </UFormField>
-        <UFormField v-if="selectedRole" label="Assign to">
-          <USelect
-            v-model="selectedUserId"
-            :items="userOptions"
-            value-key="value"
-            placeholder="Select team member…"
-            class="w-full"
-          />
-        </UFormField>
-        <div v-if="selectedRole && selectedUserId" class="flex gap-2">
-          <UButton :loading="saving" size="sm" label="Assign" @click="assign" />
-          <UButton variant="ghost" size="sm" label="Cancel" @click="clearSelection" />
-        </div>
+      <div v-if="canAssign" class="flex items-center gap-2 border-t border-default pt-3">
+        <UButton :loading="saving" :disabled="!dirty" label="Save team" @click="save" />
+        <UButton
+          v-if="dirty"
+          variant="ghost"
+          color="neutral"
+          label="Reset"
+          :disabled="saving"
+          @click="reset"
+        />
+        <span v-if="dirty" class="text-xs text-warning">Unsaved changes</span>
       </div>
-
-      <p v-else-if="canAssign" class="border-t border-default pt-3 text-xs text-muted">
-        All roles assigned.
-      </p>
     </div>
   </UCard>
 </template>

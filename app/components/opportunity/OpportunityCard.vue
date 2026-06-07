@@ -77,14 +77,6 @@ const valueLabel = computed(() => {
       <UBadge variant="subtle" color="primary" size="xs" :label="sourceLabel" />
       <UBadge variant="subtle" color="neutral" size="xs" :label="typeLabel" />
       <UBadge
-        v-if="opportunity.approvedToPursueAt"
-        variant="subtle"
-        color="success"
-        size="xs"
-        icon="i-lucide-circle-check"
-        label="Approved"
-      />
-      <UBadge
         v-if="opportunity.winProbability !== null"
         variant="subtle"
         color="info"

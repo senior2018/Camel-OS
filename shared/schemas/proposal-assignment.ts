@@ -38,3 +38,11 @@ export const createMultipleAssignmentsSchema = z.object({
 })
 
 export type CreateMultipleAssignmentsPayload = z.infer<typeof createMultipleAssignmentsSchema>
+
+// Batch reconcile: the full desired set of role → user assignments. Roles not
+// present are treated as unassigned. An empty array clears the whole team.
+export const saveProposalAssignmentsSchema = z.object({
+  assignments: z.array(createProposalAssignmentSchema).max(PROPOSAL_ASSIGNMENT_ROLES.length),
+})
+
+export type SaveProposalAssignmentsPayload = z.infer<typeof saveProposalAssignmentsSchema>

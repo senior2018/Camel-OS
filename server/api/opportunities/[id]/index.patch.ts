@@ -28,13 +28,30 @@ export default defineEventHandler(async (event) => {
 
     // Read current row so we can detect owner changes for OM-05 notifications.
     const [existing] = await db
-      .select({ ownerUserId: opportunities.ownerUserId })
+      .select({
+        ownerUserId: opportunities.ownerUserId,
+        createdByUserId: opportunities.createdByUserId,
+      })
       .from(opportunities)
       .where(and(eq(opportunities.id, id), eq(opportunities.organizationId, ctx.organizationId)))
       .limit(1)
 
     if (!existing) {
       throw createError({ statusCode: 404, statusMessage: 'Opportunity not found' })
+    }
+
+    // Record-level guard: only the owner, the creator, or a system admin may
+    // edit an opportunity's fields. `opportunity:update` alone is not enough —
+    // it lets reviewers change status (separate endpoint), not edit content.
+    const canEdit =
+      ctx.isSystemAdmin ||
+      existing.ownerUserId === ctx.userId ||
+      existing.createdByUserId === ctx.userId
+    if (!canEdit) {
+      throw createError({
+        statusCode: 403,
+        statusMessage: 'You can only edit opportunities you own or created.',
+      })
     }
 
     const updates: Record<string, unknown> = { updatedAt: now }

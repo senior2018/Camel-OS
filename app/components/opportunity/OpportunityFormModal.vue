@@ -17,7 +17,12 @@ interface Props {
   initial: Opportunity | null
   submitting?: boolean
   canDelete?: boolean
-  readOnly?: boolean
+  // Edit the opportunity's fields / delete it. Owner, creator, or admin only.
+  canEdit?: boolean
+  // Use the Pending / Accepted / Rejected status bar. Any reviewer with
+  // opportunity:update — separate from canEdit so reviewers can decide without
+  // being able to rewrite the opportunity.
+  canChangeStatus?: boolean
 }
 
 const props = defineProps<Props>()
@@ -25,7 +30,6 @@ const emit = defineEmits<{
   'update:open': [value: boolean]
   submit: [payload: CreateOpportunityPayload, id: string | null, pendingFiles: File[]]
   delete: [opp: Opportunity]
-  approve: [opp: Opportunity, approved: boolean]
   // S7 — status changes replace the old stage transition. Comment is required
   // when moving to 'rejected'; otherwise optional. The API also persists the
   // comment into the comments thread.
@@ -65,8 +69,6 @@ function confirmStatusChange() {
 function statusColor(s: OpportunityStatus): 'warning' | 'success' | 'error' {
   return s === 'pending' ? 'warning' : s === 'accepted' ? 'success' : 'error'
 }
-
-const isApproved = computed(() => !!props.initial?.approvedToPursueAt)
 
 const state = reactive<{
   title: string
@@ -250,33 +252,29 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
 <template>
   <UModal
     :open="open"
-    :title="
-      !initial
-        ? 'New opportunity'
-        : readOnly
-          ? 'Opportunity details'
-          : editMode
-            ? 'Edit opportunity'
-            : 'Opportunity details'
-    "
+    :title="!initial ? 'New opportunity' : editMode ? 'Edit opportunity' : 'Opportunity details'"
     :ui="{ content: 'sm:max-w-2xl' }"
     @update:open="emit('update:open', $event)"
   >
     <template #body>
       <UAlert
-        v-if="readOnly"
+        v-if="initial && !canEdit"
         color="neutral"
         variant="subtle"
         icon="i-lucide-eye"
-        title="Read-only view"
-        description="You can review the details and post a comment with your opinion, but you can't edit fields, change the status, or approve. Contact your administrator if you need wider access."
+        :title="canChangeStatus ? 'Review access' : 'Read-only view'"
+        :description="
+          canChangeStatus
+            ? `You can change the status and post a comment, but only the owner, creator, or an admin can edit the details.`
+            : `You can review the details and post a comment. You can't edit fields or change the status — contact your administrator if you need wider access.`
+        "
         class="mb-4"
       />
 
       <!-- Status bar — replaces the old stage dropdown. Three buttons for the
            three statuses; clicking a non-current status opens the comment dialog. -->
       <div
-        v-if="initial && !readOnly"
+        v-if="initial && canChangeStatus"
         class="mb-4 flex flex-col gap-3 rounded-lg border border-default bg-elevated/40 p-3"
       >
         <div class="flex items-center gap-2 text-sm">
@@ -316,7 +314,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
             placeholder="Tender / grant title"
             size="lg"
             class="w-full"
-            :disabled="readOnly || !editMode"
+            :disabled="!editMode"
           />
         </UFormField>
 
@@ -331,7 +329,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
             :rows="3"
             placeholder="Optional extra details about this opportunity"
             class="w-full"
-            :disabled="readOnly || !editMode"
+            :disabled="!editMode"
           />
         </UFormField>
 
@@ -342,7 +340,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
             value-key="value"
             size="lg"
             class="w-full"
-            :disabled="readOnly || !editMode"
+            :disabled="!editMode"
           />
         </UFormField>
 
@@ -353,7 +351,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
             value-key="value"
             size="lg"
             class="w-full"
-            :disabled="readOnly || !editMode"
+            :disabled="!editMode"
           />
         </UFormField>
 
@@ -368,7 +366,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
             placeholder="tech, health, education"
             size="lg"
             class="w-full"
-            :disabled="readOnly || !editMode"
+            :disabled="!editMode"
           />
           <div v-if="parsedTags.length" class="mt-2 flex flex-wrap gap-1">
             <UBadge
@@ -388,7 +386,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
             type="date"
             size="lg"
             class="w-full"
-            :disabled="readOnly || !editMode"
+            :disabled="!editMode"
           />
         </UFormField>
 
@@ -400,14 +398,14 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
               placeholder="0"
               size="lg"
               class="flex-1"
-              :disabled="readOnly || !editMode"
+              :disabled="!editMode"
             />
             <UInput
               v-model="state.currency"
               maxlength="3"
               size="lg"
               class="w-20"
-              :disabled="readOnly || !editMode"
+              :disabled="!editMode"
             />
           </div>
         </UFormField>
@@ -425,7 +423,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
             placeholder="—"
             size="lg"
             class="w-full"
-            :disabled="readOnly || !editMode"
+            :disabled="!editMode"
           />
         </UFormField>
 
@@ -436,7 +434,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
             value-key="value"
             size="lg"
             class="w-full"
-            :disabled="readOnly || !editMode"
+            :disabled="!editMode"
           />
         </UFormField>
 
@@ -447,7 +445,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
             value-key="value"
             size="lg"
             class="w-full"
-            :disabled="readOnly || !editMode"
+            :disabled="!editMode"
           />
         </UFormField>
       </UForm>
@@ -460,8 +458,8 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
         <OpportunityCommentsCard :opportunity-id="initial.id" :can-post="true" />
         <OpportunityAttachments
           :opportunity-id="initial.id"
-          :can-upload="!readOnly"
-          :can-delete="!readOnly && canDelete"
+          :can-upload="canEdit"
+          :can-delete="canEdit && canDelete"
         />
       </div>
 
@@ -522,15 +520,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
       <div class="flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
           <UButton
-            v-if="initial && !readOnly"
-            :color="isApproved ? 'warning' : 'success'"
-            variant="soft"
-            :icon="isApproved ? 'i-lucide-circle-x' : 'i-lucide-circle-check'"
-            :label="isApproved ? 'Revoke approval' : 'Approve to pursue'"
-            @click="emit('approve', initial, !isApproved)"
-          />
-          <UButton
-            v-if="initial && canDelete && !readOnly"
+            v-if="initial && canDelete && canEdit"
             color="error"
             variant="ghost"
             icon="i-lucide-trash-2"
@@ -542,7 +532,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
           <template v-if="initial && !editMode">
             <UButton variant="ghost" label="Close" @click="emit('update:open', false)" />
             <UButton
-              v-if="!readOnly"
+              v-if="canEdit"
               icon="i-lucide-pencil"
               label="Edit details"
               @click="editMode = true"
@@ -555,7 +545,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
               @click="initial ? cancelEdit() : emit('update:open', false)"
             />
             <UButton
-              v-if="!readOnly"
+              v-if="canEdit"
               type="submit"
               form="opportunity-form"
               :loading="submitting"
