@@ -1,161 +1,134 @@
 <script setup lang="ts">
-import { PROPOSAL_REVIEWER_STATUS_LABEL } from '@@/shared/schemas/proposal-review'
-import type { ProposalReviewerStatus } from '@@/shared/schemas/proposal-review'
+import {
+  PROPOSAL_REVIEWER_STATUS_COLOR,
+  PROPOSAL_REVIEWER_STATUS_LABEL,
+} from '@@/shared/schemas/proposal-review'
 
-interface Props {
+const props = defineProps<{
   proposalId: string
   proposalTitle: string
-}
+}>()
 
-defineProps<Props>()
+const emit = defineEmits<{ changed: [] }>()
+
+const toast = useToast()
+const { user } = useUserSession()
+const currentUserId = computed(() => (user.value as { id: string } | null)?.id ?? null)
 
 const { reviewers, submitReview } = useProposalReview(computed(() => props.proposalId))
-const props = defineProps<Props>()
 
-const reviewDecision = ref<'approved' | 'changes_required' | 'rejected' | null>(null)
-const feedback = ref('')
-const submitting = ref(false)
-
-const currentUserReviewer = computed(() =>
-  reviewers.value.find((r) => r.reviewerUserId === useAuthStore().user?.id)
+const myReview = computed(() =>
+  reviewers.value.find((r) => r.reviewerUserId === currentUserId.value)
 )
+const alreadyDecided = computed(() => !!myReview.value && myReview.value.status !== 'pending')
 
-const hasAlreadyReviewed = computed(() => currentUserReviewer.value?.status !== 'pending')
+type Decision = 'approved' | 'changes_required' | 'rejected'
+const decision = ref<Decision | null>(null)
+const feedback = ref('')
+const saving = ref(false)
 
-async function submitMyReview() {
-  if (!reviewDecision.value) {
-    useToast().add({
-      title: 'Please select a decision',
-      color: 'warning',
-    })
+const options: Array<{
+  value: Decision
+  label: string
+  hint: string
+  color: string
+  active: string
+}> = [
+  {
+    value: 'approved',
+    label: 'Approve',
+    hint: 'Ready to proceed',
+    color: 'border-success/40',
+    active: 'border-success bg-success/5',
+  },
+  {
+    value: 'changes_required',
+    label: 'Changes Required',
+    hint: 'Send back for revision',
+    color: 'border-warning/40',
+    active: 'border-warning bg-warning/5',
+  },
+  {
+    value: 'rejected',
+    label: 'Reject',
+    hint: 'Should not proceed',
+    color: 'border-error/40',
+    active: 'border-error bg-error/5',
+  },
+]
+
+async function submit() {
+  if (!decision.value) {
+    toast.add({ title: 'Pick a decision', color: 'warning' })
     return
   }
-
   if (!feedback.value.trim()) {
-    useToast().add({
-      title: 'Feedback is required',
-      color: 'warning',
-    })
+    toast.add({ title: 'Feedback is required', color: 'warning' })
     return
   }
-
-  submitting.value = true
-  const ok = await submitReview({
-    status: reviewDecision.value,
-    feedback: feedback.value,
-  })
+  saving.value = true
+  const ok = await submitReview({ status: decision.value, feedback: feedback.value.trim() })
+  saving.value = false
   if (ok) {
-    reviewDecision.value = null
+    decision.value = null
     feedback.value = ''
+    emit('changed')
   }
-  submitting.value = false
 }
 </script>
 
 <template>
-  <div v-if="currentUserReviewer">
-    <UCard v-if="hasAlreadyReviewed">
-      <template #header>
-        <h3 class="font-semibold text-default">Your Review</h3>
-      </template>
+  <UCard v-if="myReview">
+    <template #header>
+      <h3 class="text-sm font-semibold text-default">Your review</h3>
+    </template>
 
-      <div class="space-y-2">
-        <div class="flex items-center justify-between rounded-lg bg-default/30 p-3">
-          <span class="text-sm text-muted">Your decision:</span>
-          <UBadge :color="currentUserReviewer.status === 'approved' ? 'success' : currentUserReviewer.status === 'rejected' ? 'error' : 'warning'" variant="subtle">
-            {{ PROPOSAL_REVIEWER_STATUS_LABEL[currentUserReviewer.status as ProposalReviewerStatus] }}
-          </UBadge>
-        </div>
-
-        <div v-if="currentUserReviewer.feedback" class="rounded-lg border border-default bg-default/30 p-3">
-          <p class="text-xs font-medium text-muted">Your feedback</p>
-          <p class="mt-2 text-sm text-default">{{ currentUserReviewer.feedback }}</p>
-        </div>
-
-        <p class="text-xs text-muted">
-          Reviewed
-          {{ new Date(currentUserReviewer.decidedAt!).toLocaleDateString(undefined, {
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-          }) }}
-        </p>
+    <!-- Already submitted -->
+    <div v-if="alreadyDecided" class="space-y-2">
+      <div class="flex items-center justify-between rounded-lg bg-default/30 p-3">
+        <span class="text-sm text-muted">Your decision</span>
+        <UBadge
+          :color="PROPOSAL_REVIEWER_STATUS_COLOR[myReview.status]"
+          variant="subtle"
+          :label="PROPOSAL_REVIEWER_STATUS_LABEL[myReview.status]"
+        />
       </div>
-    </UCard>
-
-    <UCard v-else>
-      <template #header>
-        <h3 class="font-semibold text-default">Your Review</h3>
-      </template>
-
-      <div class="space-y-4">
-        <p class="text-sm text-muted">
-          Please review "<strong>{{ proposalTitle }}</strong>" and provide your decision.
-        </p>
-
-        <!-- Decision options -->
-        <div class="space-y-2">
-          <!-- Approve -->
-          <label class="flex cursor-pointer items-start gap-3 rounded-lg border-2 p-3 transition-all" :class="reviewDecision === 'approved' ? 'border-success bg-success/5' : 'border-default hover:border-success/40'">
-            <URadio
-              v-model="reviewDecision"
-              value="approved"
-              class="mt-0.5"
-            />
-            <div>
-              <p class="font-medium text-default">Approved</p>
-              <p class="text-xs text-muted">The proposal is ready to proceed</p>
-            </div>
-          </label>
-
-          <!-- Changes Required -->
-          <label class="flex cursor-pointer items-start gap-3 rounded-lg border-2 p-3 transition-all" :class="reviewDecision === 'changes_required' ? 'border-warning bg-warning/5' : 'border-default hover:border-warning/40'">
-            <URadio
-              v-model="reviewDecision"
-              value="changes_required"
-              class="mt-0.5"
-            />
-            <div>
-              <p class="font-medium text-default">Changes Required</p>
-              <p class="text-xs text-muted">Send back for revisions</p>
-            </div>
-          </label>
-
-          <!-- Rejected -->
-          <label class="flex cursor-pointer items-start gap-3 rounded-lg border-2 p-3 transition-all" :class="reviewDecision === 'rejected' ? 'border-error bg-error/5' : 'border-default hover:border-error/40'">
-            <URadio
-              v-model="reviewDecision"
-              value="rejected"
-              class="mt-0.5"
-            />
-            <div>
-              <p class="font-medium text-default">Rejected</p>
-              <p class="text-xs text-muted">The proposal should not proceed</p>
-            </div>
-          </label>
-        </div>
-
-        <!-- Feedback -->
-        <UFormGroup label="Your feedback:">
-          <UTextarea
-            v-model="feedback"
-            placeholder="Explain your decision..."
-            rows="4"
-          />
-        </UFormGroup>
-
-        <!-- Submit -->
-        <div class="flex gap-2">
-          <UButton
-            :loading="submitting"
-            @click="submitMyReview"
-          >
-            <UIcon name="i-lucide-send" class="mr-2 size-4" />
-            Submit Review
-          </UButton>
-        </div>
+      <div v-if="myReview.feedback" class="rounded-lg border border-default bg-default/30 p-3">
+        <p class="text-xs font-medium text-muted">Your feedback</p>
+        <p class="mt-1 whitespace-pre-wrap text-sm text-default">{{ myReview.feedback }}</p>
       </div>
-    </UCard>
-  </div>
+    </div>
+
+    <!-- Pending: decision form -->
+    <div v-else class="space-y-4">
+      <p class="text-sm text-muted">
+        Review <strong>{{ proposalTitle }}</strong> and record your decision.
+      </p>
+
+      <div class="grid gap-2">
+        <button
+          v-for="opt in options"
+          :key="opt.value"
+          type="button"
+          class="rounded-lg border-2 p-3 text-left transition-all"
+          :class="decision === opt.value ? opt.active : opt.color"
+          @click="decision = opt.value"
+        >
+          <p class="text-sm font-medium text-default">{{ opt.label }}</p>
+          <p class="text-xs text-muted">{{ opt.hint }}</p>
+        </button>
+      </div>
+
+      <UFormField label="Feedback">
+        <UTextarea
+          v-model="feedback"
+          :rows="4"
+          placeholder="Explain your decision…"
+          class="w-full"
+        />
+      </UFormField>
+
+      <UButton :loading="saving" icon="i-lucide-send" label="Submit review" @click="submit" />
+    </div>
+  </UCard>
 </template>

@@ -46,6 +46,9 @@ CREATE TABLE "proposal_reviewers" (
 --> statement-breakpoint
 ALTER TABLE "proposals" ALTER COLUMN "status" SET DATA TYPE text;--> statement-breakpoint
 ALTER TABLE "proposals" ALTER COLUMN "status" SET DEFAULT 'assigned'::text;--> statement-breakpoint
+-- Remap legacy S7 statuses to the new workflow before the enum is recreated.
+-- 'writing' no longer exists; existing drafts map to 'assigned' (no team yet).
+UPDATE "proposals" SET "status" = 'assigned' WHERE "status" = 'writing';--> statement-breakpoint
 DROP TYPE "public"."proposal_status";--> statement-breakpoint
 CREATE TYPE "public"."proposal_status" AS ENUM('assigned', 'drafting', 'awaiting_review', 'revision_required', 'rejected', 'ready_for_final_approval', 'awaiting_final_approval', 'final_approved', 'final_rejected', 'submitted', 'won', 'lost', 'shortlisted');--> statement-breakpoint
 ALTER TABLE "proposals" ALTER COLUMN "status" SET DEFAULT 'assigned'::"public"."proposal_status";--> statement-breakpoint

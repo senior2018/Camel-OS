@@ -13,7 +13,7 @@ import { PROPOSAL_STATUSES, type ProposalStatus } from '@@/shared/schemas/propos
  */
 export default defineEventHandler(async (event) => {
   try {
-    const ctx = await requirePermission(event, 'opportunity', 'read')
+    const ctx = await requirePermission(event, 'proposal', 'read')
     const db = useDrizzle()
 
     const rows = await db

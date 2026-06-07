@@ -15,7 +15,7 @@ import { requirePermission } from '@@/server/utils/permission-guard'
  */
 export default defineEventHandler(async (event) => {
   try {
-    const ctx = await requirePermission(event, 'opportunity', 'read')
+    const ctx = await requirePermission(event, 'proposal', 'read')
 
     const rows = await useDrizzle()
       .select({

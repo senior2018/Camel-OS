@@ -9,7 +9,7 @@ import { requirePermission } from '@@/server/utils/permission-guard'
  *  page can show "writing for: <opp title>" without a second fetch. */
 export default defineEventHandler(async (event) => {
   try {
-    const ctx = await requirePermission(event, 'opportunity', 'read')
+    const ctx = await requirePermission(event, 'proposal', 'read')
     const id = getRouterParam(event, 'id')
     if (!id) throw createError({ statusCode: 400, statusMessage: 'Proposal id is required' })
 
