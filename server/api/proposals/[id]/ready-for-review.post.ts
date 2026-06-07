@@ -1,23 +1,28 @@
 import { consola } from 'consola'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 
-import { proposalReviewers, proposals } from '@@/server/database/schema'
+import { proposalAssignments, proposalReviewers, proposals } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
-import { logAuditEvent } from '@@/server/utils/audit-log'
+import { logAuditEvent } from '@@/server/utils/audit'
+import { logOpportunityActivity } from '@@/server/utils/opportunity-activity'
 import { requirePermission } from '@@/server/utils/permission-guard'
 
+const REVIEWER_ROLES = ['technical_reviewer', 'finance_reviewer', 'compliance_reviewer'] as const
+
+/**
+ * The Lead marks the proposal ready for review. We materialise a
+ * `proposal_reviewers` row (status pending) for every assigned reviewer role,
+ * then move the proposal to `awaiting_review`. Re-running this (after a revision
+ * cycle) resets every reviewer back to pending.
+ */
 export default defineEventHandler(async (event) => {
   try {
-    const ctx = await requirePermission(event, 'opportunity', 'update')
+    const ctx = await requirePermission(event, 'proposal', 'update')
     const id = getRouterParam(event, 'id')
-
-    if (!id) {
-      throw createError({ statusCode: 400, statusMessage: 'Proposal ID is required' })
-    }
+    if (!id) throw createError({ statusCode: 400, statusMessage: 'Proposal ID is required' })
 
     const db = useDrizzle()
 
-    // Check if proposal exists and user is the proposal lead
     const [proposal] = await db
       .select()
       .from(proposals)
@@ -28,60 +33,68 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 404, statusMessage: 'Proposal not found' })
     }
 
-    // Check that proposal is in drafting status
-    if (proposal.status !== 'drafting') {
+    if (proposal.status !== 'drafting' && proposal.status !== 'revision_required') {
       throw createError({
         statusCode: 400,
-        statusMessage: `Proposal must be in drafting status, currently: ${proposal.status}`,
+        statusMessage: `Proposal must be drafting or in revision to send for review (currently: ${proposal.status})`,
       })
     }
 
-    // Check if there are any reviewers assigned
-    const reviewers = await db
+    // Pull the assigned reviewer-role people.
+    const reviewerAssignments = await db
       .select()
-      .from(proposalReviewers)
-      .where(eq(proposalReviewers.proposalId, id))
+      .from(proposalAssignments)
+      .where(
+        and(
+          eq(proposalAssignments.proposalId, id),
+          inArray(proposalAssignments.roleType, [...REVIEWER_ROLES])
+        )
+      )
 
-    if (reviewers.length === 0) {
+    if (reviewerAssignments.length === 0) {
       throw createError({
         statusCode: 400,
-        statusMessage: 'Reviewers must be assigned before marking ready for review',
+        statusMessage: 'Assign at least one reviewer (technical, finance, or compliance) first',
       })
     }
 
-    // Reset all reviewers to pending status
-    await db
-      .update(proposalReviewers)
-      .set({
-        status: 'pending',
-        feedback: null,
-        decidedAt: null,
-      })
-      .where(eq(proposalReviewers.proposalId, id))
+    // Reset the review round: clear prior reviewer rows and recreate as pending.
+    await db.delete(proposalReviewers).where(eq(proposalReviewers.proposalId, id))
+    await db.insert(proposalReviewers).values(
+      reviewerAssignments.map((a) => ({
+        proposalId: id,
+        organizationId: ctx.organizationId,
+        reviewerUserId: a.assignedUserId,
+        reviewerRole: a.roleType,
+        isRequired: true,
+        status: 'pending' as const,
+      }))
+    )
 
-    // Update proposal status to awaiting_review
-    const [updatedProposal] = await db
+    const [updated] = await db
       .update(proposals)
-      .set({
-        status: 'awaiting_review',
-      })
+      .set({ status: 'awaiting_review' })
       .where(eq(proposals.id, id))
       .returning()
 
-    // Log audit event
     await logAuditEvent({
-      event,
-      action: 'proposal:ready_for_review',
-      details: {
-        proposalId: id,
-        reviewerCount: reviewers.length,
-      },
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      resource: 'proposal',
+      action: 'ready_for_review',
+      resourceId: id,
+      meta: { reviewerCount: reviewerAssignments.length },
     })
 
-    return {
-      success: true,
-      proposal: updatedProposal,
-    }
+    await logOpportunityActivity({
+      opportunityId: proposal.opportunityId,
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      action: 'proposal:ready_for_review',
+      details: { reviewerCount: reviewerAssignments.length },
+    })
+
+    return { success: true, proposal: updated }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
     consola.error('Error marking proposal ready for review', error)

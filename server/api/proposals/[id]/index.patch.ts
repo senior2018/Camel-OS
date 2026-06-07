@@ -5,6 +5,7 @@ import { proposals } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import { logAuditEvent } from '@@/server/utils/audit'
+import { logOpportunityActivity } from '@@/server/utils/opportunity-activity'
 import { updateProposalSchema } from '@@/shared/schemas/proposal'
 
 /**
@@ -14,7 +15,7 @@ import { updateProposalSchema } from '@@/shared/schemas/proposal'
  */
 export default defineEventHandler(async (event) => {
   try {
-    const ctx = await requirePermission(event, 'opportunity', 'update')
+    const ctx = await requirePermission(event, 'proposal', 'update')
     const id = getRouterParam(event, 'id')
     if (!id) throw createError({ statusCode: 400, statusMessage: 'Proposal id is required' })
 
@@ -49,7 +50,10 @@ export default defineEventHandler(async (event) => {
       updates.status = data.status
       // Stamp milestone timestamps so the timeline is self-explanatory.
       if (data.status === 'submitted' && !existing.submittedAt) updates.submittedAt = now
-      if ((data.status === 'won' || data.status === 'lost') && !existing.decidedAt) {
+      if (
+        (data.status === 'won' || data.status === 'lost' || data.status === 'shortlisted') &&
+        !existing.decidedAt
+      ) {
         updates.decidedAt = now
       }
     }
@@ -72,6 +76,16 @@ export default defineEventHandler(async (event) => {
         fields: Object.keys(updates).filter((k) => k !== 'updatedAt'),
       },
     })
+
+    if (data.status !== undefined && data.status !== existing.status) {
+      await logOpportunityActivity({
+        opportunityId: existing.opportunityId,
+        organizationId: ctx.organizationId,
+        userId: ctx.userId,
+        action: 'proposal:status',
+        details: { from: existing.status, to: data.status },
+      })
+    }
 
     return { success: true, proposal: updated }
   } catch (error) {

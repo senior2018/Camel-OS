@@ -5,6 +5,7 @@ import { opportunities, opportunityComments, proposals } from '@@/server/databas
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import { logAuditEvent } from '@@/server/utils/audit'
+import { logOpportunityActivity } from '@@/server/utils/opportunity-activity'
 import { updateOpportunityStatusSchema } from '@@/shared/schemas/opportunity'
 
 /**
@@ -91,7 +92,7 @@ export default defineEventHandler(async (event) => {
               opportunityId: id,
               organizationId: ctx.organizationId,
               title: existing.title,
-              status: 'writing',
+              status: 'assigned',
               deadline: existing.deadline ?? null,
               createdByUserId: ctx.userId,
             })
@@ -120,6 +121,24 @@ export default defineEventHandler(async (event) => {
         to: status,
         proposalCreated: result.createdProposalId,
         commentAttached: !!comment,
+      },
+    })
+
+    await logOpportunityActivity({
+      opportunityId: id,
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      action:
+        status === 'accepted'
+          ? 'opportunity:accepted'
+          : status === 'rejected'
+            ? 'opportunity:rejected'
+            : 'opportunity:status',
+      details: {
+        from: existing.status,
+        to: status,
+        comment: comment ?? null,
+        proposalCreated: result.createdProposalId,
       },
     })
 

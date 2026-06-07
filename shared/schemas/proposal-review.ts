@@ -1,6 +1,11 @@
 import { z } from 'zod'
 
-export const PROPOSAL_REVIEWER_STATUSES = ['pending', 'approved', 'changes_required', 'rejected'] as const
+export const PROPOSAL_REVIEWER_STATUSES = [
+  'pending',
+  'approved',
+  'changes_required',
+  'rejected',
+] as const
 export type ProposalReviewerStatus = (typeof PROPOSAL_REVIEWER_STATUSES)[number]
 
 export const PROPOSAL_REVIEWER_STATUS_LABEL: Record<ProposalReviewerStatus, string> = {
@@ -10,8 +15,10 @@ export const PROPOSAL_REVIEWER_STATUS_LABEL: Record<ProposalReviewerStatus, stri
   rejected: 'Rejected',
 }
 
-export const PROPOSAL_REVIEWER_STATUS_COLOR: Record<ProposalReviewerStatus, string> = {
-  pending: 'gray',
+export type ReviewerStatusColor = 'neutral' | 'success' | 'warning' | 'error'
+
+export const PROPOSAL_REVIEWER_STATUS_COLOR: Record<ProposalReviewerStatus, ReviewerStatusColor> = {
+  pending: 'neutral',
   approved: 'success',
   changes_required: 'warning',
   rejected: 'error',
@@ -23,9 +30,3 @@ export const submitProposalReviewSchema = z.object({
 })
 
 export type SubmitProposalReviewPayload = z.infer<typeof submitProposalReviewSchema>
-
-export const markProposalReadyForReviewSchema = z.object({
-  // Empty schema - just marks the proposal as ready
-})
-
-export type MarkProposalReadyForReviewPayload = z.infer<typeof markProposalReadyForReviewSchema>

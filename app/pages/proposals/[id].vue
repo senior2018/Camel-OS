@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  PROPOSAL_STATUSES,
+  PROPOSAL_STATUS_COLOR,
   PROPOSAL_STATUS_DESCRIPTION,
   PROPOSAL_STATUS_LABEL,
   type ProposalStatus,
@@ -16,14 +16,17 @@ const proposalId = computed(() => route.params.id as string)
 const toast = useToast()
 
 const { can } = await usePermissions()
-if (!can.value('opportunity', 'read')) {
+if (!can.value('proposal', 'read')) {
   throw createError({
     statusCode: 403,
     statusMessage: 'You do not have permission to view proposals.',
     fatal: true,
   })
 }
-const canEdit = computed(() => can.value('opportunity', 'update'))
+const canEdit = computed(() => can.value('proposal', 'update'))
+
+const { user } = useUserSession()
+const currentUserId = computed(() => (user.value as { id: string } | null)?.id ?? null)
 
 interface ProposalDetail {
   id: string
@@ -59,6 +62,9 @@ useHead({
   title: computed(() => `${data.value?.proposal.title ?? 'Proposal'} — Camel OS`),
 })
 
+const { assignments, markReadyForReview, refreshReviewers, refreshAssignments } =
+  useProposalReview(proposalId)
+
 interface TeamMember {
   id: string
   email: string
@@ -77,17 +83,53 @@ const recipientOptions = computed(() =>
   }))
 )
 
+// ─── Role gating ──────────────────────────────────────────────────────────────
+const proposalStatus = computed<ProposalStatus>(() => data.value?.proposal.status ?? 'assigned')
+
+const isLead = computed(() =>
+  assignments.value.some((a) => a.roleType === 'lead' && a.assignedUserId === currentUserId.value)
+)
+const isFinalApprover = computed(() =>
+  assignments.value.some(
+    (a) => a.roleType === 'final_approver' && a.assignedUserId === currentUserId.value
+  )
+)
+const hasReviewerRoles = computed(() =>
+  assignments.value.some((a) =>
+    ['technical_reviewer', 'finance_reviewer', 'compliance_reviewer'].includes(a.roleType)
+  )
+)
+// Lead-or-manager may drive the workflow buttons.
+const canDrive = computed(() => canEdit.value || isLead.value)
+
+const canSendForReview = computed(
+  () =>
+    canDrive.value &&
+    hasReviewerRoles.value &&
+    (proposalStatus.value === 'drafting' || proposalStatus.value === 'revision_required')
+)
+const showFinalApproval = computed(
+  () =>
+    isFinalApprover.value &&
+    (proposalStatus.value === 'ready_for_final_approval' ||
+      proposalStatus.value === 'awaiting_final_approval')
+)
+const showSubmit = computed(() => canDrive.value && proposalStatus.value === 'final_approved')
+const showOutcome = computed(() => canDrive.value && proposalStatus.value === 'submitted')
+const isClosed = computed(
+  () => proposalStatus.value === 'rejected' || proposalStatus.value === 'final_rejected'
+)
+
+// ─── Edit form (draft / details / recipients) ──────────────────────────────────
 const editing = ref(false)
 const form = reactive<{
   title: string
-  status: ProposalStatus
   deadline: string
   contentDraft: string
   decisionNote: string
   reminderRecipientUserIds: string[]
 }>({
   title: '',
-  status: 'writing',
   deadline: '',
   contentDraft: '',
   decisionNote: '',
@@ -98,13 +140,11 @@ function syncForm() {
   if (!data.value) return
   const p = data.value.proposal
   form.title = p.title
-  form.status = p.status
   form.deadline = p.deadline ?? ''
   form.contentDraft = p.contentDraft ?? ''
   form.decisionNote = p.decisionNote ?? ''
   form.reminderRecipientUserIds = [...(p.reminderRecipientUserIds ?? [])]
 }
-
 watch(data, syncForm, { immediate: true })
 
 const saving = ref(false)
@@ -113,7 +153,6 @@ async function save() {
   try {
     const payload: UpdateProposalPayload = {
       title: form.title,
-      status: form.status,
       deadline: form.deadline || null,
       contentDraft: form.contentDraft || null,
       decisionNote: form.decisionNote || null,
@@ -132,28 +171,57 @@ async function save() {
   }
 }
 
-async function quickStatus(s: ProposalStatus) {
-  if (!data.value) return
-  if (s === data.value.proposal.status) return
+// ─── Workflow actions ──────────────────────────────────────────────────────────
+async function onAfterChange() {
+  await Promise.all([refresh(), refreshReviewers(), refreshAssignments()])
+}
+
+const sendingForReview = ref(false)
+async function sendForReview() {
+  sendingForReview.value = true
+  const ok = await markReadyForReview()
+  sendingForReview.value = false
+  if (ok) await onAfterChange()
+}
+
+const finalNote = ref('')
+const finalActing = ref(false)
+async function finalDecision(decision: 'approved' | 'rejected') {
+  finalActing.value = true
   try {
-    await $fetch(`/api/proposals/${proposalId.value}`, {
-      method: 'PATCH',
-      body: { status: s },
+    await $fetch(`/api/proposals/${proposalId.value}/final-approval`, {
+      method: 'POST',
+      body: { decision, note: finalNote.value || null },
     })
-    toast.add({ title: `Marked as ${PROPOSAL_STATUS_LABEL[s]}`, color: 'success' })
-    await refresh()
+    toast.add({
+      title: decision === 'approved' ? 'Approved to submit' : 'Final rejection recorded',
+      color: decision === 'approved' ? 'success' : 'error',
+    })
+    finalNote.value = ''
+    await onAfterChange()
+  } catch (err: unknown) {
+    const msg =
+      (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Please try again.'
+    toast.add({ title: 'Could not record decision', description: msg, color: 'error' })
+  } finally {
+    finalActing.value = false
+  }
+}
+
+const settingStatus = ref(false)
+async function setStatus(s: ProposalStatus) {
+  settingStatus.value = true
+  try {
+    await $fetch(`/api/proposals/${proposalId.value}`, { method: 'PATCH', body: { status: s } })
+    toast.add({ title: `Marked ${PROPOSAL_STATUS_LABEL[s]}`, color: 'success' })
+    await onAfterChange()
   } catch (err: unknown) {
     const msg =
       (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Please try again.'
     toast.add({ title: 'Could not update', description: msg, color: 'error' })
+  } finally {
+    settingStatus.value = false
   }
-}
-
-function statusColor(s: ProposalStatus): 'primary' | 'info' | 'success' | 'error' {
-  if (s === 'writing') return 'primary'
-  if (s === 'submitted') return 'info'
-  if (s === 'won') return 'success'
-  return 'error'
 }
 
 function formatMoney(v: string | null, currency = 'USD'): string {
@@ -203,7 +271,7 @@ const recipientChips = computed(() =>
                 {{ data.proposal.title }}
               </h1>
               <UBadge
-                :color="statusColor(data.proposal.status)"
+                :color="PROPOSAL_STATUS_COLOR[data.proposal.status]"
                 variant="subtle"
                 size="sm"
                 :label="PROPOSAL_STATUS_LABEL[data.proposal.status]"
@@ -211,44 +279,125 @@ const recipientChips = computed(() =>
             </div>
             <p class="mt-1 text-sm text-muted">
               <UIcon name="i-lucide-target" class="mr-1 inline size-3.5" />
-              <NuxtLink :to="`/opportunities`" class="hover:underline">{{
-                data.proposal.opportunityTitle
-              }}</NuxtLink>
-              · {{ PROPOSAL_STATUS_DESCRIPTION[data.proposal.status] }}
+              {{ data.proposal.opportunityTitle }} ·
+              {{ PROPOSAL_STATUS_DESCRIPTION[data.proposal.status] }}
             </p>
           </div>
-          <div class="flex items-center gap-2">
-            <UButton
-              v-if="canEdit && !editing"
-              variant="outline"
-              icon="i-lucide-pencil"
-              label="Edit"
-              size="sm"
-              @click="editing = true"
-            />
-          </div>
+          <UButton
+            v-if="canEdit && !editing"
+            variant="outline"
+            icon="i-lucide-pencil"
+            label="Edit"
+            size="sm"
+            @click="editing = true"
+          />
         </div>
       </header>
 
-      <!-- Status action row -->
-      <UCard v-if="canEdit">
-        <div class="flex flex-wrap items-center gap-2">
-          <span class="text-xs font-medium uppercase tracking-wide text-muted">Status</span>
-          <UButton
-            v-for="s in PROPOSAL_STATUSES"
-            :key="s"
-            :variant="s === data.proposal.status ? 'solid' : 'outline'"
-            :color="statusColor(s)"
-            size="sm"
-            :label="PROPOSAL_STATUS_LABEL[s]"
-            :disabled="s === data.proposal.status"
-            @click="quickStatus(s)"
-          />
+      <!-- Workflow action bar — contextual to the current stage -->
+      <UCard v-if="canSendForReview || showFinalApproval || showSubmit || showOutcome || isClosed">
+        <div class="space-y-3">
+          <p class="text-xs font-medium uppercase tracking-wide text-muted">Next step</p>
+
+          <!-- Lead: send for review -->
+          <div v-if="canSendForReview" class="flex flex-wrap items-center gap-3">
+            <p class="text-sm text-default">
+              Drafting done? Send to the assigned reviewers for their decision.
+            </p>
+            <UButton
+              :loading="sendingForReview"
+              icon="i-lucide-send"
+              label="Send for review"
+              @click="sendForReview"
+            />
+          </div>
+
+          <!-- Final approver -->
+          <div v-if="showFinalApproval" class="space-y-2">
+            <p class="text-sm text-default">
+              All reviewers have aligned. Record your final decision.
+            </p>
+            <UTextarea
+              v-model="finalNote"
+              :rows="3"
+              placeholder="Optional note for the team…"
+              class="w-full"
+            />
+            <div class="flex gap-2">
+              <UButton
+                :loading="finalActing"
+                color="success"
+                icon="i-lucide-shield-check"
+                label="Approve to submit"
+                @click="finalDecision('approved')"
+              />
+              <UButton
+                :loading="finalActing"
+                color="error"
+                variant="soft"
+                icon="i-lucide-x"
+                label="Reject"
+                @click="finalDecision('rejected')"
+              />
+            </div>
+          </div>
+
+          <!-- Submit to client -->
+          <div v-if="showSubmit" class="flex flex-wrap items-center gap-3">
+            <p class="text-sm text-default">Cleared for submission.</p>
+            <UButton
+              :loading="settingStatus"
+              icon="i-lucide-upload"
+              label="Mark submitted"
+              @click="setStatus('submitted')"
+            />
+          </div>
+
+          <!-- Outcome -->
+          <div v-if="showOutcome" class="flex flex-wrap items-center gap-2">
+            <p class="mr-1 text-sm text-default">Record the outcome:</p>
+            <UButton
+              :loading="settingStatus"
+              color="success"
+              size="sm"
+              label="Won"
+              @click="setStatus('won')"
+            />
+            <UButton
+              :loading="settingStatus"
+              color="error"
+              variant="soft"
+              size="sm"
+              label="Lost"
+              @click="setStatus('lost')"
+            />
+            <UButton
+              :loading="settingStatus"
+              color="warning"
+              variant="soft"
+              size="sm"
+              label="Shortlisted"
+              @click="setStatus('shortlisted')"
+            />
+          </div>
+
+          <!-- Closed -->
+          <div v-if="isClosed" class="flex flex-wrap items-center gap-3">
+            <p class="text-sm text-error">This proposal was stopped.</p>
+            <UButton
+              v-if="canDrive"
+              variant="outline"
+              size="sm"
+              icon="i-lucide-rotate-ccw"
+              label="Reopen for drafting"
+              @click="setStatus('drafting')"
+            />
+          </div>
         </div>
       </UCard>
 
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <!-- Main column: draft + decision -->
+        <!-- Main column -->
         <div class="space-y-6 lg:col-span-2">
           <UCard>
             <template #header>
@@ -272,8 +421,21 @@ const recipientChips = computed(() =>
             </p>
           </UCard>
 
+          <!-- Reviewer alignment + the current user's review form -->
+          <ProposalReviewerStatusCard :proposal-id="proposalId" />
+          <ProposalReviewForm
+            :proposal-id="proposalId"
+            :proposal-title="data.proposal.title"
+            @changed="onAfterChange"
+          />
+
           <UCard
-            v-if="data.proposal.status === 'won' || data.proposal.status === 'lost' || editing"
+            v-if="
+              data.proposal.status === 'won' ||
+              data.proposal.status === 'lost' ||
+              data.proposal.status === 'final_rejected' ||
+              editing
+            "
           >
             <template #header>
               <h3 class="text-sm font-semibold text-default">Decision note</h3>
@@ -298,10 +460,18 @@ const recipientChips = computed(() =>
             <UButton variant="ghost" label="Cancel" @click="((editing = false), syncForm())" />
             <UButton :loading="saving" label="Save changes" @click="save" />
           </div>
+
+          <OpportunityActivityTimeline :opportunity-id="data.proposal.opportunityId" />
         </div>
 
-        <!-- Sidebar: opportunity context + deadline + recipients -->
+        <!-- Sidebar -->
         <div class="space-y-6 lg:col-span-1">
+          <ProposalTeamAssignmentCard
+            :proposal-id="proposalId"
+            :can-assign="canEdit"
+            @changed="onAfterChange"
+          />
+
           <UCard>
             <template #header>
               <h3 class="text-sm font-semibold text-default">Proposal details</h3>
@@ -338,10 +508,6 @@ const recipientChips = computed(() =>
             <template #header>
               <h3 class="text-sm font-semibold text-default">Reminder recipients</h3>
             </template>
-            <p class="mb-2 text-xs text-muted">
-              Users notified before the proposal deadline. Notification logic lands in the next
-              sprint; the list is captured now so the team is ready.
-            </p>
             <USelectMenu
               v-if="editing"
               v-model="form.reminderRecipientUserIds"
