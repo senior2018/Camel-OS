@@ -10,7 +10,7 @@ definePageMeta({
 
 useHead({ title: 'Opportunities — Camel OS' })
 
-const { can } = await usePermissions()
+const { can, isAdmin } = await usePermissions()
 
 if (!can.value('opportunity', 'read')) {
   throw createError({
@@ -24,15 +24,19 @@ const canCreate = computed(() => can.value('opportunity', 'create'))
 const canUpdate = computed(() => can.value('opportunity', 'update'))
 const canDelete = computed(() => can.value('opportunity', 'delete'))
 
-const {
-  data,
-  status,
-  createOpportunity,
-  updateOpportunity,
-  deleteOpportunity,
-  moveStatus,
-  setApproved,
-} = useOpportunities()
+// Record-level edit rule (mirrors the server guard): only the owner, the
+// creator, or an admin may edit/delete an opportunity. Anyone with
+// opportunity:update can still change its status (review pipeline).
+const { user } = useUserSession()
+const currentUserId = computed(() => (user.value as { id: string } | null)?.id ?? null)
+function canEditOpp(opp: Opportunity): boolean {
+  if (isAdmin.value) return true
+  if (!canUpdate.value) return false
+  return opp.ownerUserId === currentUserId.value || opp.createdByUserId === currentUserId.value
+}
+
+const { data, status, createOpportunity, updateOpportunity, deleteOpportunity, moveStatus } =
+  useOpportunities()
 
 // ─── Filters + view toggle ─────────────────────────────────────────────────────
 const view = ref<'board' | 'list' | 'dashboard'>('board')
@@ -284,19 +288,13 @@ const filteredCount = computed(() => filteredItems.value.length)
       :initial="editing"
       :submitting="submitting"
       :can-delete="canDelete"
-      :read-only="!!editing && !canUpdate"
+      :can-edit="editing ? canEditOpp(editing) : canCreate"
+      :can-change-status="canUpdate"
       @submit="handleSubmit"
       @delete="
         (opp) => {
           showFormModal = false
           confirmDelete = opp
-        }
-      "
-      @approve="
-        async (opp, approved) => {
-          if (!canUpdate) return
-          await setApproved(opp, approved)
-          showFormModal = false
         }
       "
       @move-status="

@@ -23,6 +23,7 @@ export interface Opportunity {
   primaryClientId: string | null
   primaryClientName: string | null
   ownerUserId: string | null
+  createdByUserId: string | null
   ownerEmail: string | null
   ownerFirstName: string | null
   ownerLastName: string | null
@@ -107,29 +108,6 @@ export function useOpportunities() {
     }
   }
 
-  async function setApproved(opp: Opportunity, approved: boolean): Promise<boolean> {
-    try {
-      await $fetch(`/api/opportunities/${opp.id}/approve`, {
-        method: 'POST',
-        body: { approved },
-      })
-      toast.add({
-        title: approved ? 'Marked as approved to pursue' : 'Approval revoked',
-        description: opp.title,
-        color: 'success',
-      })
-      await refresh()
-      return true
-    } catch (err) {
-      toast.add({
-        title: 'Approval update failed',
-        description: extractMessage(err, 'Please try again.'),
-        color: 'error',
-      })
-      return false
-    }
-  }
-
   async function moveStatus(
     opp: Opportunity,
     toStatus: OpportunityStatus,
@@ -167,6 +145,5 @@ export function useOpportunities() {
     updateOpportunity,
     deleteOpportunity,
     moveStatus,
-    setApproved,
   }
 }

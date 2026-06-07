@@ -50,38 +50,224 @@ const isoDate = (dt: Date) => dt.toISOString().slice(0, 10)
 const money = (min: number, max: number) => (min + rand(max - min)).toFixed(2)
 
 // ─── data pools ───────────────────────────────────────────────────────────────
-const FIRST = ['Amina', 'John', 'Grace', 'Hassan', 'Mary', 'Peter', 'Fatima', 'David', 'Joyce', 'Samuel', 'Neema', 'Daniel', 'Esther', 'Ibrahim', 'Rehema', 'Joseph', 'Zainab', 'Emmanuel', 'Lucy', 'Ali']
-const LAST = ['Mwangi', 'Otieno', 'Hassan', 'Kimaro', 'Achieng', 'Mushi', 'Bakari', 'Njoroge', 'Sanga', 'Mollel', 'Kiprop', 'Lema', 'Massawe', 'Juma', 'Ngwale', 'Shirima', 'Maeda', 'Komba']
-const COMPANIES = ['Acacia Holdings', 'Serengeti Logistics', 'Zanzibar Spice Co', 'Kilimanjaro Foods', 'Tanga Cement', 'Mwanza Fisheries', 'Dodoma AgriTech', 'Arusha Tourism Group', 'Coastal Energy', 'Highland Coffee', 'Rift Valley Mining', 'Savannah Retail', 'Bahari Shipping', 'Uhuru Telecom', 'Maendeleo Bank']
-const FOUNDATIONS = ['Gates Foundation', 'Ford Foundation', 'Mastercard Foundation', 'Rockefeller Foundation', 'Aga Khan Foundation', 'Wellcome Trust', 'Hewlett Foundation', 'Open Society Foundations']
-const NGOS = ['Oxfam', 'Save the Children', 'CARE International', 'Plan International', 'World Vision', 'Mercy Corps', 'Amref Health', 'SNV Netherlands']
-const INDUSTRIES = ['Agriculture', 'Health', 'Education', 'Energy', 'Financial Services', 'Logistics', 'Tourism', 'Manufacturing', 'ICT', 'Mining']
-const COUNTRIES = ['Tanzania', 'Kenya', 'Uganda', 'Rwanda', 'Zambia', 'Ethiopia', 'Ghana', 'Nigeria']
-const FOCUS = ['Maternal Health', 'Climate Resilience', 'Youth Employment', 'Digital Inclusion', 'Food Security', 'Girls Education', 'Clean Water', 'Financial Inclusion']
-const OPP_TITLES = ['Digital Transformation Advisory', 'M&E Framework Design', 'Public Financial Mgmt Review', 'Renewable Energy Feasibility', 'Health Systems Strengthening', 'Agri Value-Chain Study', 'Skills Development Programme', 'Governance Capacity Building', 'Climate Adaptation Strategy', 'Tax Policy Reform', 'SME Finance Diagnostic', 'Education Sector Analysis', 'WASH Baseline Survey', 'Gender Inclusion Audit', 'Trade Logistics Assessment']
+const FIRST = [
+  'Amina',
+  'John',
+  'Grace',
+  'Hassan',
+  'Mary',
+  'Peter',
+  'Fatima',
+  'David',
+  'Joyce',
+  'Samuel',
+  'Neema',
+  'Daniel',
+  'Esther',
+  'Ibrahim',
+  'Rehema',
+  'Joseph',
+  'Zainab',
+  'Emmanuel',
+  'Lucy',
+  'Ali',
+]
+const LAST = [
+  'Mwangi',
+  'Otieno',
+  'Hassan',
+  'Kimaro',
+  'Achieng',
+  'Mushi',
+  'Bakari',
+  'Njoroge',
+  'Sanga',
+  'Mollel',
+  'Kiprop',
+  'Lema',
+  'Massawe',
+  'Juma',
+  'Ngwale',
+  'Shirima',
+  'Maeda',
+  'Komba',
+]
+const COMPANIES = [
+  'Acacia Holdings',
+  'Serengeti Logistics',
+  'Zanzibar Spice Co',
+  'Kilimanjaro Foods',
+  'Tanga Cement',
+  'Mwanza Fisheries',
+  'Dodoma AgriTech',
+  'Arusha Tourism Group',
+  'Coastal Energy',
+  'Highland Coffee',
+  'Rift Valley Mining',
+  'Savannah Retail',
+  'Bahari Shipping',
+  'Uhuru Telecom',
+  'Maendeleo Bank',
+]
+const FOUNDATIONS = [
+  'Gates Foundation',
+  'Ford Foundation',
+  'Mastercard Foundation',
+  'Rockefeller Foundation',
+  'Aga Khan Foundation',
+  'Wellcome Trust',
+  'Hewlett Foundation',
+  'Open Society Foundations',
+]
+const NGOS = [
+  'Oxfam',
+  'Save the Children',
+  'CARE International',
+  'Plan International',
+  'World Vision',
+  'Mercy Corps',
+  'Amref Health',
+  'SNV Netherlands',
+]
+const INDUSTRIES = [
+  'Agriculture',
+  'Health',
+  'Education',
+  'Energy',
+  'Financial Services',
+  'Logistics',
+  'Tourism',
+  'Manufacturing',
+  'ICT',
+  'Mining',
+]
+const COUNTRIES = [
+  'Tanzania',
+  'Kenya',
+  'Uganda',
+  'Rwanda',
+  'Zambia',
+  'Ethiopia',
+  'Ghana',
+  'Nigeria',
+]
+const FOCUS = [
+  'Maternal Health',
+  'Climate Resilience',
+  'Youth Employment',
+  'Digital Inclusion',
+  'Food Security',
+  'Girls Education',
+  'Clean Water',
+  'Financial Inclusion',
+]
+const OPP_TITLES = [
+  'Digital Transformation Advisory',
+  'M&E Framework Design',
+  'Public Financial Mgmt Review',
+  'Renewable Energy Feasibility',
+  'Health Systems Strengthening',
+  'Agri Value-Chain Study',
+  'Skills Development Programme',
+  'Governance Capacity Building',
+  'Climate Adaptation Strategy',
+  'Tax Policy Reform',
+  'SME Finance Diagnostic',
+  'Education Sector Analysis',
+  'WASH Baseline Survey',
+  'Gender Inclusion Audit',
+  'Trade Logistics Assessment',
+]
 const SOURCES = ['tender', 'grant', 'partnership', 'referral', 'inbound', 'other']
 const TYPES = ['consulting', 'training', 'research', 'advisory', 'other']
-const TAGS = ['health', 'education', 'climate', 'governance', 'finance', 'agriculture', 'energy', 'gender', 'digital', 'urgent', 'strategic', 'repeat-client']
+const TAGS = [
+  'health',
+  'education',
+  'climate',
+  'governance',
+  'finance',
+  'agriculture',
+  'energy',
+  'gender',
+  'digital',
+  'urgent',
+  'strategic',
+  'repeat-client',
+]
 const INTERACTION_TYPES = ['meeting', 'call', 'email', 'note'] as const
 const DONOR_INTERACTION_TYPES = ['donor_reporting', 'grant_negotiation'] as const
-const SUMMARIES = ['Intro call to understand needs', 'Shared capability statement', 'Discussed upcoming tender', 'Quarterly check-in', 'Negotiated scope and budget', 'Reviewed draft proposal together', 'Site visit and stakeholder mapping', 'Follow-up on outstanding documents']
+const SUMMARIES = [
+  'Intro call to understand needs',
+  'Shared capability statement',
+  'Discussed upcoming tender',
+  'Quarterly check-in',
+  'Negotiated scope and budget',
+  'Reviewed draft proposal together',
+  'Site visit and stakeholder mapping',
+  'Follow-up on outstanding documents',
+]
 
 // Account-role roster (excludes the System Administrator / super admin).
 const ROSTER = [
   { email: 'david@camel-os.com', firstName: 'David', lastName: 'Director', roleName: 'Manager' },
   { email: 'maria@camel-os.com', firstName: 'Maria', lastName: 'Mushi', roleName: 'Manager' },
-  { email: 'linda@camel-os.com', firstName: 'Linda', lastName: 'Lead', roleName: 'Business Development Officer' },
-  { email: 'ben@camel-os.com', firstName: 'Ben', lastName: 'Otieno', roleName: 'Business Development Officer' },
+  {
+    email: 'linda@camel-os.com',
+    firstName: 'Linda',
+    lastName: 'Lead',
+    roleName: 'Business Development Officer',
+  },
+  {
+    email: 'ben@camel-os.com',
+    firstName: 'Ben',
+    lastName: 'Otieno',
+    roleName: 'Business Development Officer',
+  },
   { email: 'sam@camel-os.com', firstName: 'Sam', lastName: 'Writer', roleName: 'Consultant' },
   { email: 'priya@camel-os.com', firstName: 'Priya', lastName: 'Writer', roleName: 'Consultant' },
   { email: 'rita@camel-os.com', firstName: 'Rita', lastName: 'Reviewer', roleName: 'Reviewer' },
-  { email: 'doris@camel-os.com', firstName: 'Doris', lastName: 'Approver', roleName: 'Staff Member' },
-  { email: 'cathy@camel-os.com', firstName: 'Cathy', lastName: 'Comms', roleName: 'Communications Officer' },
-  { email: 'carl@camel-os.com', firstName: 'Carl', lastName: 'Media', roleName: 'Communications Lead' },
-  { email: 'paul@camel-os.com', firstName: 'Paul', lastName: 'Project', roleName: 'Project Manager' },
-  { email: 'hannah@camel-os.com', firstName: 'Hannah', lastName: 'Resource', roleName: 'HR Manager' },
-  { email: 'frank@camel-os.com', firstName: 'Frank', lastName: 'Finance', roleName: 'Finance Officer' },
-  { email: 'karen@camel-os.com', firstName: 'Karen', lastName: 'Knowledge', roleName: 'Knowledge Manager' },
+  {
+    email: 'doris@camel-os.com',
+    firstName: 'Doris',
+    lastName: 'Approver',
+    roleName: 'Staff Member',
+  },
+  {
+    email: 'cathy@camel-os.com',
+    firstName: 'Cathy',
+    lastName: 'Comms',
+    roleName: 'Communications Officer',
+  },
+  {
+    email: 'carl@camel-os.com',
+    firstName: 'Carl',
+    lastName: 'Media',
+    roleName: 'Communications Lead',
+  },
+  {
+    email: 'paul@camel-os.com',
+    firstName: 'Paul',
+    lastName: 'Project',
+    roleName: 'Project Manager',
+  },
+  {
+    email: 'hannah@camel-os.com',
+    firstName: 'Hannah',
+    lastName: 'Resource',
+    roleName: 'HR Manager',
+  },
+  {
+    email: 'frank@camel-os.com',
+    firstName: 'Frank',
+    lastName: 'Finance',
+    roleName: 'Finance Officer',
+  },
+  {
+    email: 'karen@camel-os.com',
+    firstName: 'Karen',
+    lastName: 'Knowledge',
+    roleName: 'Knowledge Manager',
+  },
 ] as const
 
 async function run() {
@@ -89,7 +275,11 @@ async function run() {
   const db = drizzle(client, { schema })
   const hasher = new Hash(new Scrypt({}))
 
-  const [org] = await db.select().from(organizations).where(eq(organizations.slug, ORG_SLUG)).limit(1)
+  const [org] = await db
+    .select()
+    .from(organizations)
+    .where(eq(organizations.slug, ORG_SLUG))
+    .limit(1)
   if (!org) {
     consola.error(`Organization "${ORG_SLUG}" not found — run pnpm db:seed first.`)
     await client.end()
@@ -130,13 +320,20 @@ async function run() {
           emailVerifiedAt: new Date(),
         })
         .returning()
-      await tx.insert(organizationMembers).values({ organizationId: orgId, userId: user!.id, role: 'member' })
+      await tx
+        .insert(organizationMembers)
+        .values({ organizationId: orgId, userId: user!.id, role: 'member' })
       await tx.insert(authAccounts).values({ userId: user!.id, provider: 'local', passwordHash })
       if (rid) await tx.insert(userRoles).values({ userId: user!.id, roleId: rid })
       userIdByEmail.set(u.email, user!.id)
     })
   }
-  const owners = ['david@camel-os.com', 'maria@camel-os.com', 'linda@camel-os.com', 'ben@camel-os.com']
+  const owners = [
+    'david@camel-os.com',
+    'maria@camel-os.com',
+    'linda@camel-os.com',
+    'ben@camel-os.com',
+  ]
     .map((e) => userIdByEmail.get(e)!)
     .filter(Boolean)
   const ownerId = () => pick(owners)
@@ -185,7 +382,11 @@ async function run() {
 
     const metadata =
       type === 'donor'
-        ? { focusAreas: pickN(FOCUS, 2 + rand(2)), reportingLanguage: 'English', fiscalYearStart: '01-01' }
+        ? {
+            focusAreas: pickN(FOCUS, 2 + rand(2)),
+            reportingLanguage: 'English',
+            fiscalYearStart: '01-01',
+          }
         : type === 'partner'
           ? { partnershipType: pick(['MOU', 'Consortium', 'Sub-grantee']), scope: pick(FOCUS) }
           : null
@@ -226,7 +427,14 @@ async function run() {
           organizationId: orgId,
           firstName: cf,
           lastName: cl,
-          title: pick(['Director', 'Programme Manager', 'Procurement Lead', 'Finance Manager', 'CEO', 'Grants Officer']),
+          title: pick([
+            'Director',
+            'Programme Manager',
+            'Procurement Lead',
+            'Finance Manager',
+            'CEO',
+            'Grants Officer',
+          ]),
           email: `${cf.toLowerCase()}.${cl.toLowerCase()}@example.org`,
           phone: `+255 6${rand(90) + 10} ${rand(900) + 100} ${rand(900) + 100}`,
           isPrimary: i === 0,
@@ -240,7 +448,8 @@ async function run() {
     const nInter = 2 + rand(4)
     for (let i = 0; i < nInter; i++) {
       const isDonorType = type === 'donor' || type === 'partner'
-      const itype = isDonorType && chance(0.4) ? pick(DONOR_INTERACTION_TYPES) : pick(INTERACTION_TYPES)
+      const itype =
+        isDonorType && chance(0.4) ? pick(DONOR_INTERACTION_TYPES) : pick(INTERACTION_TYPES)
       const hasFollowUp = chance(0.3)
       await db.insert(clientInteractions).values({
         clientId,
@@ -289,14 +498,17 @@ async function run() {
         grantCount++
       }
       if (chance(0.6)) {
-        await db.insert(donorProjects).values({
-          donorId: clientId,
-          projectId: pick(projectIds),
-          organizationId: orgId,
-          fundingAmount: money(50_000, 1_000_000),
-          notes: 'Co-funding arrangement',
-          createdByUserId: ownerId(),
-        }).onConflictDoNothing()
+        await db
+          .insert(donorProjects)
+          .values({
+            donorId: clientId,
+            projectId: pick(projectIds),
+            organizationId: orgId,
+            fundingAmount: money(50_000, 1_000_000),
+            notes: 'Co-funding arrangement',
+            createdByUserId: ownerId(),
+          })
+          .onConflictDoNothing()
       }
     }
 
@@ -319,7 +531,9 @@ async function run() {
       }
     }
   }
-  consola.success(`Clients: ${clientIds.length} | contacts: ${contactCount} | interactions: ${interactionCount} | reminders: ${reminderCount} | grants: ${grantCount} | agreements: ${agreementCount}`)
+  consola.success(
+    `Clients: ${clientIds.length} | contacts: ${contactCount} | interactions: ${interactionCount} | reminders: ${reminderCount} | grants: ${grantCount} | agreements: ${agreementCount}`
+  )
 
   // ── 5) opportunities (50) ──
   // status spread: 25 pending, 15 accepted, 10 rejected
@@ -360,12 +574,15 @@ async function run() {
 
     // link a primary client
     if (clientIds.length) {
-      await db.insert(opportunityClients).values({
-        opportunityId: oppId,
-        clientId: pick(clientIds),
-        organizationId: orgId,
-        isPrimary: true,
-      }).onConflictDoNothing()
+      await db
+        .insert(opportunityClients)
+        .values({
+          opportunityId: oppId,
+          clientId: pick(clientIds),
+          organizationId: orgId,
+          isPrimary: true,
+        })
+        .onConflictDoNothing()
     }
 
     // a comment on some (rejection rationale / reviewer note)
@@ -374,7 +591,14 @@ async function run() {
         opportunityId: oppId,
         organizationId: orgId,
         kind: 'comment',
-        body: status === 'rejected' ? pick(['Deadline too tight to mobilise a quality team.', 'Budget ceiling below our cost base.', 'Outside our core sectors.']) : 'Looks promising — aligns with our expertise.',
+        body:
+          status === 'rejected'
+            ? pick([
+                'Deadline too tight to mobilise a quality team.',
+                'Budget ceiling below our cost base.',
+                'Outside our core sectors.',
+              ])
+            : 'Looks promising — aligns with our expertise.',
         createdByUserId: ownerId(),
       })
       commentCount++
@@ -401,14 +625,19 @@ async function run() {
   type PStatus = (typeof schema.proposalStatusEnum.enumValues)[number]
   // distribute the ~15 accepted across representative stages
   const STAGE_PLAN: PStatus[] = [
-    'assigned', 'assigned',
-    'drafting', 'drafting',
-    'awaiting_review', 'awaiting_review',
+    'assigned',
+    'assigned',
+    'drafting',
+    'drafting',
+    'awaiting_review',
+    'awaiting_review',
     'revision_required',
     'ready_for_final_approval',
     'final_approved',
-    'submitted', 'submitted',
-    'won', 'won',
+    'submitted',
+    'submitted',
+    'won',
+    'won',
     'lost',
     'shortlisted',
   ]
@@ -428,10 +657,21 @@ async function run() {
         title: opp.title,
         status: pstatus,
         deadline: isoDate(daysFromNow(rand(60) + 5)),
-        contentDraft: beyondAssigned ? 'Executive summary, technical approach, methodology, work-plan, team, and budget narrative…' : null,
-        decisionNote: pstatus === 'won' ? 'Strong technical score and competitive price.' : pstatus === 'lost' ? 'Outscored on local presence.' : null,
-        submittedAt: ['submitted', 'won', 'lost', 'shortlisted'].includes(pstatus) ? daysFromNow(-rand(30)) : null,
-        decidedAt: ['won', 'lost', 'shortlisted', 'final_approved'].includes(pstatus) ? daysFromNow(-rand(10)) : null,
+        contentDraft: beyondAssigned
+          ? 'Executive summary, technical approach, methodology, work-plan, team, and budget narrative…'
+          : null,
+        decisionNote:
+          pstatus === 'won'
+            ? 'Strong technical score and competitive price.'
+            : pstatus === 'lost'
+              ? 'Outscored on local presence.'
+              : null,
+        submittedAt: ['submitted', 'won', 'lost', 'shortlisted'].includes(pstatus)
+          ? daysFromNow(-rand(30))
+          : null,
+        decidedAt: ['won', 'lost', 'shortlisted', 'final_approved'].includes(pstatus)
+          ? daysFromNow(-rand(10))
+          : null,
         reminderRecipientUserIds: [lead, tech],
         createdByUserId: ownerId(),
       })
@@ -445,7 +685,12 @@ async function run() {
         { proposalId, organizationId: orgId, roleType: 'lead', assignedUserId: lead },
         { proposalId, organizationId: orgId, roleType: 'technical_reviewer', assignedUserId: tech },
         { proposalId, organizationId: orgId, roleType: 'finance_reviewer', assignedUserId: fin },
-        { proposalId, organizationId: orgId, roleType: 'compliance_reviewer', assignedUserId: comp },
+        {
+          proposalId,
+          organizationId: orgId,
+          roleType: 'compliance_reviewer',
+          assignedUserId: comp,
+        },
         { proposalId, organizationId: orgId, roleType: 'final_approver', assignedUserId: approver },
       ])
       await db.insert(opportunityActivities).values({
@@ -465,9 +710,36 @@ async function run() {
         return 'approved' // ready_for_final_approval and beyond
       }
       await db.insert(proposalReviewers).values([
-        { proposalId, organizationId: orgId, reviewerUserId: tech, reviewerRole: 'technical_reviewer', isRequired: true, status: reviewerStatus(), feedback: 'Technical approach reviewed.', decidedAt: pstatus === 'awaiting_review' ? null : daysFromNow(-rand(5)) },
-        { proposalId, organizationId: orgId, reviewerUserId: fin, reviewerRole: 'finance_reviewer', isRequired: true, status: reviewerStatus(), feedback: 'Budget reviewed.', decidedAt: pstatus === 'awaiting_review' ? null : daysFromNow(-rand(5)) },
-        { proposalId, organizationId: orgId, reviewerUserId: comp, reviewerRole: 'compliance_reviewer', isRequired: true, status: reviewerStatus(), feedback: 'Compliance checked.', decidedAt: pstatus === 'awaiting_review' ? null : daysFromNow(-rand(5)) },
+        {
+          proposalId,
+          organizationId: orgId,
+          reviewerUserId: tech,
+          reviewerRole: 'technical_reviewer',
+          isRequired: true,
+          status: reviewerStatus(),
+          feedback: 'Technical approach reviewed.',
+          decidedAt: pstatus === 'awaiting_review' ? null : daysFromNow(-rand(5)),
+        },
+        {
+          proposalId,
+          organizationId: orgId,
+          reviewerUserId: fin,
+          reviewerRole: 'finance_reviewer',
+          isRequired: true,
+          status: reviewerStatus(),
+          feedback: 'Budget reviewed.',
+          decidedAt: pstatus === 'awaiting_review' ? null : daysFromNow(-rand(5)),
+        },
+        {
+          proposalId,
+          organizationId: orgId,
+          reviewerUserId: comp,
+          reviewerRole: 'compliance_reviewer',
+          isRequired: true,
+          status: reviewerStatus(),
+          feedback: 'Compliance checked.',
+          decidedAt: pstatus === 'awaiting_review' ? null : daysFromNow(-rand(5)),
+        },
       ])
       await db.insert(opportunityActivities).values({
         opportunityId: opp.id,
