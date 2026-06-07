@@ -12,7 +12,34 @@ export default defineEventHandler(async (event) => {
     const id = getRouterParam(event, 'id')
     if (!id) throw createError({ statusCode: 400, statusMessage: 'Opportunity id is required' })
 
-    const [deleted] = await useDrizzle()
+    const db = useDrizzle()
+
+    const [existing] = await db
+      .select({
+        ownerUserId: opportunities.ownerUserId,
+        createdByUserId: opportunities.createdByUserId,
+      })
+      .from(opportunities)
+      .where(and(eq(opportunities.id, id), eq(opportunities.organizationId, ctx.organizationId)))
+      .limit(1)
+
+    if (!existing) {
+      throw createError({ statusCode: 404, statusMessage: 'Opportunity not found' })
+    }
+
+    // Same record-level rule as edit: owner, creator, or system admin only.
+    const canDelete =
+      ctx.isSystemAdmin ||
+      existing.ownerUserId === ctx.userId ||
+      existing.createdByUserId === ctx.userId
+    if (!canDelete) {
+      throw createError({
+        statusCode: 403,
+        statusMessage: 'You can only delete opportunities you own or created.',
+      })
+    }
+
+    const [deleted] = await db
       .delete(opportunities)
       .where(and(eq(opportunities.id, id), eq(opportunities.organizationId, ctx.organizationId)))
       .returning({ id: opportunities.id, title: opportunities.title })

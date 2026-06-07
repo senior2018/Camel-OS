@@ -550,7 +550,42 @@ export const opportunityComments = pgTable(
 // → won / lost), its own deadline, and its own reminder recipients. Won and
 // Lost no longer live on the opportunity — they belong to the proposal.
 
-export const proposalStatusEnum = pgEnum('proposal_status', ['writing', 'submitted', 'won', 'lost'])
+export const proposalStatusEnum = pgEnum('proposal_status', [
+  'assigned',
+  'drafting',
+  'awaiting_review',
+  'revision_required',
+  'rejected',
+  'ready_for_final_approval',
+  'awaiting_final_approval',
+  'final_approved',
+  'final_rejected',
+  'submitted',
+  'won',
+  'lost',
+  'shortlisted',
+])
+
+export const proposalReviewerStatusEnum = pgEnum('proposal_reviewer_status', [
+  'pending',
+  'approved',
+  'changes_required',
+  'rejected',
+])
+
+export const opportunityDecisionStatusEnum = pgEnum('opportunity_decision_status', [
+  'pending',
+  'approved',
+  'rejected',
+])
+
+export const proposalAssignmentRoleEnum = pgEnum('proposal_assignment_role', [
+  'lead',
+  'technical_reviewer',
+  'finance_reviewer',
+  'compliance_reviewer',
+  'final_approver',
+])
 
 export const proposals = pgTable(
   'proposals',
@@ -563,7 +598,7 @@ export const proposals = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: 'cascade' }),
     title: text().notNull(),
-    status: proposalStatusEnum().notNull().default('writing'),
+    status: proposalStatusEnum().notNull().default('assigned'),
     // ISO date — usually the bid submission deadline, separate from the
     // opportunity's discovery-stage deadline so a proposal team can manage its
     // own runway.
@@ -594,6 +629,109 @@ export const proposals = pgTable(
     index('proposals_organization_id_idx').on(table.organizationId),
     index('proposals_status_idx').on(table.status),
     index('proposals_deadline_idx').on(table.deadline),
+  ]
+)
+
+// ─── Phase 1: Proposal Review Workflow ──────────────────────────────────────
+// S8 Phase 1: Go-No-Go decision gate + team assignment + reviewer alignment.
+//
+// proposal_reviewers — tracks individual reviewer decisions (must all align)
+// opportunity_decisions — Go-No-Go approval before proposal creation
+// proposal_assignments — team roles (lead, technical, finance, etc)
+// opportunity_activities — audit trail of all opportunity/proposal actions
+
+export const proposalReviewers = pgTable(
+  'proposal_reviewers',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    proposalId: uuid('proposal_id')
+      .notNull()
+      .references(() => proposals.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    reviewerUserId: uuid('reviewer_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    reviewerRole: proposalAssignmentRoleEnum().notNull(),
+    isRequired: boolean().notNull().default(true),
+    status: proposalReviewerStatusEnum().notNull().default('pending'),
+    feedback: text(),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('proposal_reviewers_proposal_id_idx').on(table.proposalId),
+    index('proposal_reviewers_reviewer_user_id_idx').on(table.reviewerUserId),
+    index('proposal_reviewers_status_idx').on(table.status),
+  ]
+)
+
+export const proposalAssignments = pgTable(
+  'proposal_assignments',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    proposalId: uuid('proposal_id')
+      .notNull()
+      .references(() => proposals.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    roleType: proposalAssignmentRoleEnum().notNull(),
+    assignedUserId: uuid('assigned_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    assignedAt: timestamp('assigned_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('proposal_assignments_proposal_id_idx').on(table.proposalId),
+    index('proposal_assignments_assigned_user_id_idx').on(table.assignedUserId),
+    index('proposal_assignments_role_type_idx').on(table.roleType),
+  ]
+)
+
+export const opportunityDecisions = pgTable(
+  'opportunity_decisions',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    opportunityId: uuid('opportunity_id')
+      .notNull()
+      .references(() => opportunities.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    status: opportunityDecisionStatusEnum().notNull().default('pending'),
+    decisionReason: text('decision_reason'),
+    decidedByUserId: uuid('decided_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('opportunity_decisions_opportunity_id_idx').on(table.opportunityId),
+    index('opportunity_decisions_status_idx').on(table.status),
+  ]
+)
+
+export const opportunityActivities = pgTable(
+  'opportunity_activities',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    opportunityId: uuid('opportunity_id')
+      .notNull()
+      .references(() => opportunities.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    action: text().notNull(),
+    details: jsonb(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('opportunity_activities_opportunity_id_idx').on(table.opportunityId),
+    index('opportunity_activities_created_at_idx').on(table.createdAt),
   ]
 )
 
@@ -1139,6 +1277,18 @@ export type NewOpportunityComment = typeof opportunityComments.$inferInsert
 
 export type Proposal = typeof proposals.$inferSelect
 export type NewProposal = typeof proposals.$inferInsert
+
+export type ProposalReviewer = typeof proposalReviewers.$inferSelect
+export type NewProposalReviewer = typeof proposalReviewers.$inferInsert
+
+export type ProposalAssignment = typeof proposalAssignments.$inferSelect
+export type NewProposalAssignment = typeof proposalAssignments.$inferInsert
+
+export type OpportunityDecision = typeof opportunityDecisions.$inferSelect
+export type NewOpportunityDecision = typeof opportunityDecisions.$inferInsert
+
+export type OpportunityActivity = typeof opportunityActivities.$inferSelect
+export type NewOpportunityActivity = typeof opportunityActivities.$inferInsert
 
 export type DonorGrant = typeof donorGrants.$inferSelect
 export type NewDonorGrant = typeof donorGrants.$inferInsert

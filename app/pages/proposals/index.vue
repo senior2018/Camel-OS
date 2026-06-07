@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import {
-  PROPOSAL_STATUSES,
-  PROPOSAL_STATUS_DESCRIPTION,
+  PROPOSAL_BOARD_LANES,
+  PROPOSAL_STATUS_COLOR,
   PROPOSAL_STATUS_LABEL,
+  laneForStatus,
+  type ProposalBoardLane,
   type ProposalStatus,
 } from '@@/shared/schemas/proposal'
 
@@ -13,7 +15,7 @@ definePageMeta({
 useHead({ title: 'Proposals — Camel OS' })
 
 const { can } = await usePermissions()
-if (!can.value('opportunity', 'read')) {
+if (!can.value('proposal', 'read')) {
   throw createError({
     statusCode: 403,
     statusMessage: 'You do not have permission to view proposals.',
@@ -38,43 +40,36 @@ interface ProposalRow {
   opportunityStatus: string
 }
 
-const { data, status } = await useFetch<{
-  items: ProposalRow[]
-  groupedByStatus: Record<ProposalStatus, ProposalRow[]>
-}>('/api/proposals', {
+const { data, status } = await useFetch<{ items: ProposalRow[] }>('/api/proposals', {
   key: 'proposals-list',
-  default: () => ({
-    items: [],
-    groupedByStatus: {
-      writing: [],
-      submitted: [],
-      won: [],
-      lost: [],
-    } as Record<ProposalStatus, ProposalRow[]>,
-  }),
+  default: () => ({ items: [] }),
 })
 
-function statusColor(s: ProposalStatus): 'primary' | 'info' | 'success' | 'error' {
-  if (s === 'writing') return 'primary'
-  if (s === 'submitted') return 'info'
-  if (s === 'won') return 'success'
-  return 'error'
-}
+// Group proposals into the six readable board lanes (the 13 raw statuses are
+// too many for columns).
+const byLane = computed<Record<string, ProposalRow[]>>(() => {
+  const map: Record<string, ProposalRow[]> = Object.fromEntries(
+    PROPOSAL_BOARD_LANES.map((l) => [l.key, [] as ProposalRow[]])
+  )
+  for (const p of data.value?.items ?? []) map[laneForStatus(p.status).key]!.push(p)
+  return map
+})
 
-function statusBorder(s: ProposalStatus): string {
-  if (s === 'writing') return 'border-primary/40'
-  if (s === 'submitted') return 'border-info/40'
-  if (s === 'won') return 'border-success/40'
-  return 'border-error/40'
+function laneAccent(lane: ProposalBoardLane): string {
+  const map: Record<string, string> = {
+    in_progress: 'border-primary/40',
+    in_review: 'border-info/40',
+    approval: 'border-info/40',
+    ready: 'border-success/40',
+    outcome: 'border-success/40',
+    closed: 'border-error/40',
+  }
+  return map[lane.key] ?? 'border-default'
 }
 
 function deadlineLabel(d: string | null): string {
   return d
-    ? new Date(d).toLocaleDateString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      })
+    ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
     : '—'
 }
 
@@ -95,8 +90,8 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
       <div>
         <h1 class="text-2xl font-semibold tracking-tight text-default">Proposals</h1>
         <p class="mt-1 text-sm text-muted">
-          Bids in flight — Writing → Submitted → Won / Lost. Proposals are auto-created when an
-          opportunity is Accepted.
+          Bids in flight — assign a team, draft, align reviewers, get final sign-off, then submit.
+          Proposals are created automatically when an opportunity is Accepted.
         </p>
       </div>
       <UBadge variant="subtle" color="neutral" size="md">{{ totalCount }} total</UBadge>
@@ -122,26 +117,22 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
       />
     </div>
 
-    <div v-else class="grid grid-cols-1 gap-4 xl:grid-cols-4 lg:grid-cols-2">
+    <div v-else class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
       <section
-        v-for="s in PROPOSAL_STATUSES"
-        :key="s"
-        :class="['flex flex-col rounded-xl border bg-default/40 p-3', statusBorder(s)]"
+        v-for="lane in PROPOSAL_BOARD_LANES"
+        :key="lane.key"
+        :class="['flex flex-col rounded-xl border bg-default/40 p-3', laneAccent(lane)]"
       >
         <header class="mb-2">
           <div class="flex items-center gap-2">
-            <UBadge variant="subtle" :color="statusColor(s)" size="sm">
-              {{ PROPOSAL_STATUS_LABEL[s] }}
-            </UBadge>
-            <span class="text-xs font-medium text-muted">
-              {{ data?.groupedByStatus[s]?.length ?? 0 }}
-            </span>
+            <span class="text-sm font-semibold text-default">{{ lane.label }}</span>
+            <span class="text-xs font-medium text-muted">{{ byLane[lane.key]?.length ?? 0 }}</span>
           </div>
-          <p class="mt-1 text-xs text-muted">{{ PROPOSAL_STATUS_DESCRIPTION[s] }}</p>
+          <p class="mt-0.5 text-xs text-muted">{{ lane.description }}</p>
         </header>
 
         <div
-          v-if="!data?.groupedByStatus[s]?.length"
+          v-if="!byLane[lane.key]?.length"
           class="flex flex-1 items-center justify-center rounded-lg border border-dashed border-default p-6 text-center text-xs text-muted"
         >
           Nothing here yet.
@@ -149,12 +140,20 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
 
         <ul v-else class="space-y-2">
           <li
-            v-for="p in data.groupedByStatus[s]"
+            v-for="p in byLane[lane.key]"
             :key="p.id"
             class="cursor-pointer rounded-lg border border-default bg-default p-3 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow"
             @click="navigateTo(`/proposals/${p.id}`)"
           >
-            <p class="line-clamp-2 text-sm font-medium text-default">{{ p.title }}</p>
+            <div class="flex items-start justify-between gap-2">
+              <p class="line-clamp-2 text-sm font-medium text-default">{{ p.title }}</p>
+              <UBadge
+                :color="PROPOSAL_STATUS_COLOR[p.status]"
+                variant="subtle"
+                size="xs"
+                :label="PROPOSAL_STATUS_LABEL[p.status]"
+              />
+            </div>
             <p class="mt-1 truncate text-xs text-muted">
               <UIcon name="i-lucide-target" class="mr-1 inline size-3" />
               {{ p.opportunityTitle }}

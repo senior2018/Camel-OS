@@ -82,7 +82,7 @@ export function useClients() {
         method: 'POST',
         body: payload,
       })
-      toast.add({ title: 'Client created', description: payload.name, color: 'success' })
+      toast.add({ title: 'Client created', description: res.client.name, color: 'success' })
       await refresh()
       return { client: res.client }
     } catch (err) {

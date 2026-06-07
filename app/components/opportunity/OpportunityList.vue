@@ -81,14 +81,6 @@ function statusColor(s: OpportunityStatus): 'warning' | 'success' | 'error' {
           <td class="px-4 py-3">
             <div class="flex items-center gap-2">
               <span class="font-medium text-default">{{ opp.title }}</span>
-              <UBadge
-                v-if="opp.approvedToPursueAt"
-                variant="subtle"
-                color="success"
-                size="xs"
-                icon="i-lucide-circle-check"
-                label="Approved"
-              />
             </div>
           </td>
           <td class="px-4 py-3">

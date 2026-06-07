@@ -23,6 +23,8 @@ const navItems = computed(() => {
       icon: 'i-lucide-target',
       active: route.path.startsWith('/opportunities'),
     })
+  }
+  if (can.value('proposal', 'read')) {
     items.push({
       label: 'Proposals',
       to: '/proposals',

@@ -81,7 +81,7 @@ export default defineEventHandler(async (event) => {
     // merges into the existing session so we only need to flip the one field.
     await setUserSession(event, {
       user: {
-        ...(session.user as Record<string, unknown>),
+        ...session.user,
         mustChangePassword: false,
       },
     })
