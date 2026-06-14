@@ -108,6 +108,13 @@ const filteredUsers = computed<AdminUser[]>(() => {
   })
 })
 
+const {
+  page: usersPage,
+  pageSize: usersPageSize,
+  total: usersTotal,
+  items: pagedUsers,
+} = usePagination(filteredUsers, 10)
+
 async function handleInvite(payload: InviteUserPayload) {
   inviting.value = true
   const ok = await inviteUser(payload)
@@ -197,19 +204,27 @@ async function onRolesSaved() {
           No users yet. Invite your first teammate to get started.
         </div>
 
-        <ul v-else class="divide-y divide-default">
-          <AdminUserRow
-            v-for="user in filteredUsers"
-            :key="user.id"
-            :user="user"
-            :caller-is-super-admin="usersData?.callerIsSuperAdmin ?? false"
-            @deactivate="deactivateUser"
-            @reactivate="reactivateUser"
-            @manage-roles="managingRolesFor = $event"
-            @edit="editingUser = $event"
-            @delete="pendingDelete = $event"
+        <template v-else>
+          <ul class="divide-y divide-default">
+            <AdminUserRow
+              v-for="user in pagedUsers"
+              :key="user.id"
+              :user="user"
+              :caller-is-super-admin="usersData?.callerIsSuperAdmin ?? false"
+              @deactivate="deactivateUser"
+              @reactivate="reactivateUser"
+              @manage-roles="managingRolesFor = $event"
+              @edit="editingUser = $event"
+              @delete="pendingDelete = $event"
+            />
+          </ul>
+          <AppPagination
+            v-model:page="usersPage"
+            :total="usersTotal"
+            :page-size="usersPageSize"
+            class="mt-3"
           />
-        </ul>
+        </template>
       </UCard>
     </section>
 

@@ -166,6 +166,14 @@ async function confirmAndDelete() {
 
 const totalCount = computed(() => data.value?.items?.length ?? 0)
 const filteredCount = computed(() => filteredItems.value.length)
+
+// List view pagination (board + dashboard intentionally show the full set).
+const {
+  page: listPage,
+  pageSize: listPageSize,
+  total: listTotal,
+  items: pagedListItems,
+} = usePagination(filteredItems, 15)
 </script>
 
 <template>
@@ -273,11 +281,15 @@ const filteredCount = computed(() => filteredItems.value.length)
           @select-opportunity="openEdit"
         />
 
-        <OpportunityList
-          v-else-if="view === 'list'"
-          :items="filteredItems"
-          @select-opportunity="openEdit"
-        />
+        <template v-else-if="view === 'list'">
+          <OpportunityList :items="pagedListItems" @select-opportunity="openEdit" />
+          <AppPagination
+            v-model:page="listPage"
+            :total="listTotal"
+            :page-size="listPageSize"
+            class="mt-4"
+          />
+        </template>
 
         <OpportunityDashboard v-else :items="filteredItems" @select-opportunity="openEdit" />
       </template>

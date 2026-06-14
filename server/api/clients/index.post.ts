@@ -86,6 +86,7 @@ export default defineEventHandler(async (event) => {
         notes: data.notes ?? null,
         metadata: data.metadata ?? null,
         ownerUserId: data.ownerUserId ?? null,
+        reminderRecipientUserIds: data.reminderRecipientUserIds ?? [],
         createdByUserId: ctx.userId,
       })
       .returning()

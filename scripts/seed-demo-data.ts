@@ -408,6 +408,10 @@ async function run() {
         notes: chance(0.4) ? `Key account in ${pick(COUNTRIES)}.` : null,
         metadata,
         ownerUserId: ownerId(),
+        // Donors & partners get 1–2 extra reminder recipients so the new
+        // grant/renewal reminder fan-out is visible in the demo.
+        reminderRecipientUserIds:
+          type === 'donor' || type === 'partner' ? pickN(owners, 1 + rand(2)) : [],
         createdByUserId: ownerId(),
       })
       .returning({ id: clients.id })

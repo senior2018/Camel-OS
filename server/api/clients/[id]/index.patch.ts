@@ -72,6 +72,9 @@ export default defineEventHandler(async (event) => {
     if (data.notes !== undefined) updates.notes = data.notes ?? null
     if (data.metadata !== undefined) updates.metadata = data.metadata ?? null
     if (data.ownerUserId !== undefined) updates.ownerUserId = data.ownerUserId ?? null
+    if (data.reminderRecipientUserIds !== undefined) {
+      updates.reminderRecipientUserIds = data.reminderRecipientUserIds
+    }
 
     const [updated] = await db
       .update(clients)

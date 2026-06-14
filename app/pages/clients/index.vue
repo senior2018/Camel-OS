@@ -83,6 +83,13 @@ async function confirmAndDelete() {
 const totalCount = computed(() => data.value?.items?.length ?? 0)
 const filteredCount = computed(() => filtered.value.length)
 
+const {
+  page: clientsPage,
+  pageSize: clientsPageSize,
+  total: clientsTotal,
+  items: pagedClients,
+} = usePagination(filtered, 15)
+
 function formatRelative(iso: string | null): string {
   if (!iso) return 'Never'
   const ms = Date.now() - new Date(iso).getTime()
@@ -308,7 +315,7 @@ function ownerInitials(c: ClientListItem): string {
             </thead>
             <tbody class="divide-y divide-default bg-default">
               <tr
-                v-for="c in filtered"
+                v-for="c in pagedClients"
                 :key="c.id"
                 class="cursor-pointer transition-colors hover:bg-elevated/40"
                 @click="navigateTo(`/clients/${c.id}`)"
@@ -361,6 +368,12 @@ function ownerInitials(c: ClientListItem): string {
             </tbody>
           </table>
         </div>
+        <AppPagination
+          v-model:page="clientsPage"
+          :total="clientsTotal"
+          :page-size="clientsPageSize"
+          class="mt-3"
+        />
       </template>
     </template>
 

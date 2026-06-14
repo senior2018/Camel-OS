@@ -185,6 +185,7 @@ export const createClientSchema = z
     notes: optionalText(2000),
     metadata: clientMetadataSchema.optional(),
     ownerUserId: z.string().uuid().optional().nullable(),
+    reminderRecipientUserIds: z.array(z.string().uuid()).max(50).optional(),
   })
   .refine((v) => Boolean(v.firstName || v.lastName || v.organization), {
     message: 'Provide a first/last name or an organization.',
@@ -207,6 +208,7 @@ export const updateClientSchema = z.object({
   notes: optionalText(2000),
   metadata: clientMetadataSchema.optional(),
   ownerUserId: z.string().uuid().optional().nullable(),
+  reminderRecipientUserIds: z.array(z.string().uuid()).max(50).optional(),
 })
 
 export type UpdateClientPayload = z.output<typeof updateClientSchema>

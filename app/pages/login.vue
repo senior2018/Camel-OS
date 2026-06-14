@@ -29,19 +29,6 @@ const fields: AuthFormField[] = [
   },
 ]
 
-// Google sign-in hidden for the current rollout — toggle back on once the
-// client's IT approves the Google Workspace OAuth consent screen. Server route
-// `/api/auth/google` still exists and works if re-enabled.
-// const providers = [
-//   {
-//     label: 'Continue with Google',
-//     icon: 'devicon:google',
-//     onClick: () => {
-//       window.location.href = '/api/auth/google'
-//     },
-//   },
-// ]
-
 const schema = z.object({
   email: z.email('Invalid email'),
   password: z.string('Password is required').min(8, 'Must be at least 8 characters'),

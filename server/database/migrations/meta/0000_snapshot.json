@@ -1,5 +1,5 @@
 {
-  "id": "0e353254-ac9f-46f8-930c-e044e69141b8",
+  "id": "400998d6-54a1-40a6-a907-1d25fb6c8b15",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -925,6 +925,13 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
+        },
+        "reminder_recipient_user_ids": {
+          "name": "reminder_recipient_user_ids",
+          "type": "uuid[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::uuid[]"
         },
         "created_by_user_id": {
           "name": "created_by_user_id",

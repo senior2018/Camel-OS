@@ -47,6 +47,7 @@ export default defineEventHandler(async (event) => {
         notes: clients.notes,
         metadata: clients.metadata,
         ownerUserId: clients.ownerUserId,
+        reminderRecipientUserIds: clients.reminderRecipientUserIds,
         ownerEmail: users.email,
         ownerFirstName: users.firstName,
         ownerLastName: users.lastName,

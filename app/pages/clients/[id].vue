@@ -100,6 +100,7 @@ const editState = reactive<{
   email: string
   notes: string
   metadata: ClientMetadata
+  reminderRecipientUserIds: string[]
 }>({
   firstName: '',
   lastName: '',
@@ -112,9 +113,19 @@ const editState = reactive<{
   email: '',
   notes: '',
   metadata: {},
+  reminderRecipientUserIds: [],
 })
 
 const typeOptions = CLIENT_TYPES.map((t) => ({ label: CLIENT_TYPE_LABEL[t], value: t }))
+
+// Extra people notified for this client's grant/renewal deadline reminders
+// (the owner is always notified). Only relevant for donors & partners.
+const recipientOptions = computed(() =>
+  (teamData.value?.members ?? []).map((m) => ({
+    label: [m.firstName, m.lastName].filter(Boolean).join(' ') || m.email,
+    value: m.id,
+  }))
+)
 
 function startEdit() {
   if (!data.value) return
@@ -132,6 +143,7 @@ function startEdit() {
   editState.email = c.email ?? ''
   editState.notes = c.notes ?? ''
   editState.metadata = (c.metadata ?? {}) as ClientMetadata
+  editState.reminderRecipientUserIds = [...(c.reminderRecipientUserIds ?? [])]
   editing.value = true
 }
 
@@ -151,6 +163,7 @@ async function saveEdit() {
       editState.type === 'donor' || editState.type === 'partner'
         ? (editState.metadata ?? {})
         : null,
+    reminderRecipientUserIds: editState.reminderRecipientUserIds,
   }
   const ok = await updateClient(payload)
   if (ok) editing.value = false
@@ -381,6 +394,20 @@ function healthColor(level: ReturnType<typeof clientHealth>): 'success' | 'warni
                 <UTextarea v-model="editState.notes" :rows="3" class="w-full" />
               </UFormField>
               <ClientMetadataFields v-model="editState.metadata" :type="editState.type" />
+              <UFormField
+                v-if="editState.type === 'donor' || editState.type === 'partner'"
+                label="Reminder recipients"
+                help="Extra people emailed for grant/renewal deadlines. The owner is always notified."
+              >
+                <USelectMenu
+                  v-model="editState.reminderRecipientUserIds"
+                  :items="recipientOptions"
+                  value-key="value"
+                  multiple
+                  placeholder="Owner only — add more…"
+                  class="w-full"
+                />
+              </UFormField>
               <div class="flex justify-end gap-2">
                 <UButton variant="ghost" label="Cancel" size="sm" @click="editing = false" />
                 <UButton label="Save" size="sm" @click="saveEdit" />

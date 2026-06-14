@@ -40,6 +40,7 @@ export interface ClientDetail {
   notes: string | null
   metadata: ClientMetadata | null
   ownerUserId: string | null
+  reminderRecipientUserIds: string[]
   ownerEmail: string | null
   ownerFirstName: string | null
   ownerLastName: string | null

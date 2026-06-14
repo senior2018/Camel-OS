@@ -5,6 +5,7 @@ import { clients, partnershipAgreements, users } from '../database/schema'
 import { useDrizzle } from './drizzle'
 import { logAuditEvent } from './audit'
 import { sendPartnershipRenewalEmail } from './mailer'
+import { buildRecipientList, fetchRecipientUsers } from './reminder-recipients'
 
 /**
  * CR-11 — Partnership-agreement renewal reminders.
@@ -62,6 +63,7 @@ export async function sendPartnershipRenewalReminders(): Promise<PartnershipRene
       partnerName: clients.name,
       ownerEmail: users.email,
       ownerFirstName: users.firstName,
+      recipientIds: clients.reminderRecipientUserIds,
     })
     .from(partnershipAgreements)
     .innerJoin(clients, eq(clients.id, partnershipAgreements.partnerId))
@@ -87,9 +89,20 @@ export async function sendPartnershipRenewalReminders(): Promise<PartnershipRene
   summary.scanned = rows.length
   const appUrl = (useRuntimeConfig().appUrl as string) || 'http://localhost:3000'
   const todayMs = Date.now()
+  const userMap = await fetchRecipientUsers(rows.flatMap((r) => r.recipientIds ?? []))
 
   for (const r of rows) {
-    if (!r.ownerEmail || !r.endDate) {
+    if (!r.endDate) {
+      summary.skipped++
+      continue
+    }
+    // Owner + the partner's extra recipient list, de-duplicated.
+    const recipients = buildRecipientList(
+      r.ownerEmail ? { email: r.ownerEmail, firstName: r.ownerFirstName } : null,
+      r.recipientIds,
+      userMap
+    )
+    if (recipients.length === 0) {
       summary.skipped++
       continue
     }
@@ -102,14 +115,16 @@ export async function sendPartnershipRenewalReminders(): Promise<PartnershipRene
 
     try {
       if (due90) {
-        await sendPartnershipRenewalEmail(r.ownerEmail, {
-          recipientName: r.ownerFirstName ?? 'there',
-          partnerName: r.partnerName,
-          agreementTitle: r.title,
-          daysUntil,
-          endDate: r.endDate,
-          url: `${appUrl}/clients/${r.partnerId}`,
-        })
+        for (const rec of recipients) {
+          await sendPartnershipRenewalEmail(rec.email, {
+            recipientName: rec.firstName ?? 'there',
+            partnerName: r.partnerName,
+            agreementTitle: r.title,
+            daysUntil,
+            endDate: r.endDate,
+            url: `${appUrl}/clients/${r.partnerId}`,
+          })
+        }
         await db
           .update(partnershipAgreements)
           .set({ renewalNotifiedAt90: now })
@@ -121,18 +136,25 @@ export async function sendPartnershipRenewalReminders(): Promise<PartnershipRene
           resource: 'client',
           action: 'agreement_renewal_sent',
           resourceId: r.partnerId,
-          meta: { agreementId: r.id, window: '90d', endDate: r.endDate, recipient: r.ownerEmail },
+          meta: {
+            agreementId: r.id,
+            window: '90d',
+            endDate: r.endDate,
+            recipients: recipients.map((x) => x.email),
+          },
         })
       }
       if (due30) {
-        await sendPartnershipRenewalEmail(r.ownerEmail, {
-          recipientName: r.ownerFirstName ?? 'there',
-          partnerName: r.partnerName,
-          agreementTitle: r.title,
-          daysUntil,
-          endDate: r.endDate,
-          url: `${appUrl}/clients/${r.partnerId}`,
-        })
+        for (const rec of recipients) {
+          await sendPartnershipRenewalEmail(rec.email, {
+            recipientName: rec.firstName ?? 'there',
+            partnerName: r.partnerName,
+            agreementTitle: r.title,
+            daysUntil,
+            endDate: r.endDate,
+            url: `${appUrl}/clients/${r.partnerId}`,
+          })
+        }
         await db
           .update(partnershipAgreements)
           .set({ renewalNotifiedAt30: now })
@@ -144,7 +166,12 @@ export async function sendPartnershipRenewalReminders(): Promise<PartnershipRene
           resource: 'client',
           action: 'agreement_renewal_sent',
           resourceId: r.partnerId,
-          meta: { agreementId: r.id, window: '30d', endDate: r.endDate, recipient: r.ownerEmail },
+          meta: {
+            agreementId: r.id,
+            window: '30d',
+            endDate: r.endDate,
+            recipients: recipients.map((x) => x.email),
+          },
         })
       }
     } catch (err) {

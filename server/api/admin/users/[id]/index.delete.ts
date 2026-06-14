@@ -1,24 +1,20 @@
 import { consola } from 'consola'
 import { and, eq } from 'drizzle-orm'
 
-import { users } from '@@/server/database/schema'
+import { userSessions, users } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requireAdmin } from '@@/server/utils/admin-guard'
 import { logAuditEvent } from '@@/server/utils/audit'
 
 /**
- * Hard-delete a user. Distinct from `deactivate` — this removes the row
- * entirely. All user-referencing FKs are configured `onDelete: 'set null'`
- * or `cascade` as appropriate, so the audit trail stays intact (those rows
- * just lose their `user_id`), while session/role/auth-account/etc. rows
- * cascade away.
+ * Soft-delete a user. We never hard-delete: the row is kept (so audit-log and
+ * `created_by` attribution stay intact — no "Unknown user" three months later),
+ * `deactivated_at` is stamped to remove all access, and active sessions are
+ * revoked so the user is logged out immediately. Re-activating clears the stamp.
  *
  * Guards:
  *   - You can never delete yourself.
  *   - You can never delete the super admin (transfer the role first).
- *
- * If admins want to preserve attribution (recommended for employees who
- * leave the firm), they should use Deactivate instead.
  */
 export default defineEventHandler(async (event) => {
   try {
@@ -66,13 +62,19 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    await db.delete(users).where(eq(users.id, target.id))
+    // Soft delete: stamp deactivatedAt (keeps the row + attribution) and revoke
+    // every active session so access is cut immediately.
+    await db
+      .update(users)
+      .set({ deactivatedAt: new Date(), updatedAt: new Date() })
+      .where(eq(users.id, target.id))
+    await db.delete(userSessions).where(eq(userSessions.userId, target.id))
 
     await logAuditEvent({
       organizationId: admin.organizationId,
       userId: admin.userId,
       resource: 'user',
-      action: 'delete',
+      action: 'soft_delete',
       resourceId: target.id,
       meta: { targetEmail: target.email, by: admin.email },
     })

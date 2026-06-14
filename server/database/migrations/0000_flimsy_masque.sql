@@ -103,6 +103,7 @@ CREATE TABLE "clients" (
 	"notes" text,
 	"metadata" jsonb,
 	"owner_user_id" uuid,
+	"reminder_recipient_user_ids" uuid[] DEFAULT '{}'::uuid[] NOT NULL,
 	"created_by_user_id" uuid,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL

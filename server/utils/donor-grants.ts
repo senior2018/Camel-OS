@@ -5,6 +5,7 @@ import { clients, donorGrants, users } from '../database/schema'
 import { useDrizzle } from './drizzle'
 import { logAuditEvent } from './audit'
 import { sendDonorGrantDeadlineEmail } from './mailer'
+import { buildRecipientList, fetchRecipientUsers } from './reminder-recipients'
 
 /**
  * CR-09 — Email a donor's account owner 30 days before a grant deadline
@@ -62,6 +63,7 @@ export async function sendDonorGrantDeadlineReminders(): Promise<DonorGrantSumma
       donorName: clients.name,
       ownerEmail: users.email,
       ownerFirstName: users.firstName,
+      recipientIds: clients.reminderRecipientUserIds,
     })
     .from(donorGrants)
     .innerJoin(clients, eq(clients.id, donorGrants.donorId))
@@ -83,9 +85,16 @@ export async function sendDonorGrantDeadlineReminders(): Promise<DonorGrantSumma
 
   summary.scanned = rows.length
   const appUrl = (useRuntimeConfig().appUrl as string) || 'http://localhost:3000'
+  const userMap = await fetchRecipientUsers(rows.flatMap((r) => r.recipientIds ?? []))
 
   for (const r of rows) {
-    if (!r.ownerEmail) {
+    // Owner + the donor's extra recipient list, de-duplicated.
+    const recipients = buildRecipientList(
+      r.ownerEmail ? { email: r.ownerEmail, firstName: r.ownerFirstName } : null,
+      r.recipientIds,
+      userMap
+    )
+    if (recipients.length === 0) {
       summary.skipped++
       continue
     }
@@ -101,14 +110,16 @@ export async function sendDonorGrantDeadlineReminders(): Promise<DonorGrantSumma
 
     try {
       if (dueEnd) {
-        await sendDonorGrantDeadlineEmail(r.ownerEmail, {
-          recipientName: r.ownerFirstName ?? 'there',
-          donorName: r.donorName,
-          grantTitle: r.title,
-          deadlineKind: 'Grant end',
-          deadlineDate: dueEnd,
-          url: `${appUrl}/clients/${r.donorId}`,
-        })
+        for (const rec of recipients) {
+          await sendDonorGrantDeadlineEmail(rec.email, {
+            recipientName: rec.firstName ?? 'there',
+            donorName: r.donorName,
+            grantTitle: r.title,
+            deadlineKind: 'Grant end',
+            deadlineDate: dueEnd,
+            url: `${appUrl}/clients/${r.donorId}`,
+          })
+        }
         await db.update(donorGrants).set({ endDateNotifiedAt: now }).where(eq(donorGrants.id, r.id))
         summary.sentEndDate++
         await logAuditEvent({
@@ -121,19 +132,21 @@ export async function sendDonorGrantDeadlineReminders(): Promise<DonorGrantSumma
             grantId: r.id,
             kind: 'end_date',
             deadlineDate: dueEnd,
-            recipient: r.ownerEmail,
+            recipients: recipients.map((x) => x.email),
           },
         })
       }
       if (dueReporting) {
-        await sendDonorGrantDeadlineEmail(r.ownerEmail, {
-          recipientName: r.ownerFirstName ?? 'there',
-          donorName: r.donorName,
-          grantTitle: r.title,
-          deadlineKind: 'Reporting',
-          deadlineDate: dueReporting,
-          url: `${appUrl}/clients/${r.donorId}`,
-        })
+        for (const rec of recipients) {
+          await sendDonorGrantDeadlineEmail(rec.email, {
+            recipientName: rec.firstName ?? 'there',
+            donorName: r.donorName,
+            grantTitle: r.title,
+            deadlineKind: 'Reporting',
+            deadlineDate: dueReporting,
+            url: `${appUrl}/clients/${r.donorId}`,
+          })
+        }
         await db
           .update(donorGrants)
           .set({ nextReportingNotifiedAt: now })
@@ -149,7 +162,7 @@ export async function sendDonorGrantDeadlineReminders(): Promise<DonorGrantSumma
             grantId: r.id,
             kind: 'reporting',
             deadlineDate: dueReporting,
-            recipient: r.ownerEmail,
+            recipients: recipients.map((x) => x.email),
           },
         })
       }

@@ -24,9 +24,12 @@ type Schema = z.output<typeof schema>
 const state = reactive({ password: '', confirmPassword: '' })
 const error = ref<string | null>(null)
 const success = ref(false)
+const submitting = ref(false)
 
 async function onSubmit(_payload: FormSubmitEvent<Schema>) {
+  if (submitting.value) return
   error.value = null
+  submitting.value = true
   try {
     await $fetch('/api/auth/reset-password', {
       method: 'POST',
@@ -38,6 +41,8 @@ async function onSubmit(_payload: FormSubmitEvent<Schema>) {
   } catch (err: unknown) {
     const msg = (err as { data?: { statusMessage?: string } })?.data?.statusMessage
     error.value = msg ?? 'Something went wrong. Please try again.'
+  } finally {
+    submitting.value = false
   }
 }
 </script>
@@ -86,7 +91,9 @@ async function onSubmit(_payload: FormSubmitEvent<Schema>) {
             />
           </UFormField>
 
-          <UButton type="submit" size="lg" block> Reset password </UButton>
+          <UButton type="submit" size="lg" block :loading="submitting" :disabled="submitting">
+            Reset password
+          </UButton>
         </UForm>
       </div>
     </UPageCard>

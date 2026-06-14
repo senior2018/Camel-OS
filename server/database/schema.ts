@@ -861,6 +861,13 @@ export const clients = pgTable(
     // can extend without a schema migration; structured data goes in dedicated tables.
     metadata: jsonb(),
     ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
+    // Extra recipients for this client's automated reminders (donor grant
+    // deadlines, partnership renewals). The owner is always notified; these are
+    // additional people the team wants kept in the loop. Empty = owner only.
+    reminderRecipientUserIds: uuid('reminder_recipient_user_ids')
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),

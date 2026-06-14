@@ -55,6 +55,25 @@ const byLane = computed<Record<string, ProposalRow[]>>(() => {
   return map
 })
 
+// Per-lane pagination — each column pages independently.
+const LANE_PAGE_SIZE = 8
+const lanePages = reactive<Record<string, number>>({})
+function lanePage(key: string): number {
+  return lanePages[key] ?? 1
+}
+function pagedLane(key: string): ProposalRow[] {
+  const all = byLane.value[key] ?? []
+  const start = (lanePage(key) - 1) * LANE_PAGE_SIZE
+  return all.slice(start, start + LANE_PAGE_SIZE)
+}
+// Reset a lane to page 1 if its contents shrink below the current page.
+watch(byLane, (map) => {
+  for (const lane of PROPOSAL_BOARD_LANES) {
+    const pages = Math.max(1, Math.ceil((map[lane.key]?.length ?? 0) / LANE_PAGE_SIZE))
+    if ((lanePages[lane.key] ?? 1) > pages) lanePages[lane.key] = pages
+  }
+})
+
 function laneAccent(lane: ProposalBoardLane): string {
   const map: Record<string, string> = {
     in_progress: 'border-primary/40',
@@ -140,7 +159,7 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
 
         <ul v-else class="space-y-2">
           <li
-            v-for="p in byLane[lane.key]"
+            v-for="p in pagedLane(lane.key)"
             :key="p.id"
             class="cursor-pointer rounded-lg border border-default bg-default p-3 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow"
             @click="navigateTo(`/proposals/${p.id}`)"
@@ -174,6 +193,14 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
             </div>
           </li>
         </ul>
+
+        <AppPagination
+          :page="lanePage(lane.key)"
+          :total="byLane[lane.key]?.length ?? 0"
+          :page-size="LANE_PAGE_SIZE"
+          class="mt-3"
+          @update:page="lanePages[lane.key] = $event"
+        />
       </section>
     </div>
   </div>
