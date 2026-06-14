@@ -46,6 +46,13 @@ export default defineEventHandler(async (event) => {
     if (data.reminderRecipientUserIds !== undefined) {
       updates.reminderRecipientUserIds = data.reminderRecipientUserIds
     }
+    if (data.writingMode !== undefined) updates.writingMode = data.writingMode
+    if (data.submissionReference !== undefined) {
+      updates.submissionReference = data.submissionReference ?? null
+    }
+    if (data.submissionChannel !== undefined) {
+      updates.submissionChannel = data.submissionChannel ?? null
+    }
     if (data.status !== undefined && data.status !== existing.status) {
       updates.status = data.status
       // Stamp milestone timestamps so the timeline is self-explanatory.

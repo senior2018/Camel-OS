@@ -138,12 +138,25 @@ const optionalDate = z
   .nullable()
   .or(z.literal('').transform(() => null))
 
+// S11 (PM-03) — how the proposal is authored.
+export const PROPOSAL_WRITING_MODES = ['in_system', 'upload', 'both'] as const
+export type ProposalWritingMode = (typeof PROPOSAL_WRITING_MODES)[number]
+export const PROPOSAL_WRITING_MODE_LABEL: Record<ProposalWritingMode, string> = {
+  in_system: 'Write in-system',
+  upload: 'Upload documents',
+  both: 'Both',
+}
+
 export const updateProposalSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   status: z.enum(PROPOSAL_STATUSES).optional(),
   deadline: optionalDate,
   contentDraft: z.string().trim().max(50_000).optional().nullable(),
   decisionNote: z.string().trim().max(2000).optional().nullable(),
+  // S11 (PM-03/PM-09)
+  writingMode: z.enum(PROPOSAL_WRITING_MODES).optional(),
+  submissionReference: z.string().trim().max(200).optional().nullable(),
+  submissionChannel: z.string().trim().max(100).optional().nullable(),
   // Reminder fan-out — recipients to notify before the proposal deadline. We
   // keep this open (anyone in the org) since the team decides who needs to
   // know; final notification logic is wired in a later sprint.

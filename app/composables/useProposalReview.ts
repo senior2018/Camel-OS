@@ -2,7 +2,7 @@ import type { Ref } from 'vue'
 import type {
   ProposalAssignmentRole,
   CreateProposalAssignmentPayload,
-  SaveProposalAssignmentsPayload,
+  ProposalTeamGroup,
 } from '@@/shared/schemas/proposal-assignment'
 import type { SubmitProposalReviewPayload } from '@@/shared/schemas/proposal-review'
 
@@ -71,11 +71,15 @@ export function useProposalReview(proposalId: Ref<string>) {
     }
   }
 
-  async function saveAssignments(payload: SaveProposalAssignmentsPayload): Promise<boolean> {
+  // Save one team group (writing or review); the other group is left intact.
+  async function saveTeam(
+    group: ProposalTeamGroup,
+    assignments: CreateProposalAssignmentPayload[]
+  ): Promise<boolean> {
     try {
       await $fetch(`/api/proposals/${proposalId.value}/assignments`, {
         method: 'PUT',
-        body: payload,
+        body: { group, assignments },
       })
       toast.add({ title: 'Team saved', color: 'success' })
       await refreshAssignments()
@@ -137,7 +141,7 @@ export function useProposalReview(proposalId: Ref<string>) {
     refreshReviewers,
     refreshAssignments,
     assignTeamMember,
-    saveAssignments,
+    saveTeam,
     submitReview,
     markReadyForReview,
   }

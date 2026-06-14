@@ -6,8 +6,7 @@ import { useDrizzle } from '@@/server/utils/drizzle'
 import { logAuditEvent } from '@@/server/utils/audit'
 import { logOpportunityActivity } from '@@/server/utils/opportunity-activity'
 import { requirePermission } from '@@/server/utils/permission-guard'
-
-const REVIEWER_ROLES = ['technical_reviewer', 'finance_reviewer', 'compliance_reviewer'] as const
+import { REVIEWER_ROLES } from '@@/shared/schemas/proposal-assignment'
 
 /**
  * The Lead marks the proposal ready for review. We materialise a

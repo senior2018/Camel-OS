@@ -5,14 +5,23 @@ import { proposalAssignments, proposals, users } from '@@/server/database/schema
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { logAuditEvent } from '@@/server/utils/audit'
 import { logOpportunityActivity } from '@@/server/utils/opportunity-activity'
+import { isProposalLead } from '@@/server/utils/proposal-access'
 import { requirePermission } from '@@/server/utils/permission-guard'
-import { saveProposalAssignmentsSchema } from '@@/shared/schemas/proposal-assignment'
+import {
+  GROUP_ROLES,
+  SINGLE_INSTANCE_ROLES,
+  saveProposalTeamSchema,
+} from '@@/shared/schemas/proposal-assignment'
 
 /**
- * Batch reconcile the proposal team in ONE request: the body carries the full
- * desired set of role → user assignments. Roles omitted are unassigned, so this
- * single call covers assign, re-assign, and remove without per-row round-trips.
- * Assigning a Lead while the proposal is still `assigned` starts drafting.
+ * Group-scoped team reconcile. The body carries a `group` ('writing' | 'review')
+ * and the desired assignments for THAT group only — the other team is left
+ * untouched, so the Lead managing contributors never wipes the manager's
+ * reviewers and vice-versa.
+ *
+ * Access:
+ *   - review group  (lead, reviewers, final approver) → manager-level proposal:update
+ *   - writing group (contributors)                    → the proposal Lead (or admin)
  */
 export default defineEventHandler(async (event) => {
   try {
@@ -20,25 +29,40 @@ export default defineEventHandler(async (event) => {
     const id = getRouterParam(event, 'id')
     if (!id) throw createError({ statusCode: 400, statusMessage: 'Proposal ID is required' })
 
-    const { assignments } = saveProposalAssignmentsSchema.parse(await readBody(event))
+    const { group, assignments } = saveProposalTeamSchema.parse(await readBody(event))
+    const allowedRoles = GROUP_ROLES[group]
 
-    // One user per role — guard against a malformed payload with duplicate roles.
-    const seen = new Set<string>()
+    // Every assignment must belong to the declared group.
     for (const a of assignments) {
-      if (seen.has(a.roleType)) {
-        throw createError({ statusCode: 400, statusMessage: `Duplicate role: ${a.roleType}` })
+      if (!allowedRoles.includes(a.roleType)) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: `Role ${a.roleType} is not part of the ${group} team`,
+        })
       }
-      seen.add(a.roleType)
+    }
+    // Single-instance roles (lead, final approver) — at most one each.
+    for (const role of SINGLE_INSTANCE_ROLES) {
+      if (assignments.filter((a) => a.roleType === role).length > 1) {
+        throw createError({ statusCode: 400, statusMessage: `Only one ${role} allowed` })
+      }
     }
 
     const db = useDrizzle()
-
     const [proposal] = await db
       .select()
       .from(proposals)
       .where(and(eq(proposals.id, id), eq(proposals.organizationId, ctx.organizationId)))
       .limit(1)
     if (!proposal) throw createError({ statusCode: 404, statusMessage: 'Proposal not found' })
+
+    // The writing team is the Lead's to manage.
+    if (group === 'writing' && !(await isProposalLead(id, ctx.userId, ctx.isSystemAdmin))) {
+      throw createError({
+        statusCode: 403,
+        statusMessage: 'Only the Proposal Lead can manage contributors',
+      })
+    }
 
     // Every assignee must belong to the org.
     if (assignments.length > 0) {
@@ -53,7 +77,15 @@ export default defineEventHandler(async (event) => {
     }
 
     await db.transaction(async (tx) => {
-      await tx.delete(proposalAssignments).where(eq(proposalAssignments.proposalId, id))
+      // Replace only this group's roles.
+      await tx
+        .delete(proposalAssignments)
+        .where(
+          and(
+            eq(proposalAssignments.proposalId, id),
+            inArray(proposalAssignments.roleType, allowedRoles)
+          )
+        )
       if (assignments.length > 0) {
         await tx.insert(proposalAssignments).values(
           assignments.map((a) => ({
@@ -64,9 +96,12 @@ export default defineEventHandler(async (event) => {
           }))
         )
       }
-      // Kick off drafting once a Lead exists.
-      const hasLead = assignments.some((a) => a.roleType === 'lead')
-      if (hasLead && proposal.status === 'assigned') {
+      // Assigning the Lead kicks off drafting.
+      if (
+        group === 'review' &&
+        assignments.some((a) => a.roleType === 'lead') &&
+        proposal.status === 'assigned'
+      ) {
         await tx.update(proposals).set({ status: 'drafting' }).where(eq(proposals.id, id))
       }
     })
@@ -75,23 +110,22 @@ export default defineEventHandler(async (event) => {
       organizationId: ctx.organizationId,
       userId: ctx.userId,
       resource: 'proposal',
-      action: 'assignments_saved',
+      action: 'team_saved',
       resourceId: id,
-      meta: { roles: assignments.map((a) => a.roleType) },
+      meta: { group, roles: assignments.map((a) => a.roleType) },
     })
-
     await logOpportunityActivity({
       opportunityId: proposal.opportunityId,
       organizationId: ctx.organizationId,
       userId: ctx.userId,
       action: 'proposal:assignment',
-      details: { count: assignments.length },
+      details: { group, count: assignments.length },
     })
 
     return { success: true }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
-    consola.error('Error saving proposal assignments', error)
+    consola.error('Error saving proposal team', error)
     throw createError({ statusCode: 500, statusMessage: 'Internal server error' })
   }
 })

@@ -1,22 +1,22 @@
 <script setup lang="ts">
 import {
-  PROPOSAL_ASSIGNMENT_ROLES,
-  PROPOSAL_ASSIGNMENT_ROLE_DESCRIPTION,
   PROPOSAL_ASSIGNMENT_ROLE_LABEL,
+  REVIEWER_ROLES,
   type ProposalAssignmentRole,
 } from '@@/shared/schemas/proposal-assignment'
 
 const props = withDefaults(
   defineProps<{
     proposalId: string
-    canAssign?: boolean
+    canManageReview?: boolean
+    canManageWriting?: boolean
   }>(),
-  { canAssign: false }
+  { canManageReview: false, canManageWriting: false }
 )
 
 const emit = defineEmits<{ changed: [] }>()
 
-const { assignments, saveAssignments } = useProposalReview(computed(() => props.proposalId))
+const { assignments, saveTeam } = useProposalReview(computed(() => props.proposalId))
 
 interface TeamMember {
   id: string
@@ -28,101 +28,162 @@ const { data: teamData } = await useFetch<{ members: TeamMember[] }>('/api/users
   key: 'users-assignable',
   default: () => ({ members: [] }),
 })
-
-// Unassigned + every team member, reused for each role's picker.
-const userItems = computed(() => [
-  { label: 'Unassigned', value: null as string | null },
-  ...(teamData.value?.members ?? []).map((m) => ({
+const userItems = computed(() =>
+  (teamData.value?.members ?? []).map((m) => ({
     label: [m.firstName, m.lastName].filter(Boolean).join(' ') || m.email,
-    value: m.id as string | null,
-  })),
-])
-
-// Editable draft: one entry per role, prefilled from the saved assignments.
-// Resets whenever the saved set changes (i.e. after a successful save).
-type Draft = Record<ProposalAssignmentRole, string | null>
-function buildDraft(): Draft {
-  const d = {} as Draft
-  for (const role of PROPOSAL_ASSIGNMENT_ROLES) {
-    d[role] = assignments.value.find((a) => a.roleType === role)?.assignedUserId ?? null
-  }
-  return d
-}
-const draft = reactive<Draft>(buildDraft())
-watch(assignments, () => Object.assign(draft, buildDraft()))
-
-const dirty = computed(() =>
-  PROPOSAL_ASSIGNMENT_ROLES.some((role) => {
-    const saved = assignments.value.find((a) => a.roleType === role)?.assignedUserId ?? null
-    return draft[role] !== saved
-  })
+    value: m.id,
+  }))
 )
+function nameOf(userId: string | null | undefined): string {
+  if (!userId) return '—'
+  return userItems.value.find((u) => u.value === userId)?.label ?? 'Unknown'
+}
 
-const saving = ref(false)
-async function save() {
-  saving.value = true
-  const payload = {
-    assignments: PROPOSAL_ASSIGNMENT_ROLES.filter((role) => draft[role]).map((role) => ({
-      roleType: role,
-      assignedUserId: draft[role] as string,
-    })),
-  }
-  const ok = await saveAssignments(payload)
-  saving.value = false
+function holderOf(role: ProposalAssignmentRole): string | null {
+  return assignments.value.find((a) => a.roleType === role)?.assignedUserId ?? null
+}
+function holdersOf(roles: ProposalAssignmentRole[]): string[] {
+  return assignments.value.filter((a) => roles.includes(a.roleType)).map((a) => a.assignedUserId)
+}
+
+// ── Review team (manager) — Lead (1), Reviewers (N), Final Approver (1) ──
+const leadDraft = ref<string | null>(null)
+const reviewersDraft = ref<string[]>([])
+const approverDraft = ref<string | null>(null)
+// ── Writing team (lead) — Contributors (N) ──
+const contributorsDraft = ref<string[]>([])
+
+function sync() {
+  leadDraft.value = holderOf('lead')
+  reviewersDraft.value = holdersOf(REVIEWER_ROLES)
+  approverDraft.value = holderOf('final_approver')
+  contributorsDraft.value = holdersOf(['contributor'])
+}
+watch(assignments, sync, { immediate: true })
+
+const savingReview = ref(false)
+async function saveReview() {
+  const list: { roleType: ProposalAssignmentRole; assignedUserId: string }[] = []
+  if (leadDraft.value) list.push({ roleType: 'lead', assignedUserId: leadDraft.value })
+  for (const id of reviewersDraft.value) list.push({ roleType: 'reviewer', assignedUserId: id })
+  if (approverDraft.value)
+    list.push({ roleType: 'final_approver', assignedUserId: approverDraft.value })
+  savingReview.value = true
+  const ok = await saveTeam('review', list)
+  savingReview.value = false
   if (ok) emit('changed')
 }
 
-function reset() {
-  Object.assign(draft, buildDraft())
+const savingWriting = ref(false)
+async function saveWriting() {
+  const list = contributorsDraft.value.map((id) => ({
+    roleType: 'contributor' as ProposalAssignmentRole,
+    assignedUserId: id,
+  }))
+  savingWriting.value = true
+  const ok = await saveTeam('writing', list)
+  savingWriting.value = false
+  if (ok) emit('changed')
 }
 
-const assignedCount = computed(() => assignments.value.length)
+const hasLead = computed(() => !!holderOf('lead'))
+const reviewerCount = computed(() => holdersOf(REVIEWER_ROLES).length)
 </script>
 
 <template>
   <UCard>
     <template #header>
-      <div class="flex items-center justify-between">
-        <h3 class="text-sm font-semibold text-default">Team assignment</h3>
-        <span class="text-xs text-muted">{{ assignedCount }} assigned</span>
-      </div>
+      <h3 class="text-sm font-semibold text-default">Team</h3>
     </template>
 
-    <div class="space-y-3">
-      <div
-        v-for="role in PROPOSAL_ASSIGNMENT_ROLES"
-        :key="role"
-        class="rounded-lg border border-default bg-default/40 p-3"
-      >
-        <div class="mb-2">
-          <p class="text-sm font-medium text-default">{{ PROPOSAL_ASSIGNMENT_ROLE_LABEL[role] }}</p>
-          <p class="text-xs text-muted">{{ PROPOSAL_ASSIGNMENT_ROLE_DESCRIPTION[role] }}</p>
+    <div class="space-y-6">
+      <!-- Review / management team -->
+      <section class="space-y-3">
+        <div class="flex items-center justify-between">
+          <p class="text-xs font-semibold uppercase tracking-wide text-muted">Review team</p>
+          <UBadge
+            :color="reviewerCount >= 3 ? 'success' : 'warning'"
+            variant="subtle"
+            size="xs"
+            :label="`${reviewerCount} reviewer${reviewerCount === 1 ? '' : 's'} · ≥3 to submit`"
+          />
         </div>
-        <USelect
-          v-if="canAssign"
-          v-model="draft[role]"
-          :items="userItems"
-          value-key="value"
-          placeholder="Unassigned"
-          class="w-full"
-        />
-        <p v-else class="text-sm text-muted">
-          {{ userItems.find((u) => u.value === draft[role])?.label ?? 'Unassigned' }}
-        </p>
-      </div>
 
-      <div v-if="canAssign" class="flex items-center gap-2 border-t border-default pt-3">
-        <UButton :loading="saving" :disabled="!dirty" label="Save team" @click="save" />
-        <UButton
-          v-if="dirty"
-          variant="ghost"
-          color="neutral"
-          label="Reset"
-          :disabled="saving"
-          @click="reset"
-        />
-        <span v-if="dirty" class="text-xs text-warning">Unsaved changes</span>
-      </div>
+        <template v-if="canManageReview">
+          <UFormField label="Proposal Lead">
+            <USelect
+              v-model="leadDraft"
+              :items="[{ label: 'Unassigned', value: null }, ...userItems]"
+              value-key="value"
+              class="w-full"
+            />
+          </UFormField>
+          <UFormField label="Reviewers (≥3 to submit)">
+            <USelectMenu
+              v-model="reviewersDraft"
+              :items="userItems"
+              value-key="value"
+              multiple
+              placeholder="Pick reviewers…"
+              class="w-full"
+            />
+          </UFormField>
+          <UFormField label="Final Approver">
+            <USelect
+              v-model="approverDraft"
+              :items="[{ label: 'Unassigned', value: null }, ...userItems]"
+              value-key="value"
+              class="w-full"
+            />
+          </UFormField>
+          <UButton :loading="savingReview" size="sm" label="Save review team" @click="saveReview" />
+        </template>
+
+        <div v-else class="space-y-1 text-sm">
+          <p><span class="text-muted">Lead:</span> {{ nameOf(holderOf('lead')) }}</p>
+          <p><span class="text-muted">Reviewers:</span> {{ reviewerCount }}</p>
+          <p>
+            <span class="text-muted">Final approver:</span> {{ nameOf(holderOf('final_approver')) }}
+          </p>
+        </div>
+      </section>
+
+      <!-- Writing team (Lead-managed) -->
+      <section v-if="hasLead" class="space-y-3 border-t border-default pt-4">
+        <p class="text-xs font-semibold uppercase tracking-wide text-muted">
+          Writing team — {{ PROPOSAL_ASSIGNMENT_ROLE_LABEL.contributor }}s
+        </p>
+        <template v-if="canManageWriting">
+          <USelectMenu
+            v-model="contributorsDraft"
+            :items="userItems"
+            value-key="value"
+            multiple
+            placeholder="Add co-authors…"
+            class="w-full"
+          />
+          <UButton
+            :loading="savingWriting"
+            size="sm"
+            label="Save contributors"
+            @click="saveWriting"
+          />
+          <p class="text-xs text-muted">Only the Proposal Lead manages contributors.</p>
+        </template>
+        <div v-else class="flex flex-wrap gap-1">
+          <UBadge
+            v-for="cid in holdersOf(['contributor'])"
+            :key="cid"
+            variant="subtle"
+            color="neutral"
+            size="xs"
+            :label="nameOf(cid)"
+          />
+          <span v-if="!holdersOf(['contributor']).length" class="text-sm text-muted">
+            No contributors yet.
+          </span>
+        </div>
+      </section>
     </div>
   </UCard>
 </template>

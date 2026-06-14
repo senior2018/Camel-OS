@@ -581,10 +581,24 @@ export const opportunityDecisionStatusEnum = pgEnum('opportunity_decision_status
 
 export const proposalAssignmentRoleEnum = pgEnum('proposal_assignment_role', [
   'lead',
+  // S11 — generic writing-team co-author and generic review-team member. The
+  // legacy technical/finance/compliance values stay for existing data, but the
+  // model is now: Lead + contributors (writers), and a flexible reviewer list
+  // (PM-05 requires ≥3 to submit).
+  'contributor',
+  'reviewer',
   'technical_reviewer',
   'finance_reviewer',
   'compliance_reviewer',
   'final_approver',
+])
+
+// S11 — how a proposal is authored: structured in-system sections, uploaded
+// documents, or both. Drives which panel the proposal detail page shows.
+export const proposalWritingModeEnum = pgEnum('proposal_writing_mode', [
+  'in_system',
+  'upload',
+  'both',
 ])
 
 export const proposals = pgTable(
@@ -604,9 +618,16 @@ export const proposals = pgTable(
     // own runway.
     deadline: date('deadline'),
     // Free-form draft content while writing — a richer editor can replace this
-    // textarea later without changing the schema.
+    // textarea later without changing the schema. Retained for backward compat;
+    // the structured `proposal_sections` table is the primary authoring surface.
     contentDraft: text('content_draft'),
+    // S11 (PM-03) — how this proposal is being written.
+    writingMode: proposalWritingModeEnum('writing_mode').notNull().default('in_system'),
     submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    // S11 (PM-09) — submission reference (e.g. portal ref / tender no.) + the
+    // channel it was submitted through (email, portal, physical).
+    submissionReference: text('submission_reference'),
+    submissionChannel: text('submission_channel'),
     decidedAt: timestamp('decided_at', { withTimezone: true }),
     // Optional reason for Lost — captured in the same field for Won/decided
     // notes if the team wants to leave context.
@@ -687,6 +708,69 @@ export const proposalAssignments = pgTable(
     index('proposal_assignments_proposal_id_idx').on(table.proposalId),
     index('proposal_assignments_assigned_user_id_idx').on(table.assignedUserId),
     index('proposal_assignments_role_type_idx').on(table.roleType),
+  ]
+)
+
+// ─── Proposal Sections (S11 — PM-02, PM-03) ──────────────────────────────────
+// Structured, co-authored sections of a proposal (Executive Summary, Technical
+// Approach, Budget, …). Each can be owned by a contributor (section
+// responsibility). Ordered by sortOrder. The body is the section's content.
+export const proposalSections = pgTable(
+  'proposal_sections',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    proposalId: uuid('proposal_id')
+      .notNull()
+      .references(() => proposals.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    title: text().notNull(),
+    body: text(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    // Section responsibility — the contributor who owns this section (nullable).
+    assignedToUserId: uuid('assigned_to_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('proposal_sections_proposal_id_idx').on(table.proposalId),
+    index('proposal_sections_assigned_to_user_id_idx').on(table.assignedToUserId),
+  ]
+)
+
+// ─── Proposal Attachments (S11 — PM-03 upload mode, PM-09) ───────────────────
+// Uploaded proposal documents (Word/PDF/Excel) + a short brief. Mirrors the
+// opportunity-attachments model; reuses the same Supabase Storage bucket with a
+// `proposals/<id>/` key prefix.
+export const proposalAttachments = pgTable(
+  'proposal_attachments',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    proposalId: uuid('proposal_id')
+      .notNull()
+      .references(() => proposals.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    fileName: text('file_name').notNull(),
+    storageKey: text('storage_key').notNull(),
+    fileSize: integer('file_size').notNull(),
+    mimeType: text('mime_type').notNull(),
+    brief: text(),
+    uploadedByUserId: uuid('uploaded_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('proposal_attachments_proposal_id_idx').on(table.proposalId),
+    index('proposal_attachments_organization_id_idx').on(table.organizationId),
   ]
 )
 
@@ -1287,6 +1371,12 @@ export type NewProposal = typeof proposals.$inferInsert
 
 export type ProposalReviewer = typeof proposalReviewers.$inferSelect
 export type NewProposalReviewer = typeof proposalReviewers.$inferInsert
+
+export type ProposalSection = typeof proposalSections.$inferSelect
+export type NewProposalSection = typeof proposalSections.$inferInsert
+
+export type ProposalAttachment = typeof proposalAttachments.$inferSelect
+export type NewProposalAttachment = typeof proposalAttachments.$inferInsert
 
 export type ProposalAssignment = typeof proposalAssignments.$inferSelect
 export type NewProposalAssignment = typeof proposalAssignments.$inferInsert

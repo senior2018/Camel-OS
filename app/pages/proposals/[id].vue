@@ -3,9 +3,14 @@ import {
   PROPOSAL_STATUS_COLOR,
   PROPOSAL_STATUS_DESCRIPTION,
   PROPOSAL_STATUS_LABEL,
+  PROPOSAL_WRITING_MODES,
+  PROPOSAL_WRITING_MODE_LABEL,
   type ProposalStatus,
+  type ProposalWritingMode,
   type UpdateProposalPayload,
 } from '@@/shared/schemas/proposal'
+
+const WRITING_MODES = PROPOSAL_WRITING_MODES
 
 definePageMeta({
   layout: 'dashboard',
@@ -35,6 +40,9 @@ interface ProposalDetail {
   status: ProposalStatus
   deadline: string | null
   contentDraft: string | null
+  writingMode: 'in_system' | 'upload' | 'both'
+  submissionReference: string | null
+  submissionChannel: string | null
   submittedAt: string | null
   decidedAt: string | null
   decisionNote: string | null
@@ -96,9 +104,21 @@ const isFinalApprover = computed(() =>
 )
 const hasReviewerRoles = computed(() =>
   assignments.value.some((a) =>
-    ['technical_reviewer', 'finance_reviewer', 'compliance_reviewer'].includes(a.roleType)
+    ['reviewer', 'technical_reviewer', 'finance_reviewer', 'compliance_reviewer'].includes(
+      a.roleType
+    )
   )
 )
+const isContributor = computed(() =>
+  assignments.value.some(
+    (a) => a.roleType === 'contributor' && a.assignedUserId === currentUserId.value
+  )
+)
+const isAdmin = computed(() => can.value('proposal', 'admin'))
+// Writers (Lead + contributors, or admin) edit content; managers manage reviewers.
+const canWrite = computed(() => isAdmin.value || isLead.value || isContributor.value)
+const canManageWriting = computed(() => isAdmin.value || isLead.value)
+const canManageReview = computed(() => canEdit.value)
 // Lead-or-manager may drive the workflow buttons.
 const canDrive = computed(() => canEdit.value || isLead.value)
 
@@ -127,12 +147,16 @@ const form = reactive<{
   deadline: string
   contentDraft: string
   decisionNote: string
+  submissionReference: string
+  submissionChannel: string
   reminderRecipientUserIds: string[]
 }>({
   title: '',
   deadline: '',
   contentDraft: '',
   decisionNote: '',
+  submissionReference: '',
+  submissionChannel: '',
   reminderRecipientUserIds: [],
 })
 
@@ -143,6 +167,8 @@ function syncForm() {
   form.deadline = p.deadline ?? ''
   form.contentDraft = p.contentDraft ?? ''
   form.decisionNote = p.decisionNote ?? ''
+  form.submissionReference = p.submissionReference ?? ''
+  form.submissionChannel = p.submissionChannel ?? ''
   form.reminderRecipientUserIds = [...(p.reminderRecipientUserIds ?? [])]
 }
 watch(data, syncForm, { immediate: true })
@@ -156,6 +182,8 @@ async function save() {
       deadline: form.deadline || null,
       contentDraft: form.contentDraft || null,
       decisionNote: form.decisionNote || null,
+      submissionReference: form.submissionReference || null,
+      submissionChannel: form.submissionChannel || null,
       reminderRecipientUserIds: form.reminderRecipientUserIds,
     }
     await $fetch(`/api/proposals/${proposalId.value}`, { method: 'PATCH', body: payload })
@@ -168,6 +196,21 @@ async function save() {
     toast.add({ title: 'Save failed', description: msg, color: 'error' })
   } finally {
     saving.value = false
+  }
+}
+
+async function setWritingMode(mode: ProposalWritingMode) {
+  if (mode === data.value?.proposal.writingMode) return
+  try {
+    await $fetch(`/api/proposals/${proposalId.value}`, {
+      method: 'PATCH',
+      body: { writingMode: mode },
+    })
+    await refresh()
+  } catch (err: unknown) {
+    const msg =
+      (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Please try again.'
+    toast.add({ title: 'Could not change mode', description: msg, color: 'error' })
   }
 }
 
@@ -399,27 +442,41 @@ const recipientChips = computed(() =>
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <!-- Main column -->
         <div class="space-y-6 lg:col-span-2">
+          <!-- Authoring (PM-03): in-system sections and/or uploaded documents -->
           <UCard>
             <template #header>
-              <h3 class="text-sm font-semibold text-default">Draft</h3>
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <h3 class="text-sm font-semibold text-default">Authoring</h3>
+                <UFieldGroup v-if="canWrite" size="xs">
+                  <UButton
+                    v-for="m in WRITING_MODES"
+                    :key="m"
+                    :variant="data.proposal.writingMode === m ? 'solid' : 'outline'"
+                    :color="data.proposal.writingMode === m ? 'primary' : 'neutral'"
+                    :label="PROPOSAL_WRITING_MODE_LABEL[m]"
+                    @click="setWritingMode(m)"
+                  />
+                </UFieldGroup>
+              </div>
             </template>
-            <UTextarea
-              v-if="editing"
-              v-model="form.contentDraft"
-              :rows="14"
-              placeholder="Capture the proposal's key sections — executive summary, methodology, team, budget…"
-              class="w-full"
-            />
-            <p
-              v-else-if="data.proposal.contentDraft"
-              class="whitespace-pre-wrap text-sm text-default"
-            >
-              {{ data.proposal.contentDraft }}
-            </p>
-            <p v-else class="text-sm text-muted">
-              No draft yet. Click <b>Edit</b> to start writing.
+            <p class="text-sm text-muted">
+              How this proposal is being produced:
+              <b>{{ PROPOSAL_WRITING_MODE_LABEL[data.proposal.writingMode] }}</b
+              >.
+              <span v-if="!canWrite">Only the writing team can edit content.</span>
             </p>
           </UCard>
+
+          <ProposalSectionsCard
+            v-if="data.proposal.writingMode !== 'upload'"
+            :proposal-id="proposalId"
+            :can-write="canWrite"
+          />
+          <ProposalDocumentsCard
+            v-if="data.proposal.writingMode !== 'in_system'"
+            :proposal-id="proposalId"
+            :can-write="canWrite"
+          />
 
           <!-- Reviewer alignment + the current user's review form -->
           <ProposalReviewerStatusCard :proposal-id="proposalId" />
@@ -468,7 +525,8 @@ const recipientChips = computed(() =>
         <div class="space-y-6 lg:col-span-1">
           <ProposalTeamAssignmentCard
             :proposal-id="proposalId"
-            :can-assign="canEdit"
+            :can-manage-review="canManageReview"
+            :can-manage-writing="canManageWriting"
             @changed="onAfterChange"
           />
 
@@ -496,6 +554,28 @@ const recipientChips = computed(() =>
               <div>
                 <p class="text-xs uppercase tracking-wide text-muted">Submitted at</p>
                 <p class="text-default">{{ data.proposal.submittedAt ?? '—' }}</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-wide text-muted">Submission reference</p>
+                <UInput
+                  v-if="editing"
+                  v-model="form.submissionReference"
+                  size="sm"
+                  placeholder="Portal ref / tender no."
+                  class="mt-1 w-full"
+                />
+                <p v-else class="text-default">{{ data.proposal.submissionReference ?? '—' }}</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-wide text-muted">Submission channel</p>
+                <UInput
+                  v-if="editing"
+                  v-model="form.submissionChannel"
+                  size="sm"
+                  placeholder="Email / portal / physical"
+                  class="mt-1 w-full"
+                />
+                <p v-else class="text-default">{{ data.proposal.submissionChannel ?? '—' }}</p>
               </div>
               <div>
                 <p class="text-xs uppercase tracking-wide text-muted">Decided at</p>
