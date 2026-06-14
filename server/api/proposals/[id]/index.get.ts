@@ -23,6 +23,7 @@ export default defineEventHandler(async (event) => {
         status: proposals.status,
         deadline: proposals.deadline,
         contentDraft: proposals.contentDraft,
+        brainstorm: proposals.brainstorm,
         writingMode: proposals.writingMode,
         submissionReference: proposals.submissionReference,
         submissionChannel: proposals.submissionChannel,

@@ -40,6 +40,7 @@ interface ProposalDetail {
   status: ProposalStatus
   deadline: string | null
   contentDraft: string | null
+  brainstorm: string | null
   writingMode: 'in_system' | 'upload' | 'both'
   submissionReference: string | null
   submissionChannel: string | null
@@ -135,9 +136,28 @@ const showFinalApproval = computed(
       proposalStatus.value === 'awaiting_final_approval')
 )
 const showSubmit = computed(() => canDrive.value && proposalStatus.value === 'final_approved')
-const showOutcome = computed(() => canDrive.value && proposalStatus.value === 'submitted')
+// BD-01 — post-submission evaluation tracking (BD officer / manager).
+const showBdTracking = computed(
+  () =>
+    canDrive.value &&
+    ['submitted', 'under_evaluation', 'clarification_requested', 'shortlisted', 'won'].includes(
+      proposalStatus.value
+    )
+)
 const isClosed = computed(
   () => proposalStatus.value === 'rejected' || proposalStatus.value === 'final_rejected'
+)
+// BD-02 — the post-submission log appears once a proposal has been submitted.
+const isPostSubmission = computed(() =>
+  [
+    'submitted',
+    'under_evaluation',
+    'clarification_requested',
+    'shortlisted',
+    'won',
+    'lost',
+    'contract_signed',
+  ].includes(proposalStatus.value)
 )
 
 // ─── Edit form (draft / details / recipients) ──────────────────────────────────
@@ -326,19 +346,31 @@ const recipientChips = computed(() =>
               {{ PROPOSAL_STATUS_DESCRIPTION[data.proposal.status] }}
             </p>
           </div>
-          <UButton
-            v-if="canEdit && !editing"
-            variant="outline"
-            icon="i-lucide-pencil"
-            label="Edit"
-            size="sm"
-            @click="editing = true"
-          />
+          <div class="flex items-center gap-2">
+            <UButton
+              variant="outline"
+              color="neutral"
+              icon="i-lucide-file-down"
+              label="Export PDF"
+              size="sm"
+              @click="navigateTo(`/print/proposal/${proposalId}`, { open: { target: '_blank' } })"
+            />
+            <UButton
+              v-if="canEdit && !editing"
+              variant="outline"
+              icon="i-lucide-pencil"
+              label="Edit"
+              size="sm"
+              @click="editing = true"
+            />
+          </div>
         </div>
       </header>
 
       <!-- Workflow action bar — contextual to the current stage -->
-      <UCard v-if="canSendForReview || showFinalApproval || showSubmit || showOutcome || isClosed">
+      <UCard
+        v-if="canSendForReview || showFinalApproval || showSubmit || showBdTracking || isClosed"
+      >
         <div class="space-y-3">
           <p class="text-xs font-medium uppercase tracking-wide text-muted">Next step</p>
 
@@ -396,9 +428,35 @@ const recipientChips = computed(() =>
             />
           </div>
 
-          <!-- Outcome -->
-          <div v-if="showOutcome" class="flex flex-wrap items-center gap-2">
-            <p class="mr-1 text-sm text-default">Record the outcome:</p>
+          <!-- BD tracking: evaluation stages + outcome -->
+          <div v-if="showBdTracking" class="flex flex-wrap items-center gap-2">
+            <p class="mr-1 text-sm text-default">Evaluation &amp; outcome:</p>
+            <UButton
+              v-if="proposalStatus !== 'under_evaluation'"
+              :loading="settingStatus"
+              color="info"
+              variant="soft"
+              size="sm"
+              label="Under evaluation"
+              @click="setStatus('under_evaluation')"
+            />
+            <UButton
+              v-if="proposalStatus !== 'clarification_requested'"
+              :loading="settingStatus"
+              color="warning"
+              variant="soft"
+              size="sm"
+              label="Clarification requested"
+              @click="setStatus('clarification_requested')"
+            />
+            <UButton
+              :loading="settingStatus"
+              color="warning"
+              variant="soft"
+              size="sm"
+              label="Shortlisted"
+              @click="setStatus('shortlisted')"
+            />
             <UButton
               :loading="settingStatus"
               color="success"
@@ -415,13 +473,19 @@ const recipientChips = computed(() =>
               @click="setStatus('lost')"
             />
             <UButton
+              v-if="proposalStatus === 'won'"
               :loading="settingStatus"
-              color="warning"
-              variant="soft"
+              color="success"
+              icon="i-lucide-file-signature"
               size="sm"
-              label="Shortlisted"
-              @click="setStatus('shortlisted')"
+              label="Contract signed → create project"
+              @click="setStatus('contract_signed')"
             />
+          </div>
+
+          <div v-if="proposalStatus === 'contract_signed'" class="flex items-center gap-2">
+            <UIcon name="i-lucide-circle-check" class="size-4 text-success" />
+            <p class="text-sm text-success">Contract signed — a project was created.</p>
           </div>
 
           <!-- Closed -->
@@ -476,6 +540,19 @@ const recipientChips = computed(() =>
             v-if="data.proposal.writingMode !== 'in_system'"
             :proposal-id="proposalId"
             :can-write="canWrite"
+          />
+
+          <ProposalBrainstormCard
+            :proposal-id="proposalId"
+            :brainstorm="data.proposal.brainstorm"
+            :can-write="canWrite"
+            @changed="refresh"
+          />
+
+          <ProposalBdLogCard
+            v-if="isPostSubmission"
+            :proposal-id="proposalId"
+            :can-log="canDrive"
           />
 
           <!-- Reviewer alignment + the current user's review form -->

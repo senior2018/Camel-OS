@@ -91,6 +91,57 @@ async function saveSection(s: Section) {
 async function deleteSection(s: Section) {
   await api(`/${s.id}`, 'DELETE')
 }
+
+// ── PM-06: per-section comments (any viewer can comment) ──
+const { user } = useUserSession()
+const currentUserId = computed(() => (user.value as { id: string } | null)?.id ?? null)
+
+interface Comment {
+  id: string
+  sectionId: string | null
+  body: string
+  createdAt: string
+  createdByUserId: string | null
+  authorFirstName: string | null
+  authorLastName: string | null
+  authorEmail: string | null
+}
+const { data: commentData, refresh: refreshComments } = await useFetch<{ comments: Comment[] }>(
+  () => `/api/proposals/${props.proposalId}/comments`,
+  { key: () => `proposal-comments-${props.proposalId}`, default: () => ({ comments: [] }) }
+)
+function commentsFor(sectionId: string): Comment[] {
+  return (commentData.value?.comments ?? []).filter((c) => c.sectionId === sectionId)
+}
+function authorName(c: Comment): string {
+  return [c.authorFirstName, c.authorLastName].filter(Boolean).join(' ') || c.authorEmail || 'User'
+}
+
+const commentDrafts = reactive<Record<string, string>>({})
+async function postComment(sectionId: string) {
+  const body = (commentDrafts[sectionId] ?? '').trim()
+  if (!body) return
+  try {
+    await $fetch(`/api/proposals/${props.proposalId}/comments`, {
+      method: 'POST',
+      body: { sectionId, body },
+    })
+    commentDrafts[sectionId] = ''
+    await refreshComments()
+  } catch (err) {
+    const msg = (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Failed'
+    toast.add({ title: 'Could not post comment', description: msg, color: 'error' })
+  }
+}
+async function deleteComment(commentId: string) {
+  try {
+    await $fetch(`/api/proposals/${props.proposalId}/comments/${commentId}`, { method: 'DELETE' })
+    await refreshComments()
+  } catch (err) {
+    const msg = (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Failed'
+    toast.add({ title: 'Could not delete', description: msg, color: 'error' })
+  }
+}
 </script>
 
 <template>
@@ -158,6 +209,54 @@ async function deleteSection(s: Section) {
         <p v-else class="text-sm text-muted">Empty.</p>
         <div v-if="canWrite" class="mt-2 flex justify-end">
           <UButton size="xs" label="Save section" :loading="busy" @click="saveSection(s)" />
+        </div>
+
+        <!-- PM-06 — section comments -->
+        <div class="mt-3 space-y-2 border-t border-default pt-2">
+          <div
+            v-for="c in commentsFor(s.id)"
+            :key="c.id"
+            class="rounded-md bg-elevated/40 px-2 py-1.5 text-xs"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-medium text-default">{{ authorName(c) }}</span>
+              <div class="flex items-center gap-2">
+                <span class="text-dimmed">{{
+                  new Date(c.createdAt).toLocaleDateString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                  })
+                }}</span>
+                <UButton
+                  v-if="c.createdByUserId === currentUserId"
+                  icon="i-lucide-x"
+                  size="xs"
+                  variant="ghost"
+                  color="error"
+                  aria-label="Delete comment"
+                  @click="deleteComment(c.id)"
+                />
+              </div>
+            </div>
+            <p class="mt-0.5 whitespace-pre-wrap text-muted">{{ c.body }}</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <UInput
+              v-model="commentDrafts[s.id]"
+              size="xs"
+              placeholder="Add a comment…"
+              class="flex-1"
+              @keyup.enter="postComment(s.id)"
+            />
+            <UButton
+              size="xs"
+              variant="soft"
+              icon="i-lucide-send"
+              aria-label="Post"
+              :disabled="!(commentDrafts[s.id] ?? '').trim()"
+              @click="postComment(s.id)"
+            />
+          </div>
         </div>
       </div>
 

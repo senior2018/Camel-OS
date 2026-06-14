@@ -69,7 +69,8 @@ export default defineEventHandler(async (event) => {
     let newStatus = proposal.status
     if (rejected > 0) newStatus = 'rejected'
     else if (changes > 0) newStatus = 'revision_required'
-    else if (pending === 0 && requiredApproved === requiredTotal)
+    // PM-05 — all required reviewers approved AND at least 3 approvals.
+    else if (pending === 0 && requiredApproved === requiredTotal && requiredApproved >= 3)
       newStatus = 'ready_for_final_approval'
 
     if (newStatus !== proposal.status) {

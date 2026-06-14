@@ -564,6 +564,10 @@ export const proposalStatusEnum = pgEnum('proposal_status', [
   'won',
   'lost',
   'shortlisted',
+  // S13 — appended (keep order stable so migrations stay additive ADD VALUE).
+  'under_evaluation', // BD-01 post-submission evaluation
+  'clarification_requested', // BD-01
+  'contract_signed', // BD-04 — triggers project creation
 ])
 
 export const proposalReviewerStatusEnum = pgEnum('proposal_reviewer_status', [
@@ -601,6 +605,13 @@ export const proposalWritingModeEnum = pgEnum('proposal_writing_mode', [
   'both',
 ])
 
+// S13 (BD-02) — kind of post-submission tracking note.
+export const proposalBdNoteKindEnum = pgEnum('proposal_bd_note_kind', [
+  'client_comm',
+  'evaluator_feedback',
+  'note',
+])
+
 export const proposals = pgTable(
   'proposals',
   {
@@ -621,6 +632,8 @@ export const proposals = pgTable(
     // textarea later without changing the schema. Retained for backward compat;
     // the structured `proposal_sections` table is the primary authoring surface.
     contentDraft: text('content_draft'),
+    // S12 (PM-04) — free-text brainstorming board for the writing team.
+    brainstorm: text('brainstorm'),
     // S11 (PM-03) — how this proposal is being written.
     writingMode: proposalWritingModeEnum('writing_mode').notNull().default('in_system'),
     submittedAt: timestamp('submitted_at', { withTimezone: true }),
@@ -742,6 +755,56 @@ export const proposalSections = pgTable(
     index('proposal_sections_proposal_id_idx').on(table.proposalId),
     index('proposal_sections_assigned_to_user_id_idx').on(table.assignedToUserId),
   ]
+)
+
+// ─── Proposal Section Comments (S12 — PM-06) ─────────────────────────────────
+// Reviewer feedback anchored to a specific section, with threaded replies via
+// `parentCommentId`. `sectionId` null = a general proposal-level comment.
+export const proposalSectionComments = pgTable(
+  'proposal_section_comments',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    proposalId: uuid('proposal_id')
+      .notNull()
+      .references(() => proposals.id, { onDelete: 'cascade' }),
+    sectionId: uuid('section_id').references(() => proposalSections.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    parentCommentId: uuid('parent_comment_id'),
+    body: text().notNull(),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('proposal_section_comments_proposal_id_idx').on(table.proposalId),
+    index('proposal_section_comments_section_id_idx').on(table.sectionId),
+  ]
+)
+
+// ─── Proposal BD Tracking Notes (S13 — BD-02) ────────────────────────────────
+// Post-submission log: client communications + evaluator feedback against a
+// submitted proposal, timestamped.
+export const proposalBdNotes = pgTable(
+  'proposal_bd_notes',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    proposalId: uuid('proposal_id')
+      .notNull()
+      .references(() => proposals.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    kind: proposalBdNoteKindEnum().notNull().default('note'),
+    body: text().notNull(),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('proposal_bd_notes_proposal_id_idx').on(table.proposalId)]
 )
 
 // ─── Proposal Attachments (S11 — PM-03 upload mode, PM-09) ───────────────────
@@ -1374,6 +1437,12 @@ export type NewProposalReviewer = typeof proposalReviewers.$inferInsert
 
 export type ProposalSection = typeof proposalSections.$inferSelect
 export type NewProposalSection = typeof proposalSections.$inferInsert
+
+export type ProposalSectionComment = typeof proposalSectionComments.$inferSelect
+export type NewProposalSectionComment = typeof proposalSectionComments.$inferInsert
+
+export type ProposalBdNote = typeof proposalBdNotes.$inferSelect
+export type NewProposalBdNote = typeof proposalBdNotes.$inferInsert
 
 export type ProposalAttachment = typeof proposalAttachments.$inferSelect
 export type NewProposalAttachment = typeof proposalAttachments.$inferInsert

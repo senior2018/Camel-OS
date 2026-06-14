@@ -50,10 +50,11 @@ export default defineEventHandler(async (event) => {
         )
       )
 
-    if (reviewerAssignments.length === 0) {
+    // PM-05 — the review gate requires at least three reviewers.
+    if (reviewerAssignments.length < 3) {
       throw createError({
         statusCode: 400,
-        statusMessage: 'Assign at least one reviewer (technical, finance, or compliance) first',
+        statusMessage: `Assign at least 3 reviewers before sending for review (currently ${reviewerAssignments.length}).`,
       })
     }
 

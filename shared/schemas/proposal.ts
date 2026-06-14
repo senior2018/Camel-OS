@@ -23,6 +23,9 @@ export const PROPOSAL_STATUSES = [
   'won',
   'lost',
   'shortlisted',
+  'under_evaluation',
+  'clarification_requested',
+  'contract_signed',
 ] as const
 export type ProposalStatus = (typeof PROPOSAL_STATUSES)[number]
 
@@ -40,6 +43,9 @@ export const PROPOSAL_STATUS_LABEL: Record<ProposalStatus, string> = {
   won: 'Won',
   lost: 'Lost',
   shortlisted: 'Shortlisted',
+  under_evaluation: 'Under Evaluation',
+  clarification_requested: 'Clarification Requested',
+  contract_signed: 'Contract Signed',
 }
 
 export const PROPOSAL_STATUS_DESCRIPTION: Record<ProposalStatus, string> = {
@@ -56,6 +62,9 @@ export const PROPOSAL_STATUS_DESCRIPTION: Record<ProposalStatus, string> = {
   won: 'Awarded — work secured',
   lost: 'Not selected',
   shortlisted: 'Still under consideration',
+  under_evaluation: 'Client is evaluating the bid',
+  clarification_requested: 'Client requested clarification',
+  contract_signed: 'Awarded and contracted — project created',
 }
 
 export type ProposalStatusColor = 'neutral' | 'primary' | 'info' | 'success' | 'warning' | 'error'
@@ -74,6 +83,9 @@ export const PROPOSAL_STATUS_COLOR: Record<ProposalStatus, ProposalStatusColor> 
   won: 'success',
   lost: 'error',
   shortlisted: 'warning',
+  under_evaluation: 'info',
+  clarification_requested: 'warning',
+  contract_signed: 'success',
 }
 
 // Board lanes — the 13 statuses are too many for a Kanban; we group them into
@@ -106,15 +118,15 @@ export const PROPOSAL_BOARD_LANES: ProposalBoardLane[] = [
   },
   {
     key: 'ready',
-    label: 'Ready / Submitted',
-    description: 'Cleared or sent to client',
-    statuses: ['final_approved', 'submitted'],
+    label: 'Submitted / Evaluation',
+    description: 'Cleared, sent, or under client evaluation',
+    statuses: ['final_approved', 'submitted', 'under_evaluation', 'clarification_requested'],
   },
   {
     key: 'outcome',
     label: 'Outcome',
-    description: 'Won, lost, or shortlisted',
-    statuses: ['won', 'lost', 'shortlisted'],
+    description: 'Won, lost, shortlisted, or contracted',
+    statuses: ['won', 'lost', 'shortlisted', 'contract_signed'],
   },
   {
     key: 'closed',
@@ -153,6 +165,8 @@ export const updateProposalSchema = z.object({
   deadline: optionalDate,
   contentDraft: z.string().trim().max(50_000).optional().nullable(),
   decisionNote: z.string().trim().max(2000).optional().nullable(),
+  // S12 (PM-04) — brainstorming board.
+  brainstorm: z.string().trim().max(20_000).optional().nullable(),
   // S11 (PM-03/PM-09)
   writingMode: z.enum(PROPOSAL_WRITING_MODES).optional(),
   submissionReference: z.string().trim().max(200).optional().nullable(),

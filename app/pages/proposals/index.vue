@@ -45,6 +45,52 @@ const { data, status } = await useFetch<{ items: ProposalRow[] }>('/api/proposal
   default: () => ({ items: [] }),
 })
 
+const view = ref<'board' | 'dashboard'>('board')
+
+// ── PM-08: manager dashboard aggregates ──
+const allItems = computed(() => data.value?.items ?? [])
+function daysTo(d: string | null): number | null {
+  if (!d) return null
+  return Math.ceil((new Date(d).getTime() - Date.now()) / 86_400_000)
+}
+const OPEN_STATUSES = new Set<ProposalStatus>([
+  'assigned',
+  'drafting',
+  'awaiting_review',
+  'revision_required',
+  'ready_for_final_approval',
+  'awaiting_final_approval',
+  'final_approved',
+])
+const dash = computed(() => {
+  const items = allItems.value
+  const won = items.filter((p) => p.status === 'won').length
+  const lost = items.filter((p) => p.status === 'lost').length
+  const submitted = items.filter((p) => p.status === 'submitted').length
+  const open = items.filter((p) => OPEN_STATUSES.has(p.status))
+  // At-risk: open proposals with a deadline ≤7 days out or already overdue.
+  const atRisk = open
+    .map((p) => ({ p, d: daysTo(p.deadline) }))
+    .filter((x) => x.d !== null && x.d <= 7)
+    .sort((a, b) => (a.d ?? 0) - (b.d ?? 0))
+  const decided = won + lost
+  return {
+    total: items.length,
+    open: open.length,
+    submitted,
+    won,
+    lost,
+    winRate: decided ? Math.round((won / decided) * 100) : null,
+    atRisk,
+  }
+})
+function rag(days: number | null): 'error' | 'warning' | 'neutral' {
+  if (days === null) return 'neutral'
+  if (days < 0) return 'error'
+  if (days <= 7) return 'warning'
+  return 'neutral'
+}
+
 // Group proposals into the six readable board lanes (the 13 raw statuses are
 // too many for columns).
 const byLane = computed<Record<string, ProposalRow[]>>(() => {
@@ -113,7 +159,25 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
           Proposals are created automatically when an opportunity is Accepted.
         </p>
       </div>
-      <UBadge variant="subtle" color="neutral" size="md">{{ totalCount }} total</UBadge>
+      <div class="flex items-center gap-2">
+        <UFieldGroup>
+          <UButton
+            :color="view === 'board' ? 'primary' : 'neutral'"
+            :variant="view === 'board' ? 'solid' : 'outline'"
+            icon="i-lucide-columns-3"
+            label="Board"
+            @click="view = 'board'"
+          />
+          <UButton
+            :color="view === 'dashboard' ? 'primary' : 'neutral'"
+            :variant="view === 'dashboard' ? 'solid' : 'outline'"
+            icon="i-lucide-bar-chart-3"
+            label="Dashboard"
+            @click="view = 'dashboard'"
+          />
+        </UFieldGroup>
+        <UBadge variant="subtle" color="neutral" size="md">{{ totalCount }} total</UBadge>
+      </div>
     </header>
 
     <div v-if="status === 'pending'" class="flex justify-center py-16">
@@ -134,6 +198,74 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
         label="Go to Opportunities"
         @click="navigateTo('/opportunities')"
       />
+    </div>
+
+    <!-- PM-08 — manager dashboard -->
+    <div v-else-if="view === 'dashboard'" class="space-y-6">
+      <div class="flex justify-end">
+        <UButton
+          variant="outline"
+          color="neutral"
+          size="sm"
+          icon="i-lucide-bar-chart-2"
+          label="Win / Loss report"
+          @click="navigateTo('/reports/win-loss')"
+        />
+      </div>
+      <div class="grid grid-cols-2 gap-4 sm:grid-cols-5">
+        <div class="rounded-xl border border-default p-4">
+          <p class="text-xs uppercase tracking-wide text-muted">Open</p>
+          <p class="mt-1 text-2xl font-semibold text-default">{{ dash.open }}</p>
+        </div>
+        <div class="rounded-xl border border-default p-4">
+          <p class="text-xs uppercase tracking-wide text-muted">Submitted</p>
+          <p class="mt-1 text-2xl font-semibold text-info">{{ dash.submitted }}</p>
+        </div>
+        <div class="rounded-xl border border-default p-4">
+          <p class="text-xs uppercase tracking-wide text-muted">Won</p>
+          <p class="mt-1 text-2xl font-semibold text-success">{{ dash.won }}</p>
+        </div>
+        <div class="rounded-xl border border-default p-4">
+          <p class="text-xs uppercase tracking-wide text-muted">Lost</p>
+          <p class="mt-1 text-2xl font-semibold text-error">{{ dash.lost }}</p>
+        </div>
+        <div class="rounded-xl border border-default p-4">
+          <p class="text-xs uppercase tracking-wide text-muted">Win rate</p>
+          <p class="mt-1 text-2xl font-semibold text-default">
+            {{ dash.winRate === null ? '—' : `${dash.winRate}%` }}
+          </p>
+        </div>
+      </div>
+
+      <UCard>
+        <template #header>
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-default">At-risk (deadline ≤ 7 days)</h3>
+            <UBadge :color="dash.atRisk.length ? 'warning' : 'neutral'" variant="subtle" size="sm">
+              {{ dash.atRisk.length }}
+            </UBadge>
+          </div>
+        </template>
+        <div v-if="!dash.atRisk.length" class="py-4 text-center text-sm text-muted">
+          Nothing at risk — all open proposals have breathing room.
+        </div>
+        <ul v-else class="divide-y divide-default">
+          <li
+            v-for="{ p, d } in dash.atRisk"
+            :key="p.id"
+            class="flex cursor-pointer items-center justify-between gap-3 py-2 hover:bg-elevated/40"
+            @click="navigateTo(`/proposals/${p.id}`)"
+          >
+            <div class="min-w-0">
+              <p class="truncate text-sm font-medium text-default">{{ p.title }}</p>
+              <p class="truncate text-xs text-muted">{{ p.opportunityTitle }}</p>
+            </div>
+            <UBadge :color="rag(d)" variant="subtle" size="xs">
+              {{ d !== null && d < 0 ? `${-d}d overdue` : `${d}d left` }}
+            </UBadge>
+          </li>
+        </ul>
+      </UCard>
     </div>
 
     <div v-else class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">

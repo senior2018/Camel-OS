@@ -1,7 +1,7 @@
 import { consola } from 'consola'
 import { and, eq } from 'drizzle-orm'
 
-import { proposals } from '@@/server/database/schema'
+import { opportunities, projects, proposals } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import { logAuditEvent } from '@@/server/utils/audit'
@@ -47,6 +47,7 @@ export default defineEventHandler(async (event) => {
       updates.reminderRecipientUserIds = data.reminderRecipientUserIds
     }
     if (data.writingMode !== undefined) updates.writingMode = data.writingMode
+    if (data.brainstorm !== undefined) updates.brainstorm = data.brainstorm ?? null
     if (data.submissionReference !== undefined) {
       updates.submissionReference = data.submissionReference ?? null
     }
@@ -58,12 +59,20 @@ export default defineEventHandler(async (event) => {
       // Stamp milestone timestamps so the timeline is self-explanatory.
       if (data.status === 'submitted' && !existing.submittedAt) updates.submittedAt = now
       if (
-        (data.status === 'won' || data.status === 'lost' || data.status === 'shortlisted') &&
+        (data.status === 'won' ||
+          data.status === 'lost' ||
+          data.status === 'shortlisted' ||
+          data.status === 'contract_signed') &&
         !existing.decidedAt
       ) {
         updates.decidedAt = now
       }
     }
+
+    // BD-04 — transitioning into 'contract_signed' auto-creates a project,
+    // inheriting value/currency from the opportunity. Guarded so it fires once.
+    const enteringContract =
+      data.status === 'contract_signed' && existing.status !== 'contract_signed'
 
     const [updated] = await db
       .update(proposals)
@@ -94,7 +103,36 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    return { success: true, proposal: updated }
+    let createdProjectId: string | null = null
+    if (enteringContract) {
+      const [opp] = await db
+        .select({ value: opportunities.estimatedValue, currency: opportunities.currency })
+        .from(opportunities)
+        .where(eq(opportunities.id, existing.opportunityId))
+        .limit(1)
+      const [project] = await db
+        .insert(projects)
+        .values({
+          organizationId: ctx.organizationId,
+          name: existing.title,
+          description: `Created from won proposal "${existing.title}".`,
+          status: 'planning',
+          totalBudget: opp?.value ?? null,
+          currency: opp?.currency ?? 'USD',
+          createdByUserId: ctx.userId,
+        })
+        .returning({ id: projects.id })
+      createdProjectId = project?.id ?? null
+      await logOpportunityActivity({
+        opportunityId: existing.opportunityId,
+        organizationId: ctx.organizationId,
+        userId: ctx.userId,
+        action: 'proposal:project_created',
+        details: { projectId: createdProjectId },
+      })
+    }
+
+    return { success: true, proposal: updated, projectId: createdProjectId }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
     consola.error('Error updating proposal', error)
