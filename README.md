@@ -197,6 +197,9 @@ See [CODING_STANDARDS.md](CODING_STANDARDS.md) (gitignored, local). Highlights:
 
 Internal roadmap lives in `PROGRESS.md` (gitignored). Major milestones:
 
+##For Vercel build
+- build 1
+
 - **MVP v0.1** after S6 (Foundation → CRM)
 - **Beta v0.5** after S15 (Comms → Projects)
 - **Beta v0.8** after S23 (MEL → Procurement)
