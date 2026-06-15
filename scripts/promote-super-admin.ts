@@ -1,5 +1,5 @@
 /**
- * One-shot: promote `admin@camel-os.com` to super admin if no super admin exists
+ * One-shot: promote `simon@saharaventures.com` to super admin if no super admin exists
  * yet for that org. Safe to re-run — does nothing if a super admin already
  * exists in the same organization.
  *
@@ -12,7 +12,7 @@ dotenv.config()
 
 const sql = postgres(process.env.DATABASE_URL!)
 
-const SEED_EMAIL = 'admin@camel-os.com'
+const SEED_EMAIL = 'simon@saharaventures.com'
 
 const [target] = await sql<Array<{ id: string; organization_id: string; email: string }>>`
   SELECT id, organization_id, email FROM users WHERE email = ${SEED_EMAIL} LIMIT 1

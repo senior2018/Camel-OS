@@ -28,7 +28,7 @@ const SEED_ORG = {
 } as const
 
 const SEED_ADMIN = {
-  email: 'admin@camel-os.com',
+  email: 'simon@saharaventures.com',
   firstName: 'System',
   lastName: 'Admin',
   // Change this after first login
