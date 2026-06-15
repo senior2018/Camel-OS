@@ -42,6 +42,10 @@ export default defineNuxtConfig({
     public: {
       supabaseUrl: process.env.SUPABASE_URL,
       supabasePublishableKey: process.env.SUPABASE_PUBLISHABLE_KEY,
+      // Idle session timeout (minutes). Enforced server-side in
+      // `server/middleware/idle-timeout.ts` and mirrored by the client
+      // auto-logout timer. Change in one place; both follow.
+      idleTimeoutMinutes: Number(process.env.IDLE_TIMEOUT_MINUTES) || 30,
     },
   },
 
@@ -58,11 +62,12 @@ export default defineNuxtConfig({
       tasks: true,
     },
     scheduledTasks: {
-      // Daily at 08:00 UTC — opportunity deadlines (OM-07), donor grant
-      // deadlines (CR-09), and partnership renewal windows (CR-11). All three
-      // are date-only so once-a-day cadence is enough.
+      // Daily at 08:00 UTC — opportunity deadlines (OM-07), proposal submission
+      // deadlines, donor grant deadlines (CR-09), and partnership renewal
+      // windows (CR-11). All date-only, so once-a-day cadence is enough.
       '0 8 * * *': [
         'opportunities:deadline-reminders',
+        'proposals:deadline-reminders',
         'clients:grants',
         'clients:partnership-renewals',
       ],

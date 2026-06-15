@@ -17,6 +17,7 @@ export interface Opportunity {
   status: OpportunityStatus
   tags: string[]
   winProbability: number | null
+  winProbabilitySource: 'manual' | 'ai'
   deadline: string | null
   estimatedValue: string | null
   currency: string

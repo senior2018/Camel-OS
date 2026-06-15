@@ -9,23 +9,63 @@ import type { Opportunity } from '@/composables/useOpportunities'
 
 /**
  * S7 — Three-column board showing opportunities grouped by review status:
- * Pending / Accepted / Rejected. Click a card to open the form modal; status
- * changes flow through the modal's status buttons (which captures the
- * required comment + auto-creates a Proposal when Accepting).
+ * Pending / Accepted / Rejected. Click a card to open the form modal.
+ *
+ * OM-03 — drag a card to another column to request a status transition. The
+ * page captures the (required-on-reject) comment and persists via moveStatus,
+ * which logs the transition. Dragging is gated on `canDrag` (proposal:update).
  */
 interface Props {
   grouped: Record<OpportunityStatus, Opportunity[]>
+  canDrag?: boolean
 }
-
-defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), { canDrag: false })
 const emit = defineEmits<{
   selectOpportunity: [opp: Opportunity]
+  move: [opp: Opportunity, toStatus: OpportunityStatus]
 }>()
+
+const dragging = ref<Opportunity | null>(null)
+const dragOver = ref<OpportunityStatus | null>(null)
+
+// Cap each column so a busy pipeline doesn't render hundreds of cards at once.
+// "Show more" reveals another batch; "Show less" collapses back.
+const COLUMN_PAGE = 6
+const shown = reactive<Record<string, number>>({})
+function visibleCount(s: OpportunityStatus): number {
+  return shown[s] ?? COLUMN_PAGE
+}
+function visibleCards(s: OpportunityStatus): Opportunity[] {
+  return (props.grouped[s] ?? []).slice(0, visibleCount(s))
+}
+function showMore(s: OpportunityStatus) {
+  shown[s] = visibleCount(s) + COLUMN_PAGE
+}
+function showLess(s: OpportunityStatus) {
+  shown[s] = COLUMN_PAGE
+}
+
+function onDragStart(opp: Opportunity, e: DragEvent) {
+  if (!props.canDrag) return
+  dragging.value = opp
+  e.dataTransfer?.setData('text/plain', opp.id)
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+}
+function onDragEnd() {
+  dragging.value = null
+  dragOver.value = null
+}
+function onDrop(toStatus: OpportunityStatus) {
+  const opp = dragging.value
+  dragOver.value = null
+  dragging.value = null
+  if (!opp || opp.status === toStatus) return
+  emit('move', opp, toStatus)
+}
 
 function statusColor(s: OpportunityStatus): 'warning' | 'success' | 'error' {
   return s === 'pending' ? 'warning' : s === 'accepted' ? 'success' : 'error'
 }
-
 function statusBorder(s: OpportunityStatus): string {
   return s === 'pending'
     ? 'border-warning/40'
@@ -40,7 +80,16 @@ function statusBorder(s: OpportunityStatus): string {
     <section
       v-for="s in OPPORTUNITY_STATUSES"
       :key="s"
-      :class="['flex flex-col rounded-xl border bg-default/40 p-3', statusBorder(s)]"
+      :class="[
+        'flex flex-col rounded-xl border bg-default/40 p-3 transition-colors',
+        statusBorder(s),
+        canDrag && dragOver === s && dragging?.status !== s
+          ? 'bg-primary/5 ring-2 ring-primary/40'
+          : '',
+      ]"
+      @dragover.prevent="canDrag && (dragOver = s)"
+      @dragleave="dragOver === s && (dragOver = null)"
+      @drop.prevent="onDrop(s)"
     >
       <header class="mb-2 flex items-center justify-between">
         <div>
@@ -58,14 +107,50 @@ function statusBorder(s: OpportunityStatus): string {
         v-if="!grouped[s].length"
         class="flex flex-1 items-center justify-center rounded-lg border border-dashed border-default p-6 text-center text-xs text-muted"
       >
-        Nothing here yet.
+        {{ canDrag && dragging ? 'Drop here' : 'Nothing here yet.' }}
       </div>
 
       <ul v-else class="space-y-2">
-        <li v-for="opp in grouped[s]" :key="opp.id" @click="emit('selectOpportunity', opp)">
+        <li
+          v-for="opp in visibleCards(s)"
+          :key="opp.id"
+          :draggable="canDrag"
+          :class="[
+            canDrag ? 'cursor-grab active:cursor-grabbing' : '',
+            dragging?.id === opp.id ? 'opacity-50' : '',
+          ]"
+          @dragstart="onDragStart(opp, $event)"
+          @dragend="onDragEnd"
+          @click="emit('selectOpportunity', opp)"
+        >
           <OpportunityCard :opportunity="opp" />
         </li>
       </ul>
+
+      <!-- Show more / less — keeps busy columns light -->
+      <div
+        v-if="(grouped[s]?.length ?? 0) > COLUMN_PAGE"
+        class="mt-2 flex items-center justify-center gap-2"
+      >
+        <UButton
+          v-if="visibleCount(s) < (grouped[s]?.length ?? 0)"
+          size="xs"
+          variant="ghost"
+          color="neutral"
+          :label="`Show more (${(grouped[s]?.length ?? 0) - visibleCount(s)})`"
+          icon="i-lucide-chevron-down"
+          @click="showMore(s)"
+        />
+        <UButton
+          v-if="visibleCount(s) > COLUMN_PAGE"
+          size="xs"
+          variant="ghost"
+          color="neutral"
+          label="Show less"
+          icon="i-lucide-chevron-up"
+          @click="showLess(s)"
+        />
+      </div>
     </section>
   </div>
 </template>

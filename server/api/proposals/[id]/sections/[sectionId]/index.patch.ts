@@ -1,7 +1,7 @@
 import { consola } from 'consola'
 import { and, eq } from 'drizzle-orm'
 
-import { proposalSections, proposals } from '@@/server/database/schema'
+import { proposalSectionVersions, proposalSections, proposals } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { isProposalWriter } from '@@/server/utils/proposal-access'
 import { requirePermission } from '@@/server/utils/permission-guard'
@@ -31,6 +31,26 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 403, statusMessage: 'Only writers can edit sections' })
     }
 
+    const [current] = await db
+      .select()
+      .from(proposalSections)
+      .where(and(eq(proposalSections.id, sectionId), eq(proposalSections.proposalId, id)))
+      .limit(1)
+    if (!current) throw createError({ statusCode: 404, statusMessage: 'Section not found' })
+
+    // PM-03 stale-write guard — reject if someone else saved since the client loaded.
+    const isContentEdit = payload.body !== undefined || payload.title !== undefined
+    if (
+      isContentEdit &&
+      payload.expectedUpdatedAt &&
+      new Date(payload.expectedUpdatedAt).getTime() !== current.updatedAt.getTime()
+    ) {
+      throw createError({
+        statusCode: 409,
+        statusMessage: 'This section was changed by someone else. Refresh to see the latest.',
+      })
+    }
+
     const updates: Partial<typeof proposalSections.$inferInsert> = { updatedAt: new Date() }
     if (payload.title !== undefined) updates.title = payload.title
     if (payload.body !== undefined) updates.body = payload.body ?? null
@@ -38,6 +58,7 @@ export default defineEventHandler(async (event) => {
     if (payload.assignedToUserId !== undefined) {
       updates.assignedToUserId = payload.assignedToUserId ?? null
     }
+    if (isContentEdit) updates.updatedByUserId = ctx.userId
 
     const [updated] = await db
       .update(proposalSections)
@@ -45,6 +66,18 @@ export default defineEventHandler(async (event) => {
       .where(and(eq(proposalSections.id, sectionId), eq(proposalSections.proposalId, id)))
       .returning()
     if (!updated) throw createError({ statusCode: 404, statusMessage: 'Section not found' })
+
+    // PM-03 — snapshot each content save into the version history.
+    if (isContentEdit) {
+      await db.insert(proposalSectionVersions).values({
+        sectionId,
+        proposalId: id,
+        organizationId: ctx.organizationId,
+        title: updated.title,
+        body: updated.body,
+        savedByUserId: ctx.userId,
+      })
+    }
 
     return { success: true, section: updated }
   } catch (error) {

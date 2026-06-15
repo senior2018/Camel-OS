@@ -45,6 +45,23 @@ function rateColor(r: number | null): 'success' | 'warning' | 'error' | 'neutral
 function doPrint() {
   window.print()
 }
+
+const toast = useToast()
+async function downloadCsv() {
+  try {
+    const blob = await $fetch<Blob>(`/api/reports/win-loss.csv${query.value}`, {
+      responseType: 'blob',
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `win-loss-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    toast.add({ title: 'Export failed', description: 'Could not export CSV.', color: 'error' })
+  }
+}
 </script>
 
 <template>
@@ -69,6 +86,13 @@ function doPrint() {
         <UFormField label="To" size="xs">
           <UInput v-model="to" type="date" size="sm" @change="() => refresh()" />
         </UFormField>
+        <UButton
+          variant="outline"
+          icon="i-lucide-download"
+          label="CSV"
+          size="sm"
+          @click="downloadCsv"
+        />
         <UButton
           variant="outline"
           icon="i-lucide-printer"

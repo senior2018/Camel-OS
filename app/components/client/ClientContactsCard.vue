@@ -244,7 +244,7 @@ function fullName(c: ClientContact): string {
             color="neutral"
             variant="subtle"
             icon="i-lucide-info"
-            title="CSV format"
+            title="CSV or Excel format"
             description="One contact per row. Required columns: first_name, last_name, title, email, phone."
           >
             <template #actions>
@@ -259,11 +259,11 @@ function fullName(c: ClientContact): string {
             </template>
           </UAlert>
 
-          <UFormField label="CSV file" required>
+          <UFormField label="CSV or Excel file" required>
             <input
               ref="importFileInput"
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               class="block w-full text-sm text-default file:mr-3 file:cursor-pointer file:rounded-md file:border file:border-default file:bg-elevated/40 file:px-3 file:py-1.5 file:text-sm"
               @change="onImportFileChange"
             />

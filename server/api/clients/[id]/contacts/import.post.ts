@@ -1,5 +1,6 @@
 import { consola } from 'consola'
 import { and, eq, inArray } from 'drizzle-orm'
+import ExcelJS from 'exceljs'
 import Papa from 'papaparse'
 import { z } from 'zod'
 
@@ -9,21 +10,59 @@ import { requirePermission } from '@@/server/utils/permission-guard'
 import { logAuditEvent } from '@@/server/utils/audit'
 
 /**
- * CR-07 — Bulk-import contacts onto a single client from a CSV upload.
+ * CR-07 — Bulk-import contacts onto a single client from a CSV *or Excel* upload.
  *
  * Wire format (multipart form):
- *   - `file`: the CSV — required, must include headers `first_name,last_name,title,email,phone`
+ *   - `file`: a `.csv` or `.xlsx` — required, must include headers
+ *     `first_name,last_name,title,email,phone`
  *   - `mode`: 'skip' (default) | 'overwrite' — what to do when an existing
  *     contact matches by email
  *
  * Response shape:
  *   { success: true, summary: { total, inserted, updated, skipped, errors: [{ row, message }] } }
  *
- * Validation runs per-row; the response includes every failed row with its
- * 1-based row number (header = row 0) so the UI can render a precise error
- * list — the spec calls this out explicitly.
+ * Both formats are normalised to the same `Record<string,string>[]` row shape,
+ * then run through one validation/dedup pipeline. Validation runs per-row; the
+ * response includes every failed row with its 1-based row number (header = row 0)
+ * so the UI can render a precise error list — the spec calls this out explicitly.
  */
 const HEADERS = ['first_name', 'last_name', 'title', 'email', 'phone'] as const
+
+function normaliseHeader(h: string): string {
+  return h.trim().toLowerCase().replace(/\s+/g, '_')
+}
+
+/** Read an .xlsx buffer into the same header→value row shape PapaParse yields. */
+async function parseXlsx(
+  data: Buffer
+): Promise<{ headers: string[]; rows: Record<string, string>[] }> {
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(data as unknown as Parameters<typeof wb.xlsx.load>[0])
+  const ws = wb.worksheets[0]
+  if (!ws) return { headers: [], rows: [] }
+
+  const headerRow = ws.getRow(1)
+  const headers: string[] = []
+  headerRow.eachCell({ includeEmpty: false }, (cell, col) => {
+    headers[col] = normaliseHeader(cell.text)
+  })
+
+  const rows: Record<string, string>[] = []
+  for (let r = 2; r <= ws.rowCount; r++) {
+    const row = ws.getRow(r)
+    const record: Record<string, string> = {}
+    let hasValue = false
+    for (let col = 1; col < headers.length; col++) {
+      const key = headers[col]
+      if (!key) continue
+      const text = row.getCell(col).text.trim()
+      if (text) hasValue = true
+      record[key] = text
+    }
+    if (hasValue) rows.push(record)
+  }
+  return { headers: headers.filter(Boolean), rows }
+}
 
 const rowSchema = z.object({
   first_name: z.string().trim().min(1, 'First name is required').max(100),
@@ -75,26 +114,45 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 413, statusMessage: 'File too large (2 MB max)' })
     }
 
-    const text = filePart.data.toString('utf-8')
-    const parsed = Papa.parse<Record<string, string>>(text, {
-      header: true,
-      skipEmptyLines: 'greedy',
-      transformHeader: (h) => h.trim().toLowerCase().replace(/\s+/g, '_'),
-    })
-
-    if (parsed.errors.length) {
+    const fileName = (filePart.filename ?? '').toLowerCase()
+    const isExcel =
+      fileName.endsWith('.xlsx') ||
+      filePart.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    if (fileName.endsWith('.xls')) {
       throw createError({
-        statusCode: 400,
-        statusMessage: `CSV parse error: ${parsed.errors[0]?.message ?? 'invalid CSV'}`,
+        statusCode: 415,
+        statusMessage: 'Legacy .xls is not supported — please save as .xlsx or CSV.',
       })
     }
 
-    const headers = parsed.meta.fields ?? []
+    let headers: string[]
+    let dataRows: Record<string, string>[]
+    if (isExcel) {
+      const out = await parseXlsx(filePart.data)
+      headers = out.headers
+      dataRows = out.rows
+    } else {
+      const text = filePart.data.toString('utf-8')
+      const parsed = Papa.parse<Record<string, string>>(text, {
+        header: true,
+        skipEmptyLines: 'greedy',
+        transformHeader: normaliseHeader,
+      })
+      if (parsed.errors.length) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: `CSV parse error: ${parsed.errors[0]?.message ?? 'invalid CSV'}`,
+        })
+      }
+      headers = parsed.meta.fields ?? []
+      dataRows = parsed.data
+    }
+
     const missing = HEADERS.filter((h) => !headers.includes(h))
     if (missing.length === HEADERS.length) {
       throw createError({
         statusCode: 400,
-        statusMessage: `CSV is missing all expected columns. Expected: ${HEADERS.join(', ')}`,
+        statusMessage: `File is missing all expected columns. Expected: ${HEADERS.join(', ')}`,
       })
     }
 
@@ -119,7 +177,7 @@ export default defineEventHandler(async (event) => {
     const valid: ValidRow[] = []
     const errors: Array<{ row: number; message: string }> = []
 
-    parsed.data.forEach((raw, idx) => {
+    dataRows.forEach((raw, idx) => {
       const rowNumber = idx + 2 // 1-based + header row
       const safe = rowSchema.safeParse(raw)
       if (!safe.success) {

@@ -1,0 +1,2 @@
+CREATE TYPE "public"."win_probability_source" AS ENUM('manual', 'ai');--> statement-breakpoint
+ALTER TABLE "opportunities" ADD COLUMN "win_probability_source" "win_probability_source" DEFAULT 'manual' NOT NULL;

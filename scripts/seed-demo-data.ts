@@ -226,6 +226,8 @@ const ROSTER = [
   { email: 'sam@camel-os.com', firstName: 'Sam', lastName: 'Writer', roleName: 'Consultant' },
   { email: 'priya@camel-os.com', firstName: 'Priya', lastName: 'Writer', roleName: 'Consultant' },
   { email: 'rita@camel-os.com', firstName: 'Rita', lastName: 'Reviewer', roleName: 'Reviewer' },
+  { email: 'nadia@camel-os.com', firstName: 'Nadia', lastName: 'Reviewer', roleName: 'Reviewer' },
+  { email: 'omar@camel-os.com', firstName: 'Omar', lastName: 'Reviewer', roleName: 'Reviewer' },
   {
     email: 'doris@camel-os.com',
     firstName: 'Doris',
@@ -621,9 +623,13 @@ async function run() {
 
   // ── 6) proposals from accepted opps, spread across workflow stages ──
   const lead = userIdByEmail.get('linda@camel-os.com')!
-  const tech = userIdByEmail.get('sam@camel-os.com')!
-  const fin = userIdByEmail.get('priya@camel-os.com')!
-  const comp = userIdByEmail.get('rita@camel-os.com')!
+  // Writers (contributors) — the people who author the sections.
+  const writer1 = userIdByEmail.get('sam@camel-os.com')!
+  const writer2 = userIdByEmail.get('priya@camel-os.com')!
+  // Reviewers (≥3) — distinct from the writers (separation of duties).
+  const rev1 = userIdByEmail.get('rita@camel-os.com')!
+  const rev2 = userIdByEmail.get('nadia@camel-os.com')!
+  const rev3 = userIdByEmail.get('omar@camel-os.com')!
   const approver = userIdByEmail.get('doris@camel-os.com')!
 
   type PStatus = (typeof schema.proposalStatusEnum.enumValues)[number]
@@ -676,7 +682,7 @@ async function run() {
         decidedAt: ['won', 'lost', 'shortlisted', 'final_approved'].includes(pstatus)
           ? daysFromNow(-rand(10))
           : null,
-        reminderRecipientUserIds: [lead, tech],
+        reminderRecipientUserIds: [lead, writer1],
         createdByUserId: ownerId(),
       })
       .returning({ id: proposals.id })
@@ -687,14 +693,13 @@ async function run() {
     if (beyondAssigned) {
       await db.insert(proposalAssignments).values([
         { proposalId, organizationId: orgId, roleType: 'lead', assignedUserId: lead },
-        { proposalId, organizationId: orgId, roleType: 'technical_reviewer', assignedUserId: tech },
-        { proposalId, organizationId: orgId, roleType: 'finance_reviewer', assignedUserId: fin },
-        {
-          proposalId,
-          organizationId: orgId,
-          roleType: 'compliance_reviewer',
-          assignedUserId: comp,
-        },
+        // Writing team
+        { proposalId, organizationId: orgId, roleType: 'contributor', assignedUserId: writer1 },
+        { proposalId, organizationId: orgId, roleType: 'contributor', assignedUserId: writer2 },
+        // Review team (3 distinct reviewers)
+        { proposalId, organizationId: orgId, roleType: 'reviewer', assignedUserId: rev1 },
+        { proposalId, organizationId: orgId, roleType: 'reviewer', assignedUserId: rev2 },
+        { proposalId, organizationId: orgId, roleType: 'reviewer', assignedUserId: rev3 },
         { proposalId, organizationId: orgId, roleType: 'final_approver', assignedUserId: approver },
       ])
       await db.insert(opportunityActivities).values({
@@ -717,8 +722,8 @@ async function run() {
         {
           proposalId,
           organizationId: orgId,
-          reviewerUserId: tech,
-          reviewerRole: 'technical_reviewer',
+          reviewerUserId: rev1,
+          reviewerRole: 'reviewer',
           isRequired: true,
           status: reviewerStatus(),
           feedback: 'Technical approach reviewed.',
@@ -727,8 +732,8 @@ async function run() {
         {
           proposalId,
           organizationId: orgId,
-          reviewerUserId: fin,
-          reviewerRole: 'finance_reviewer',
+          reviewerUserId: rev2,
+          reviewerRole: 'reviewer',
           isRequired: true,
           status: reviewerStatus(),
           feedback: 'Budget reviewed.',
@@ -737,8 +742,8 @@ async function run() {
         {
           proposalId,
           organizationId: orgId,
-          reviewerUserId: comp,
-          reviewerRole: 'compliance_reviewer',
+          reviewerUserId: rev3,
+          reviewerRole: 'reviewer',
           isRequired: true,
           status: reviewerStatus(),
           feedback: 'Compliance checked.',
@@ -762,12 +767,12 @@ async function run() {
       '',
       `Login password for every seeded user: ${PASSWORD}`,
       'Key demo logins:',
-      '  linda@camel-os.com  → Proposal Lead',
-      '  sam@camel-os.com    → Technical Reviewer',
-      '  priya@camel-os.com  → Finance Reviewer',
-      '  rita@camel-os.com   → Compliance Reviewer',
+      '  david@camel-os.com  → Manager (accepts/rejects opportunities)',
+      '  linda@camel-os.com  → BD Officer (creates opportunities) + Proposal Lead',
+      '  sam@camel-os.com    → Consultant (proposal writer)',
+      '  priya@camel-os.com  → Consultant (proposal writer)',
+      '  rita / nadia / omar @camel-os.com → Reviewers (the 3-reviewer gate)',
       '  doris@camel-os.com  → Final Approver',
-      '  david@camel-os.com  → Manager (pipeline + accept)',
     ].join('\n')
   )
 

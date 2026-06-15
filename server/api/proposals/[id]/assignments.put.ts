@@ -6,6 +6,7 @@ import { useDrizzle } from '@@/server/utils/drizzle'
 import { logAuditEvent } from '@@/server/utils/audit'
 import { logOpportunityActivity } from '@@/server/utils/opportunity-activity'
 import { isProposalLead } from '@@/server/utils/proposal-access'
+import { notifyProposalAssignments } from '@@/server/utils/proposal-notify'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import {
   GROUP_ROLES,
@@ -56,11 +57,12 @@ export default defineEventHandler(async (event) => {
       .limit(1)
     if (!proposal) throw createError({ statusCode: 404, statusMessage: 'Proposal not found' })
 
-    // The writing team is the Lead's to manage.
+    // PM-02 — staffing the writing team is the Proposal Lead's job (the manager
+    // only appoints the Lead + reviewers + final approver). Enforce Lead-only.
     if (group === 'writing' && !(await isProposalLead(id, ctx.userId, ctx.isSystemAdmin))) {
       throw createError({
         statusCode: 403,
-        statusMessage: 'Only the Proposal Lead can manage contributors',
+        statusMessage: 'Only the Proposal Lead can manage writers',
       })
     }
 
@@ -75,6 +77,21 @@ export default defineEventHandler(async (event) => {
         throw createError({ statusCode: 400, statusMessage: 'One or more users are invalid' })
       }
     }
+
+    // Snapshot the current roster for this group so we only email NEW members.
+    const existing = await db
+      .select({
+        roleType: proposalAssignments.roleType,
+        assignedUserId: proposalAssignments.assignedUserId,
+      })
+      .from(proposalAssignments)
+      .where(
+        and(
+          eq(proposalAssignments.proposalId, id),
+          inArray(proposalAssignments.roleType, allowedRoles)
+        )
+      )
+    const existingKeys = new Set(existing.map((e) => `${e.roleType}:${e.assignedUserId}`))
 
     await db.transaction(async (tx) => {
       // Replace only this group's roles.
@@ -121,6 +138,14 @@ export default defineEventHandler(async (event) => {
       action: 'proposal:assignment',
       details: { group, count: assignments.length },
     })
+
+    // PM-02 — email members new to this group (best-effort, never blocks).
+    const added = assignments.filter((a) => !existingKeys.has(`${a.roleType}:${a.assignedUserId}`))
+    await notifyProposalAssignments(
+      { id, title: proposal.title, deadline: proposal.deadline },
+      ctx.userId,
+      added
+    )
 
     return { success: true }
   } catch (error) {

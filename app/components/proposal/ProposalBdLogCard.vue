@@ -16,6 +16,8 @@ interface BdNote {
   createdAt: string
   authorFirstName: string | null
   authorLastName: string | null
+  attachmentFileName: string | null
+  attachmentUrl: string | null
 }
 
 const toast = useToast()
@@ -28,17 +30,24 @@ const notes = computed(() => data.value?.notes ?? [])
 const kindItems = BD_NOTE_KINDS.map((k) => ({ label: BD_NOTE_KIND_LABEL[k], value: k }))
 const kind = ref<BdNoteKind>('client_comm')
 const body = ref('')
+const file = ref<File | null>(null)
 const saving = ref(false)
+
+function onFileChange(e: Event) {
+  file.value = (e.target as HTMLInputElement).files?.[0] ?? null
+}
 
 async function add() {
   if (!body.value.trim()) return
   saving.value = true
   try {
-    await $fetch(`/api/proposals/${props.proposalId}/bd-notes`, {
-      method: 'POST',
-      body: { kind: kind.value, body: body.value.trim() },
-    })
+    const fd = new FormData()
+    fd.append('kind', kind.value)
+    fd.append('body', body.value.trim())
+    if (file.value) fd.append('file', file.value)
+    await $fetch(`/api/proposals/${props.proposalId}/bd-notes`, { method: 'POST', body: fd })
     body.value = ''
+    file.value = null
     await refresh()
   } catch (err) {
     const msg = (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Failed'
@@ -73,7 +82,16 @@ function kindColor(k: BdNoteKind): 'info' | 'warning' | 'neutral' {
           placeholder="Log client communication or evaluator feedback…"
           class="w-full"
         />
-        <div class="flex justify-end">
+        <div class="flex items-center justify-between gap-2">
+          <label class="flex items-center gap-1.5 text-xs text-muted">
+            <UIcon name="i-lucide-paperclip" class="size-3.5" />
+            <input
+              type="file"
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+              class="max-w-48 text-xs"
+              @change="onFileChange"
+            />
+          </label>
           <UButton
             size="xs"
             label="Add entry"
@@ -105,6 +123,16 @@ function kindColor(k: BdNoteKind): 'info' | 'warning' | 'neutral' {
             </span>
           </div>
           <p class="mt-1 whitespace-pre-wrap text-sm text-default">{{ n.body }}</p>
+          <a
+            v-if="n.attachmentUrl"
+            :href="n.attachmentUrl"
+            target="_blank"
+            rel="noopener"
+            class="mt-1.5 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+          >
+            <UIcon name="i-lucide-paperclip" class="size-3" />
+            {{ n.attachmentFileName }}
+          </a>
         </li>
       </ul>
       <p v-else class="text-sm text-muted">No entries yet.</p>

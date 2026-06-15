@@ -21,7 +21,10 @@ import { updateOpportunityStatusSchema } from '@@/shared/schemas/opportunity'
  */
 export default defineEventHandler(async (event) => {
   try {
-    const ctx = await requirePermission(event, 'opportunity', 'update')
+    // OM-08 — Accept/Reject is a managerial Go/No-Go decision, not a plain edit.
+    // BD Officers create + edit opportunities but cannot approve; only a role
+    // granted `opportunity:approve` (Manager, admins) may change the status.
+    const ctx = await requirePermission(event, 'opportunity', 'approve')
     const id = getRouterParam(event, 'id')
     if (!id) throw createError({ statusCode: 400, statusMessage: 'Opportunity id is required' })
 

@@ -96,6 +96,66 @@ export async function sendOpportunityAssignmentEmail(
   }
 }
 
+export async function sendProposalDeadlineReminder(
+  to: string,
+  options: {
+    recipientName: string
+    title: string
+    daysUntil: number
+    deadline: string
+    url: string
+  }
+): Promise<void> {
+  const when =
+    options.daysUntil <= 0
+      ? 'today'
+      : options.daysUntil === 1
+        ? 'tomorrow'
+        : `in ${options.daysUntil} days`
+  try {
+    await getClient().transactionalEmails.sendTransacEmail({
+      sender: { name: 'Camel OS', email: getFromEmail() },
+      to: [{ email: to }],
+      subject: `Proposal deadline ${when}: "${options.title}"`,
+      htmlContent: `
+        <p>Hi ${options.recipientName},</p>
+        <p>The submission deadline for the proposal <strong>${options.title}</strong> is ${when} (${options.deadline}).</p>
+        <p><a href="${options.url}">Open the proposal in Camel OS</a></p>
+      `,
+    })
+  } catch (err) {
+    throw new Error(`Failed to send email: ${(err as Error).message}`)
+  }
+}
+
+export async function sendProposalAssignmentEmail(
+  to: string,
+  options: {
+    recipientName: string
+    proposalTitle: string
+    roleLabel: string
+    assignerName: string
+    deadline: string | null
+    url: string
+  }
+): Promise<void> {
+  try {
+    await getClient().transactionalEmails.sendTransacEmail({
+      sender: { name: 'Camel OS', email: getFromEmail() },
+      to: [{ email: to }],
+      subject: `You've been added to the proposal "${options.proposalTitle}"`,
+      htmlContent: `
+        <p>Hi ${options.recipientName},</p>
+        <p><strong>${options.assignerName}</strong> has added you as <strong>${options.roleLabel}</strong> on the proposal <strong>${options.proposalTitle}</strong>.</p>
+        ${options.deadline ? `<p>Submission deadline: <strong>${options.deadline}</strong></p>` : ''}
+        <p><a href="${options.url}">Open the proposal in Camel OS</a></p>
+      `,
+    })
+  } catch (err) {
+    throw new Error(`Failed to send email: ${(err as Error).message}`)
+  }
+}
+
 export async function sendMfaEmailCode(
   to: string,
   options: { code: string; expiresInMinutes: number }

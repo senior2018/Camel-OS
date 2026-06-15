@@ -542,12 +542,7 @@ const recipientChips = computed(() =>
             :can-write="canWrite"
           />
 
-          <ProposalBrainstormCard
-            :proposal-id="proposalId"
-            :brainstorm="data.proposal.brainstorm"
-            :can-write="canWrite"
-            @changed="refresh"
-          />
+          <ProposalBrainstormCard :proposal-id="proposalId" :can-write="canWrite" />
 
           <ProposalBdLogCard
             v-if="isPostSubmission"

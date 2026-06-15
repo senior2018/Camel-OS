@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   PROPOSAL_BOARD_LANES,
+  PROPOSAL_STATUSES,
   PROPOSAL_STATUS_COLOR,
   PROPOSAL_STATUS_LABEL,
   laneForStatus,
@@ -47,8 +48,29 @@ const { data, status } = await useFetch<{ items: ProposalRow[] }>('/api/proposal
 
 const view = ref<'board' | 'dashboard'>('board')
 
-// ── PM-08: manager dashboard aggregates ──
+// ── Search + status filter (board view) ──
+const search = ref('')
+const statusFilter = ref<ProposalStatus[]>([])
+const statusOptions = PROPOSAL_STATUSES.map((s) => ({ label: PROPOSAL_STATUS_LABEL[s], value: s }))
+const hasFilters = computed(() => search.value.trim().length > 0 || statusFilter.value.length > 0)
+function clearFilters() {
+  search.value = ''
+  statusFilter.value = []
+}
+
+// ── PM-08: manager dashboard aggregates (always over the full set) ──
 const allItems = computed(() => data.value?.items ?? [])
+
+// Board respects the active search + status filter.
+const filteredItems = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  const statuses = statusFilter.value
+  return allItems.value.filter((p) => {
+    if (statuses.length && !statuses.includes(p.status)) return false
+    if (q && !`${p.title} ${p.opportunityTitle}`.toLowerCase().includes(q)) return false
+    return true
+  })
+})
 function daysTo(d: string | null): number | null {
   if (!d) return null
   return Math.ceil((new Date(d).getTime() - Date.now()) / 86_400_000)
@@ -91,34 +113,31 @@ function rag(days: number | null): 'error' | 'warning' | 'neutral' {
   return 'neutral'
 }
 
-// Group proposals into the six readable board lanes (the 13 raw statuses are
-// too many for columns).
+// Group proposals into the six readable board lanes (the raw statuses are too
+// many for columns). Honours the active filter.
 const byLane = computed<Record<string, ProposalRow[]>>(() => {
   const map: Record<string, ProposalRow[]> = Object.fromEntries(
     PROPOSAL_BOARD_LANES.map((l) => [l.key, [] as ProposalRow[]])
   )
-  for (const p of data.value?.items ?? []) map[laneForStatus(p.status).key]!.push(p)
+  for (const p of filteredItems.value) map[laneForStatus(p.status).key]!.push(p)
   return map
 })
 
-// Per-lane pagination — each column pages independently.
-const LANE_PAGE_SIZE = 8
-const lanePages = reactive<Record<string, number>>({})
-function lanePage(key: string): number {
-  return lanePages[key] ?? 1
+// Per-lane "show more" — cap each column, reveal another batch on demand.
+const LANE_PAGE = 4
+const laneShown = reactive<Record<string, number>>({})
+function laneVisibleCount(key: string): number {
+  return laneShown[key] ?? LANE_PAGE
 }
-function pagedLane(key: string): ProposalRow[] {
-  const all = byLane.value[key] ?? []
-  const start = (lanePage(key) - 1) * LANE_PAGE_SIZE
-  return all.slice(start, start + LANE_PAGE_SIZE)
+function laneVisible(key: string): ProposalRow[] {
+  return (byLane.value[key] ?? []).slice(0, laneVisibleCount(key))
 }
-// Reset a lane to page 1 if its contents shrink below the current page.
-watch(byLane, (map) => {
-  for (const lane of PROPOSAL_BOARD_LANES) {
-    const pages = Math.max(1, Math.ceil((map[lane.key]?.length ?? 0) / LANE_PAGE_SIZE))
-    if ((lanePages[lane.key] ?? 1) > pages) lanePages[lane.key] = pages
-  }
-})
+function laneShowMore(key: string) {
+  laneShown[key] = laneVisibleCount(key) + LANE_PAGE
+}
+function laneShowLess(key: string) {
+  laneShown[key] = LANE_PAGE
+}
 
 function laneAccent(lane: ProposalBoardLane): string {
   const map: Record<string, string> = {
@@ -268,72 +287,129 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
       </UCard>
     </div>
 
-    <div v-else class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
-      <section
-        v-for="lane in PROPOSAL_BOARD_LANES"
-        :key="lane.key"
-        :class="['flex flex-col rounded-xl border bg-default/40 p-3', laneAccent(lane)]"
-      >
-        <header class="mb-2">
-          <div class="flex items-center gap-2">
-            <span class="text-sm font-semibold text-default">{{ lane.label }}</span>
-            <span class="text-xs font-medium text-muted">{{ byLane[lane.key]?.length ?? 0 }}</span>
-          </div>
-          <p class="mt-0.5 text-xs text-muted">{{ lane.description }}</p>
-        </header>
-
-        <div
-          v-if="!byLane[lane.key]?.length"
-          class="flex flex-1 items-center justify-center rounded-lg border border-dashed border-default p-6 text-center text-xs text-muted"
-        >
-          Nothing here yet.
-        </div>
-
-        <ul v-else class="space-y-2">
-          <li
-            v-for="p in pagedLane(lane.key)"
-            :key="p.id"
-            class="cursor-pointer rounded-lg border border-default bg-default p-3 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow"
-            @click="navigateTo(`/proposals/${p.id}`)"
-          >
-            <div class="flex items-start justify-between gap-2">
-              <p class="line-clamp-2 text-sm font-medium text-default">{{ p.title }}</p>
-              <UBadge
-                :color="PROPOSAL_STATUS_COLOR[p.status]"
-                variant="subtle"
-                size="xs"
-                :label="PROPOSAL_STATUS_LABEL[p.status]"
-              />
-            </div>
-            <p class="mt-1 truncate text-xs text-muted">
-              <UIcon name="i-lucide-target" class="mr-1 inline size-3" />
-              {{ p.opportunityTitle }}
-            </p>
-            <div class="mt-2 flex items-center justify-between text-xs">
-              <UBadge
-                v-if="p.deadline"
-                variant="subtle"
-                :color="deadlineColor(p.deadline)"
-                size="xs"
-                :label="deadlineLabel(p.deadline)"
-              />
-              <span v-else class="text-dimmed">No deadline</span>
-              <span v-if="p.reminderRecipientUserIds.length" class="text-muted">
-                <UIcon name="i-lucide-users" class="inline size-3" />
-                {{ p.reminderRecipientUserIds.length }}
-              </span>
-            </div>
-          </li>
-        </ul>
-
-        <AppPagination
-          :page="lanePage(lane.key)"
-          :total="byLane[lane.key]?.length ?? 0"
-          :page-size="LANE_PAGE_SIZE"
-          class="mt-3"
-          @update:page="lanePages[lane.key] = $event"
+    <div v-else class="space-y-4">
+      <!-- Search + status filter -->
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <UInput
+          v-model="search"
+          icon="i-lucide-search"
+          placeholder="Search by title or opportunity…"
+          class="sm:max-w-xs"
         />
-      </section>
+        <USelectMenu
+          v-model="statusFilter"
+          :items="statusOptions"
+          value-key="value"
+          multiple
+          placeholder="Any status"
+          icon="i-lucide-filter"
+          class="sm:w-60"
+        />
+        <UButton
+          v-if="hasFilters"
+          variant="ghost"
+          color="neutral"
+          icon="i-lucide-x"
+          label="Clear"
+          size="sm"
+          @click="clearFilters"
+        />
+        <span class="text-xs text-muted sm:ml-auto">{{ filteredItems.length }} shown</span>
+      </div>
+
+      <div
+        v-if="!filteredItems.length"
+        class="flex flex-col items-center gap-2 rounded-xl border border-dashed border-default p-10 text-center"
+      >
+        <UIcon name="i-lucide-filter-x" class="size-8 text-muted" />
+        <p class="text-sm text-muted">No proposals match your filters.</p>
+      </div>
+
+      <div v-else class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        <section
+          v-for="lane in PROPOSAL_BOARD_LANES"
+          :key="lane.key"
+          :class="['flex flex-col rounded-xl border bg-default/40 p-3', laneAccent(lane)]"
+        >
+          <header class="mb-2">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-semibold text-default">{{ lane.label }}</span>
+              <span class="text-xs font-medium text-muted">{{
+                byLane[lane.key]?.length ?? 0
+              }}</span>
+            </div>
+            <p class="mt-0.5 text-xs text-muted">{{ lane.description }}</p>
+          </header>
+
+          <div
+            v-if="!byLane[lane.key]?.length"
+            class="flex flex-1 items-center justify-center rounded-lg border border-dashed border-default p-6 text-center text-xs text-muted"
+          >
+            Nothing here yet.
+          </div>
+
+          <ul v-else class="space-y-2">
+            <li
+              v-for="p in laneVisible(lane.key)"
+              :key="p.id"
+              class="cursor-pointer rounded-lg border border-default bg-default p-3 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow"
+              @click="navigateTo(`/proposals/${p.id}`)"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <p class="line-clamp-2 text-sm font-medium text-default">{{ p.title }}</p>
+                <UBadge
+                  :color="PROPOSAL_STATUS_COLOR[p.status]"
+                  variant="subtle"
+                  size="xs"
+                  :label="PROPOSAL_STATUS_LABEL[p.status]"
+                />
+              </div>
+              <p class="mt-1 truncate text-xs text-muted">
+                <UIcon name="i-lucide-target" class="mr-1 inline size-3" />
+                {{ p.opportunityTitle }}
+              </p>
+              <div class="mt-2 flex items-center justify-between text-xs">
+                <UBadge
+                  v-if="p.deadline"
+                  variant="subtle"
+                  :color="deadlineColor(p.deadline)"
+                  size="xs"
+                  :label="deadlineLabel(p.deadline)"
+                />
+                <span v-else class="text-dimmed">No deadline</span>
+                <span v-if="p.reminderRecipientUserIds.length" class="text-muted">
+                  <UIcon name="i-lucide-users" class="inline size-3" />
+                  {{ p.reminderRecipientUserIds.length }}
+                </span>
+              </div>
+            </li>
+          </ul>
+
+          <div
+            v-if="(byLane[lane.key]?.length ?? 0) > LANE_PAGE"
+            class="mt-2 flex items-center justify-center gap-2"
+          >
+            <UButton
+              v-if="laneVisibleCount(lane.key) < (byLane[lane.key]?.length ?? 0)"
+              size="xs"
+              variant="ghost"
+              color="neutral"
+              :label="`Show more (${(byLane[lane.key]?.length ?? 0) - laneVisibleCount(lane.key)})`"
+              icon="i-lucide-chevron-down"
+              @click="laneShowMore(lane.key)"
+            />
+            <UButton
+              v-if="laneVisibleCount(lane.key) > LANE_PAGE"
+              size="xs"
+              variant="ghost"
+              color="neutral"
+              label="Show less"
+              icon="i-lucide-chevron-up"
+              @click="laneShowLess(lane.key)"
+            />
+          </div>
+        </section>
+      </div>
     </div>
   </div>
 </template>

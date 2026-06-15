@@ -1,17 +1,22 @@
 import { consola } from 'consola'
-import { and, asc, eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
-import { proposalSections, proposals, users } from '@@/server/database/schema'
+import { proposalBrainstormNotes, proposals } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
+import { isProposalWriter } from '@@/server/utils/proposal-access'
 import { requirePermission } from '@@/server/utils/permission-guard'
+import { createBrainstormNoteSchema } from '@@/shared/schemas/proposal-brainstorm'
 
+/** PM-04 — add a note to the brainstorming board. Writers only. */
 export default defineEventHandler(async (event) => {
   try {
     const ctx = await requirePermission(event, 'proposal', 'read')
     const id = getRouterParam(event, 'id')
     if (!id) throw createError({ statusCode: 400, statusMessage: 'Proposal ID is required' })
 
+    const payload = createBrainstormNoteSchema.parse(await readBody(event))
     const db = useDrizzle()
+
     const [proposal] = await db
       .select({ id: proposals.id })
       .from(proposals)
@@ -19,27 +24,24 @@ export default defineEventHandler(async (event) => {
       .limit(1)
     if (!proposal) throw createError({ statusCode: 404, statusMessage: 'Proposal not found' })
 
-    const sections = await db
-      .select({
-        id: proposalSections.id,
-        title: proposalSections.title,
-        body: proposalSections.body,
-        sortOrder: proposalSections.sortOrder,
-        assignedToUserId: proposalSections.assignedToUserId,
-        assignedToFirstName: users.firstName,
-        assignedToLastName: users.lastName,
-        updatedAt: proposalSections.updatedAt,
-        updatedByUserId: proposalSections.updatedByUserId,
-      })
-      .from(proposalSections)
-      .leftJoin(users, eq(users.id, proposalSections.assignedToUserId))
-      .where(eq(proposalSections.proposalId, id))
-      .orderBy(asc(proposalSections.sortOrder), asc(proposalSections.createdAt))
+    if (!(await isProposalWriter(id, ctx.userId, ctx.isSystemAdmin))) {
+      throw createError({ statusCode: 403, statusMessage: 'Only the writing team can brainstorm' })
+    }
 
-    return { sections }
+    const [note] = await db
+      .insert(proposalBrainstormNotes)
+      .values({
+        proposalId: id,
+        organizationId: ctx.organizationId,
+        body: payload.body,
+        createdByUserId: ctx.userId,
+      })
+      .returning()
+
+    return { success: true, note }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
-    consola.error('Error listing proposal sections', error)
+    consola.error('Error adding brainstorm note', error)
     throw createError({ statusCode: 500, statusMessage: 'Internal server error' })
   }
 })

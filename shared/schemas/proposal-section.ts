@@ -14,6 +14,9 @@ export const updateProposalSectionSchema = z.object({
   body: z.string().trim().max(100_000).optional().nullable(),
   sortOrder: z.number().int().min(0).optional(),
   assignedToUserId: z.string().uuid().optional().nullable(),
+  // PM-03 — the `updatedAt` the client loaded; if it no longer matches, another
+  // writer saved in the meantime and we reject the write (409) to avoid clobber.
+  expectedUpdatedAt: z.string().datetime().optional(),
 })
 export type UpdateProposalSectionPayload = z.infer<typeof updateProposalSectionSchema>
 

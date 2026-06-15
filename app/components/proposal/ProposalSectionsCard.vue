@@ -12,6 +12,7 @@ interface Section {
   assignedToFirstName: string | null
   assignedToLastName: string | null
   updatedAt: string
+  updatedByUserId: string | null
 }
 
 const toast = useToast()
@@ -38,6 +39,11 @@ const ownerItems = computed(() => [
     value: m.id as string | null,
   })),
 ])
+function memberName(userId: string | null): string | null {
+  if (!userId) return null
+  const m = (teamData.value?.members ?? []).find((x) => x.id === userId)
+  return m ? [m.firstName, m.lastName].filter(Boolean).join(' ') || m.email : null
+}
 
 // Local edit buffers keyed by section id.
 const drafts = reactive<Record<string, { body: string; assignedToUserId: string | null }>>({})
@@ -85,8 +91,57 @@ async function seedTemplate() {
 async function saveSection(s: Section) {
   const d = drafts[s.id]
   if (!d) return
-  const ok = await api(`/${s.id}`, 'PATCH', { body: d.body, assignedToUserId: d.assignedToUserId })
-  if (ok) toast.add({ title: 'Section saved', color: 'success' })
+  const ok = await api(`/${s.id}`, 'PATCH', {
+    body: d.body,
+    assignedToUserId: d.assignedToUserId,
+    expectedUpdatedAt: s.updatedAt,
+  })
+  if (ok) {
+    toast.add({ title: 'Section saved', color: 'success' })
+    if (openHistory.value === s.id) await loadHistory(s.id)
+  }
+}
+
+// ── PM-03: per-section save history ──
+interface Version {
+  id: string
+  title: string
+  body: string | null
+  createdAt: string
+  savedByFirstName: string | null
+  savedByLastName: string | null
+}
+const openHistory = ref<string | null>(null)
+const historyBySection = reactive<Record<string, Version[]>>({})
+async function loadHistory(sectionId: string) {
+  try {
+    const res = await $fetch<{ versions: Version[] }>(
+      `/api/proposals/${props.proposalId}/sections/${sectionId}/versions`
+    )
+    historyBySection[sectionId] = res.versions
+  } catch {
+    historyBySection[sectionId] = []
+  }
+}
+async function toggleHistory(sectionId: string) {
+  if (openHistory.value === sectionId) {
+    openHistory.value = null
+    return
+  }
+  openHistory.value = sectionId
+  if (!historyBySection[sectionId]) await loadHistory(sectionId)
+}
+function restoreVersion(sectionId: string, v: Version) {
+  const d = drafts[sectionId]
+  if (d) d.body = v.body ?? ''
+  toast.add({
+    title: 'Loaded into editor',
+    description: 'Review, then Save section.',
+    color: 'info',
+  })
+}
+function savedByName(v: Version): string {
+  return [v.savedByFirstName, v.savedByLastName].filter(Boolean).join(' ') || 'User'
 }
 async function deleteSection(s: Section) {
   await api(`/${s.id}`, 'DELETE')
@@ -99,6 +154,7 @@ const currentUserId = computed(() => (user.value as { id: string } | null)?.id ?
 interface Comment {
   id: string
   sectionId: string | null
+  parentCommentId: string | null
   body: string
   createdAt: string
   createdByUserId: string | null
@@ -110,23 +166,39 @@ const { data: commentData, refresh: refreshComments } = await useFetch<{ comment
   () => `/api/proposals/${props.proposalId}/comments`,
   { key: () => `proposal-comments-${props.proposalId}`, default: () => ({ comments: [] }) }
 )
+// Top-level comments for a section (threaded replies hang off these).
 function commentsFor(sectionId: string): Comment[] {
-  return (commentData.value?.comments ?? []).filter((c) => c.sectionId === sectionId)
+  return (commentData.value?.comments ?? []).filter(
+    (c) => c.sectionId === sectionId && !c.parentCommentId
+  )
+}
+function repliesFor(commentId: string): Comment[] {
+  return (commentData.value?.comments ?? []).filter((c) => c.parentCommentId === commentId)
 }
 function authorName(c: Comment): string {
   return [c.authorFirstName, c.authorLastName].filter(Boolean).join(' ') || c.authorEmail || 'User'
 }
 
 const commentDrafts = reactive<Record<string, string>>({})
-async function postComment(sectionId: string) {
-  const body = (commentDrafts[sectionId] ?? '').trim()
+// Which comment's reply box is open, plus per-comment reply drafts.
+const replyingTo = ref<string | null>(null)
+const replyDrafts = reactive<Record<string, string>>({})
+function toggleReply(commentId: string) {
+  replyingTo.value = replyingTo.value === commentId ? null : commentId
+}
+
+async function postComment(sectionId: string, parentCommentId: string | null = null) {
+  const draftKey = parentCommentId ?? sectionId
+  const store = parentCommentId ? replyDrafts : commentDrafts
+  const body = (store[draftKey] ?? '').trim()
   if (!body) return
   try {
     await $fetch(`/api/proposals/${props.proposalId}/comments`, {
       method: 'POST',
-      body: { sectionId, body },
+      body: { sectionId, parentCommentId, body },
     })
-    commentDrafts[sectionId] = ''
+    store[draftKey] = ''
+    if (parentCommentId) replyingTo.value = null
     await refreshComments()
   } catch (err) {
     const msg = (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Failed'
@@ -207,8 +279,71 @@ async function deleteComment(commentId: string) {
         />
         <p v-else-if="s.body" class="whitespace-pre-wrap text-sm text-default">{{ s.body }}</p>
         <p v-else class="text-sm text-muted">Empty.</p>
-        <div v-if="canWrite" class="mt-2 flex justify-end">
-          <UButton size="xs" label="Save section" :loading="busy" @click="saveSection(s)" />
+        <div class="mt-2 flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2 text-xs text-dimmed">
+            <span v-if="memberName(s.updatedByUserId)">
+              Edited by {{ memberName(s.updatedByUserId) }} ·
+              {{
+                new Date(s.updatedAt).toLocaleDateString(undefined, {
+                  month: 'short',
+                  day: 'numeric',
+                })
+              }}
+            </span>
+            <UButton
+              size="xs"
+              variant="link"
+              color="neutral"
+              icon="i-lucide-history"
+              :label="openHistory === s.id ? 'Hide history' : 'History'"
+              @click="toggleHistory(s.id)"
+            />
+          </div>
+          <UButton
+            v-if="canWrite"
+            size="xs"
+            label="Save section"
+            :loading="busy"
+            @click="saveSection(s)"
+          />
+        </div>
+
+        <!-- PM-03 — save history -->
+        <div v-if="openHistory === s.id" class="mt-2 space-y-1.5 border-t border-default pt-2">
+          <p v-if="!historyBySection[s.id]?.length" class="text-xs text-muted">
+            No saved revisions yet.
+          </p>
+          <div
+            v-for="v in historyBySection[s.id] ?? []"
+            :key="v.id"
+            class="rounded-md bg-elevated/40 px-2 py-1.5 text-xs"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-dimmed">
+                {{ savedByName(v) }} ·
+                {{
+                  new Date(v.createdAt).toLocaleString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })
+                }}
+              </span>
+              <UButton
+                v-if="canWrite"
+                size="xs"
+                variant="ghost"
+                color="neutral"
+                icon="i-lucide-rotate-ccw"
+                label="Restore"
+                @click="restoreVersion(s.id, v)"
+              />
+            </div>
+            <p class="mt-0.5 line-clamp-3 whitespace-pre-wrap text-muted">
+              {{ v.body || '(empty)' }}
+            </p>
+          </div>
         </div>
 
         <!-- PM-06 — section comments -->
@@ -228,6 +363,14 @@ async function deleteComment(commentId: string) {
                   })
                 }}</span>
                 <UButton
+                  icon="i-lucide-reply"
+                  size="xs"
+                  variant="ghost"
+                  color="neutral"
+                  aria-label="Reply"
+                  @click="toggleReply(c.id)"
+                />
+                <UButton
                   v-if="c.createdByUserId === currentUserId"
                   icon="i-lucide-x"
                   size="xs"
@@ -239,6 +382,47 @@ async function deleteComment(commentId: string) {
               </div>
             </div>
             <p class="mt-0.5 whitespace-pre-wrap text-muted">{{ c.body }}</p>
+
+            <!-- Threaded replies -->
+            <div
+              v-for="r in repliesFor(c.id)"
+              :key="r.id"
+              class="mt-1.5 ml-3 border-l border-default pl-2"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <span class="font-medium text-default">{{ authorName(r) }}</span>
+                <UButton
+                  v-if="r.createdByUserId === currentUserId"
+                  icon="i-lucide-x"
+                  size="xs"
+                  variant="ghost"
+                  color="error"
+                  aria-label="Delete reply"
+                  @click="deleteComment(r.id)"
+                />
+              </div>
+              <p class="mt-0.5 whitespace-pre-wrap text-muted">{{ r.body }}</p>
+            </div>
+
+            <!-- Reply box -->
+            <div v-if="replyingTo === c.id" class="mt-1.5 ml-3 flex items-center gap-2">
+              <UInput
+                v-model="replyDrafts[c.id]"
+                size="xs"
+                placeholder="Write a reply…"
+                class="flex-1"
+                autofocus
+                @keyup.enter="postComment(s.id, c.id)"
+              />
+              <UButton
+                size="xs"
+                variant="soft"
+                icon="i-lucide-send"
+                aria-label="Post reply"
+                :disabled="!(replyDrafts[c.id] ?? '').trim()"
+                @click="postComment(s.id, c.id)"
+              />
+            </div>
           </div>
           <div class="flex items-center gap-2">
             <UInput

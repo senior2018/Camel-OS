@@ -41,6 +41,10 @@ const redirectTo = computed(() => {
   return typeof redirect === 'string' && redirect.length > 0 ? redirect : '/dashboard'
 })
 
+// Shown when the global 401 handler bounced the user here after their session
+// expired (idle timeout) rather than from an explicit sign-out.
+const sessionExpired = computed(() => route.query.reason === 'session-expired')
+
 const toast = useToast()
 const { fetch: refreshSession } = useUserSession()
 const accountLocked = ref(false)
@@ -152,6 +156,16 @@ async function resendReset() {
       <h1 class="text-3xl font-semibold tracking-tight text-default">Welcome back</h1>
       <p class="mt-2 text-sm text-muted">Sign in to your workspace to continue.</p>
     </div>
+
+    <UAlert
+      v-if="sessionExpired"
+      class="mb-6"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-clock"
+      title="Session expired"
+      description="You were signed out due to inactivity. Please sign in again to continue."
+    />
 
     <UAuthForm :schema="schema" :fields="fields" :loading-auto="true" @submit="onSubmit">
       <template #password-hint>

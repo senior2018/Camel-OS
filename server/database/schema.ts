@@ -39,6 +39,11 @@ export const opportunityStatusEnum = pgEnum('opportunity_status', [
   'rejected',
 ])
 
+// Provenance of `opportunities.win_probability`. Manual today; when the AI
+// scorer lands it writes the same `win_probability` field and flips this to
+// 'ai' — so the forecast dashboard (which reads one field) needs no rework.
+export const winProbabilitySourceEnum = pgEnum('win_probability_source', ['manual', 'ai'])
+
 export const opportunityStageEnum = pgEnum('opportunity_stage', [
   'discovery',
   'qualifying',
@@ -477,6 +482,12 @@ export const opportunities = pgTable(
     // Reviewer-estimated win likelihood (0–100). Manual today; the spec calls
     // for an AI-driven calculation off historical wins later.
     winProbability: integer('win_probability'),
+    // OM-06 / AI-readiness — how `winProbability` was set. Defaults to 'manual';
+    // the future AI scorer sets 'ai'. Lets the dashboard badge the source and
+    // lets AI slot in without touching reads.
+    winProbabilitySource: winProbabilitySourceEnum('win_probability_source')
+      .notNull()
+      .default('manual'),
     // Free-form categorisation chips — re-introduced after client feedback.
     // Stored as a text[] so admins can search/filter without a join table.
     tags: text()
@@ -748,6 +759,10 @@ export const proposalSections = pgTable(
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
+    // PM-03 — who last saved this section (for the "last edited by" line).
+    updatedByUserId: uuid('updated_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -755,6 +770,52 @@ export const proposalSections = pgTable(
     index('proposal_sections_proposal_id_idx').on(table.proposalId),
     index('proposal_sections_assigned_to_user_id_idx').on(table.assignedToUserId),
   ]
+)
+
+// ─── Proposal Section Versions (PM-03) ───────────────────────────────────────
+// Save-history snapshot taken on every section update, so writers can see who
+// changed what and roll back. One row per save of a section's body/title.
+export const proposalSectionVersions = pgTable(
+  'proposal_section_versions',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    sectionId: uuid('section_id')
+      .notNull()
+      .references(() => proposalSections.id, { onDelete: 'cascade' }),
+    proposalId: uuid('proposal_id')
+      .notNull()
+      .references(() => proposals.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    title: text().notNull(),
+    body: text(),
+    savedByUserId: uuid('saved_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('proposal_section_versions_section_id_idx').on(table.sectionId)]
+)
+
+// ─── Proposal Brainstorm Notes (PM-04) ───────────────────────────────────────
+// Multi-note brainstorming board for the writing team. Supersedes the single
+// free-text `proposals.brainstorm` column (kept for backward compatibility).
+export const proposalBrainstormNotes = pgTable(
+  'proposal_brainstorm_notes',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    proposalId: uuid('proposal_id')
+      .notNull()
+      .references(() => proposals.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    body: text().notNull(),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('proposal_brainstorm_notes_proposal_id_idx').on(table.proposalId)]
 )
 
 // ─── Proposal Section Comments (S12 — PM-06) ─────────────────────────────────
@@ -799,6 +860,12 @@ export const proposalBdNotes = pgTable(
       .references(() => organizations.id, { onDelete: 'cascade' }),
     kind: proposalBdNoteKindEnum().notNull().default('note'),
     body: text().notNull(),
+    // BD-02 — optional single file attachment (e.g. an evaluator's scoresheet).
+    // Stored in the proposal-attachments bucket under a `…/bd/` key prefix.
+    attachmentStorageKey: text('attachment_storage_key'),
+    attachmentFileName: text('attachment_file_name'),
+    attachmentMimeType: text('attachment_mime_type'),
+    attachmentFileSize: integer('attachment_file_size'),
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -1437,6 +1504,12 @@ export type NewProposalReviewer = typeof proposalReviewers.$inferInsert
 
 export type ProposalSection = typeof proposalSections.$inferSelect
 export type NewProposalSection = typeof proposalSections.$inferInsert
+
+export type ProposalSectionVersion = typeof proposalSectionVersions.$inferSelect
+export type NewProposalSectionVersion = typeof proposalSectionVersions.$inferInsert
+
+export type ProposalBrainstormNote = typeof proposalBrainstormNotes.$inferSelect
+export type NewProposalBrainstormNote = typeof proposalBrainstormNotes.$inferInsert
 
 export type ProposalSectionComment = typeof proposalSectionComments.$inferSelect
 export type NewProposalSectionComment = typeof proposalSectionComments.$inferInsert

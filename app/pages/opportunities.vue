@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { CreateOpportunityPayload, OpportunityStatus } from '@@/shared/schemas/opportunity'
-import { OPPORTUNITY_STATUSES } from '@@/shared/schemas/opportunity'
+import { OPPORTUNITY_STATUSES, OPPORTUNITY_STATUS_LABEL } from '@@/shared/schemas/opportunity'
 import type { Opportunity } from '@/composables/useOpportunities'
 import type { OpportunityFilterState } from '@/components/opportunity/OpportunityFilters.vue'
 
@@ -23,6 +23,8 @@ if (!can.value('opportunity', 'read')) {
 const canCreate = computed(() => can.value('opportunity', 'create'))
 const canUpdate = computed(() => can.value('opportunity', 'update'))
 const canDelete = computed(() => can.value('opportunity', 'delete'))
+// OM-08 — Accept/Reject (Go/No-Go) is a managerial action, separate from edit.
+const canApprove = computed(() => can.value('opportunity', 'approve'))
 
 // Record-level edit rule (mirrors the server guard): only the owner, the
 // creator, or an admin may edit/delete an opportunity. Anyone with
@@ -164,6 +166,27 @@ async function confirmAndDelete() {
   await deleteOpportunity(opp)
 }
 
+// ─── OM-03 drag-and-drop status transitions ────────────────────────────────────
+const pendingMove = ref<{ opp: Opportunity; toStatus: OpportunityStatus } | null>(null)
+const moveComment = ref('')
+const movingStatus = ref(false)
+const moveRequiresComment = computed(() => pendingMove.value?.toStatus === 'rejected')
+
+function requestMove(opp: Opportunity, toStatus: OpportunityStatus) {
+  if (!canApprove.value) return
+  moveComment.value = ''
+  pendingMove.value = { opp, toStatus }
+}
+async function confirmMove() {
+  if (!pendingMove.value) return
+  if (moveRequiresComment.value && !moveComment.value.trim()) return
+  movingStatus.value = true
+  const { opp, toStatus } = pendingMove.value
+  const ok = await moveStatus(opp, toStatus, moveComment.value.trim() || null)
+  movingStatus.value = false
+  if (ok) pendingMove.value = null
+}
+
 const totalCount = computed(() => data.value?.items?.length ?? 0)
 const filteredCount = computed(() => filteredItems.value.length)
 
@@ -278,7 +301,9 @@ const {
         <OpportunityStatusBoard
           v-if="view === 'board'"
           :grouped="filteredGroupedByStatus"
+          :can-drag="canApprove"
           @select-opportunity="openEdit"
+          @move="requestMove"
         />
 
         <template v-else-if="view === 'list'">
@@ -301,7 +326,7 @@ const {
       :submitting="submitting"
       :can-delete="canDelete"
       :can-edit="editing ? canEditOpp(editing) : canCreate"
-      :can-change-status="canUpdate"
+      :can-change-status="canApprove"
       @submit="handleSubmit"
       @delete="
         (opp) => {
@@ -311,7 +336,7 @@ const {
       "
       @move-status="
         async (opp, toStatus, comment) => {
-          if (!canUpdate) return
+          if (!canApprove) return
           const ok = await moveStatus(opp, toStatus, comment)
           if (ok) {
             editing = { ...opp, status: toStatus }
@@ -336,6 +361,47 @@ const {
         <div class="flex justify-end gap-3">
           <UButton variant="ghost" label="Cancel" @click="confirmDelete = null" />
           <UButton v-if="canDelete" color="error" label="Delete" @click="confirmAndDelete" />
+        </div>
+      </template>
+    </UModal>
+
+    <!-- OM-03 — confirm a drag-and-drop status transition -->
+    <UModal
+      :open="!!pendingMove"
+      title="Change status?"
+      @update:open="!$event && (pendingMove = null)"
+    >
+      <template #body>
+        <p class="text-sm text-muted">
+          Move
+          <span class="font-medium text-default">{{ pendingMove?.opp.title }}</span>
+          to
+          <span class="font-medium text-default">
+            {{ pendingMove ? OPPORTUNITY_STATUS_LABEL[pendingMove.toStatus] : '' }}</span
+          >.
+          <span v-if="pendingMove?.toStatus === 'accepted'">A proposal will be created.</span>
+        </p>
+        <UFormField
+          class="mt-3"
+          :label="moveRequiresComment ? 'Reason (required)' : 'Comment (optional)'"
+        >
+          <UTextarea
+            v-model="moveComment"
+            :rows="3"
+            class="w-full"
+            placeholder="Add context for this transition…"
+          />
+        </UFormField>
+      </template>
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <UButton variant="ghost" label="Cancel" @click="pendingMove = null" />
+          <UButton
+            label="Confirm"
+            :loading="movingStatus"
+            :disabled="moveRequiresComment && !moveComment.trim()"
+            @click="confirmMove"
+          />
         </div>
       </template>
     </UModal>

@@ -86,8 +86,8 @@ async function saveWriting() {
   if (ok) emit('changed')
 }
 
-const hasLead = computed(() => !!holderOf('lead'))
 const reviewerCount = computed(() => holdersOf(REVIEWER_ROLES).length)
+const contributorCount = computed(() => holdersOf(['contributor']).length)
 </script>
 
 <template>
@@ -148,41 +148,46 @@ const reviewerCount = computed(() => holdersOf(REVIEWER_ROLES).length)
         </div>
       </section>
 
-      <!-- Writing team (Lead-managed) -->
-      <section v-if="hasLead" class="space-y-3 border-t border-default pt-4">
+      <!-- Writing team (manager or Lead) -->
+      <section class="space-y-3 border-t border-default pt-4">
         <p class="text-xs font-semibold uppercase tracking-wide text-muted">
           Writing team — {{ PROPOSAL_ASSIGNMENT_ROLE_LABEL.contributor }}s
         </p>
+        <!-- Only the Proposal Lead (or admin) staffs the writing team (PM-02). -->
         <template v-if="canManageWriting">
-          <USelectMenu
-            v-model="contributorsDraft"
-            :items="userItems"
-            value-key="value"
-            multiple
-            placeholder="Add co-authors…"
-            class="w-full"
-          />
-          <UButton
-            :loading="savingWriting"
-            size="sm"
-            label="Save contributors"
-            @click="saveWriting"
-          />
-          <p class="text-xs text-muted">Only the Proposal Lead manages contributors.</p>
+          <UFormField label="Writers (co-author the sections)">
+            <USelectMenu
+              v-model="contributorsDraft"
+              :items="userItems"
+              value-key="value"
+              multiple
+              placeholder="Add writers / co-authors…"
+              class="w-full"
+            />
+          </UFormField>
+          <UButton :loading="savingWriting" size="sm" label="Save writers" @click="saveWriting" />
+          <p class="text-xs text-muted">
+            Writers edit the proposal sections — keep them separate from the reviewers.
+          </p>
         </template>
-        <div v-else class="flex flex-wrap gap-1">
-          <UBadge
-            v-for="cid in holdersOf(['contributor'])"
-            :key="cid"
-            variant="subtle"
-            color="neutral"
-            size="xs"
-            :label="nameOf(cid)"
-          />
-          <span v-if="!holdersOf(['contributor']).length" class="text-sm text-muted">
-            No contributors yet.
-          </span>
-        </div>
+        <template v-else>
+          <p v-if="canManageReview" class="text-xs text-muted">
+            Writers are chosen by the <span class="font-medium text-default">Proposal Lead</span> —
+            assign the Lead above, then they add the writing team here. (Don't put writers in the
+            Reviewers list.)
+          </p>
+          <div class="flex flex-wrap gap-1">
+            <UBadge
+              v-for="cid in holdersOf(['contributor'])"
+              :key="cid"
+              variant="subtle"
+              color="neutral"
+              size="xs"
+              :label="nameOf(cid)"
+            />
+            <span v-if="!contributorCount" class="text-sm text-muted">No writers yet.</span>
+          </div>
+        </template>
       </section>
     </div>
   </UCard>

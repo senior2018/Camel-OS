@@ -1,10 +1,11 @@
 import { consola } from 'consola'
-import { and, asc, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 
-import { proposalSections, proposals, users } from '@@/server/database/schema'
+import { proposalBrainstormNotes, proposals, users } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
 
+/** PM-04 — list the brainstorming board notes for a proposal. */
 export default defineEventHandler(async (event) => {
   try {
     const ctx = await requirePermission(event, 'proposal', 'read')
@@ -19,27 +20,24 @@ export default defineEventHandler(async (event) => {
       .limit(1)
     if (!proposal) throw createError({ statusCode: 404, statusMessage: 'Proposal not found' })
 
-    const sections = await db
+    const notes = await db
       .select({
-        id: proposalSections.id,
-        title: proposalSections.title,
-        body: proposalSections.body,
-        sortOrder: proposalSections.sortOrder,
-        assignedToUserId: proposalSections.assignedToUserId,
-        assignedToFirstName: users.firstName,
-        assignedToLastName: users.lastName,
-        updatedAt: proposalSections.updatedAt,
-        updatedByUserId: proposalSections.updatedByUserId,
+        id: proposalBrainstormNotes.id,
+        body: proposalBrainstormNotes.body,
+        createdAt: proposalBrainstormNotes.createdAt,
+        createdByUserId: proposalBrainstormNotes.createdByUserId,
+        authorFirstName: users.firstName,
+        authorLastName: users.lastName,
       })
-      .from(proposalSections)
-      .leftJoin(users, eq(users.id, proposalSections.assignedToUserId))
-      .where(eq(proposalSections.proposalId, id))
-      .orderBy(asc(proposalSections.sortOrder), asc(proposalSections.createdAt))
+      .from(proposalBrainstormNotes)
+      .leftJoin(users, eq(users.id, proposalBrainstormNotes.createdByUserId))
+      .where(eq(proposalBrainstormNotes.proposalId, id))
+      .orderBy(desc(proposalBrainstormNotes.createdAt))
 
-    return { sections }
+    return { notes }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
-    consola.error('Error listing proposal sections', error)
+    consola.error('Error listing brainstorm notes', error)
     throw createError({ statusCode: 500, statusMessage: 'Internal server error' })
   }
 })

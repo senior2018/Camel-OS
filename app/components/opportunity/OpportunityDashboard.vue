@@ -100,13 +100,99 @@ const topByValue = computed(() =>
     .slice(0, 5)
 )
 
+// ── OM-06 weighted forecast ──
+// Weighted value = estimated value × win probability. Rejected opportunities
+// are excluded (they will not convert). Win probability is the manual field
+// today; a future AI scorer writes the same field, so this needs no change.
+function weightedOf(opp: Opportunity): number {
+  if (opp.status === 'rejected') return 0
+  return (valueOf(opp) * (opp.winProbability ?? 0)) / 100
+}
+const forecastItems = computed(() => props.items.filter((o) => o.status !== 'rejected'))
+const weightedTotal = computed(() => forecastItems.value.reduce((s, o) => s + weightedOf(o), 0))
+const openValue = computed(() => forecastItems.value.reduce((s, o) => s + valueOf(o), 0))
+const missingProbCount = computed(
+  () => forecastItems.value.filter((o) => o.winProbability === null).length
+)
+const avgProb = computed(() => {
+  const scored = forecastItems.value.filter((o) => o.winProbability !== null)
+  if (!scored.length) return null
+  return Math.round(scored.reduce((s, o) => s + (o.winProbability ?? 0), 0) / scored.length)
+})
+const weightedByStatus = computed(() =>
+  (['pending', 'accepted'] as OpportunityStatus[]).map((status) => ({
+    status,
+    label: OPPORTUNITY_STATUS_LABEL[status],
+    weighted: props.items.filter((o) => o.status === status).reduce((s, o) => s + weightedOf(o), 0),
+  }))
+)
+
 function formatMoney(n: number, currency = 'USD'): string {
   return `${n.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${currency}`
+}
+
+// OM-06 — export to Excel (CSV opens natively in Excel/Sheets).
+function csvEscape(v: unknown): string {
+  if (v === null || v === undefined) return ''
+  const s = String(v)
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+function downloadExcel() {
+  const header = [
+    'Title',
+    'Status',
+    'Source',
+    'Estimated value',
+    'Currency',
+    'Win probability %',
+    'Probability source',
+    'Weighted value',
+  ]
+  const rows = props.items.map((o) =>
+    [
+      o.title,
+      OPPORTUNITY_STATUS_LABEL[o.status],
+      OPPORTUNITY_SOURCE_LABEL[o.source] ?? o.source,
+      valueOf(o),
+      o.currency,
+      o.winProbability ?? '',
+      o.winProbabilitySource ?? 'manual',
+      Math.round(weightedOf(o)),
+    ]
+      .map(csvEscape)
+      .join(',')
+  )
+  const csv = [header.join(','), ...rows].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `opportunity-forecast-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
 }
 </script>
 
 <template>
   <div class="space-y-6">
+    <!-- Export actions (OM-06: exportable to PDF + Excel) -->
+    <div class="flex justify-end gap-2">
+      <UButton
+        size="sm"
+        variant="outline"
+        icon="i-lucide-download"
+        label="Excel"
+        @click="downloadExcel"
+      />
+      <UButton
+        size="sm"
+        variant="outline"
+        icon="i-lucide-printer"
+        label="Print / PDF"
+        @click="navigateTo('/print/opportunity-forecast')"
+      />
+    </div>
+
     <!-- Headline cards -->
     <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <UCard :ui="{ body: 'p-5' }">
@@ -126,6 +212,51 @@ function formatMoney(n: number, currency = 'USD'): string {
       <UCard :ui="{ body: 'p-5' }">
         <p class="text-xs uppercase tracking-wide text-muted">Pipeline value</p>
         <p class="mt-2 text-3xl font-semibold text-default">{{ formatMoney(totalValue) }}</p>
+      </UCard>
+    </section>
+
+    <!-- OM-06 weighted forecast -->
+    <section>
+      <UCard>
+        <template #header>
+          <div class="flex items-center justify-between">
+            <h2 class="font-semibold">Weighted forecast</h2>
+            <span class="text-xs text-muted">value × win probability · excludes rejected</span>
+          </div>
+        </template>
+        <div class="grid gap-4 sm:grid-cols-3">
+          <div>
+            <p class="text-xs uppercase tracking-wide text-muted">Weighted pipeline</p>
+            <p class="mt-1 text-2xl font-semibold text-primary">{{ formatMoney(weightedTotal) }}</p>
+            <p class="mt-1 text-xs text-dimmed">of {{ formatMoney(openValue) }} open value</p>
+          </div>
+          <div>
+            <p class="text-xs uppercase tracking-wide text-muted">Avg win probability</p>
+            <p class="mt-1 text-2xl font-semibold text-default">
+              {{ avgProb === null ? '—' : `${avgProb}%` }}
+            </p>
+          </div>
+          <div>
+            <p class="text-xs uppercase tracking-wide text-muted">Missing probability</p>
+            <p
+              class="mt-1 text-2xl font-semibold"
+              :class="missingProbCount ? 'text-warning' : 'text-success'"
+            >
+              {{ missingProbCount }}
+            </p>
+            <p class="mt-1 text-xs text-dimmed">open opportunities unscored</p>
+          </div>
+        </div>
+        <ul class="mt-4 space-y-2 border-t border-default pt-3">
+          <li
+            v-for="row in weightedByStatus"
+            :key="row.status"
+            class="flex items-center justify-between text-sm"
+          >
+            <span class="text-muted">{{ row.label }}</span>
+            <span class="font-medium text-default">{{ formatMoney(row.weighted) }}</span>
+          </li>
+        </ul>
       </UCard>
     </section>
 

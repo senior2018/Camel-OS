@@ -8,12 +8,16 @@
  * `role_permissions.module`), but adding them here keeps the matrix consistent.
  */
 
-export type PermissionAction = 'read' | 'create' | 'update' | 'delete' | 'admin'
+export type PermissionAction = 'read' | 'create' | 'update' | 'approve' | 'delete' | 'admin'
 
 export const ACTIONS: readonly PermissionAction[] = [
   'read',
   'create',
   'update',
+  // Managerial sign-off, distinct from a plain edit. Drives the opportunity
+  // Accept/Reject (Go/No-Go) decision (OM-08): a BD Officer creates + edits,
+  // but only a role granted `approve` can accept or reject.
+  'approve',
   'delete',
   'admin',
 ] as const
@@ -151,7 +155,7 @@ export const DEFAULT_ROLES: readonly DefaultRoleDefinition[] = [
     mfaRequired: false,
     isSystem: true,
     permissions: {
-      opportunity: ['read', 'create', 'update'],
+      opportunity: ['read', 'create', 'update', 'approve'],
       crm: ['read', 'create', 'update'],
       communications: ['read', 'create', 'update'],
       proposal: ['read', 'create', 'update'],

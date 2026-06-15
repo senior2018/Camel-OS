@@ -15,6 +15,7 @@
     "db:demo": "tsx ./scripts/demo-setup",
     "db:demo-data": "tsx ./scripts/seed-demo-data",
     "db:reset": "tsx ./scripts/reset-db",
+    "db:grant-approve": "tsx ./scripts/grant-opportunity-approve",
     "db:fresh": "pnpm db:reset && pnpm db:migrate && pnpm db:seed",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
@@ -30,6 +31,7 @@
     "@supabase/supabase-js": "^2.57.4",
     "consola": "^3.4.2",
     "drizzle-orm": "^0.44.6",
+    "exceljs": "^4.4.0",
     "ioredis": "^5.10.1",
     "nuxt": "^4.4.2",
     "nuxt-auth-utils": "0.5.29",
