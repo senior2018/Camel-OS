@@ -1,7 +1,14 @@
 import { consola } from 'consola'
-import { and, asc, count, desc, eq, exists, or } from 'drizzle-orm'
+import { and, asc, count, desc, eq, exists, or, sql } from 'drizzle-orm'
 
-import { opportunities, proposalAssignments, proposals, users } from '@@/server/database/schema'
+import {
+  clients,
+  opportunities,
+  opportunityClients,
+  proposalAssignments,
+  proposals,
+  users,
+} from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import { userHasPermission } from '@@/server/utils/role'
@@ -51,6 +58,16 @@ export default defineEventHandler(async (event) => {
       .where(scope)
     const total = totalRows[0]?.total ?? 0
 
+    // The client behind the proposal's opportunity — primary link first, oldest
+    // as a stable fallback (mirrors the opportunities board).
+    const primaryClientName = sql<string | null>`(
+      SELECT ${clients.name} FROM ${opportunityClients}
+      INNER JOIN ${clients} ON ${clients.id} = ${opportunityClients.clientId}
+      WHERE ${opportunityClients.opportunityId} = ${proposals.opportunityId}
+      ORDER BY ${opportunityClients.isPrimary} DESC, ${opportunityClients.createdAt} ASC
+      LIMIT 1
+    )`.as('primary_client_name')
+
     const rows = await db
       .select({
         id: proposals.id,
@@ -67,6 +84,9 @@ export default defineEventHandler(async (event) => {
         createdByLastName: users.lastName,
         opportunityTitle: opportunities.title,
         opportunityStatus: opportunities.status,
+        estimatedValue: opportunities.estimatedValue,
+        currency: opportunities.currency,
+        primaryClientName,
       })
       .from(proposals)
       .leftJoin(users, eq(users.id, proposals.createdByUserId))
@@ -80,7 +100,12 @@ export default defineEventHandler(async (event) => {
     ) as Record<ProposalStatus, typeof rows>
     for (const row of rows) groupedByStatus[row.status].push(row)
 
-    return { items: rows, groupedByStatus, total: total ?? rows.length, capped: (total ?? 0) > LIMIT }
+    return {
+      items: rows,
+      groupedByStatus,
+      total: total ?? rows.length,
+      capped: (total ?? 0) > LIMIT,
+    }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
     consola.error('Error listing proposals', error)

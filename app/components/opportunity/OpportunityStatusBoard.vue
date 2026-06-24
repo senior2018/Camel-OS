@@ -81,7 +81,7 @@ function statusBorder(s: OpportunityStatus): string {
       v-for="s in OPPORTUNITY_STATUSES"
       :key="s"
       :class="[
-        'flex flex-col rounded-xl border bg-default/40 p-3 transition-colors',
+        'flex max-h-[calc(100dvh-16rem)] flex-col overflow-hidden rounded-xl border bg-default/40 transition-colors',
         statusBorder(s),
         canDrag && dragOver === s && dragging?.status !== s
           ? 'bg-primary/5 ring-2 ring-primary/40'
@@ -91,26 +91,24 @@ function statusBorder(s: OpportunityStatus): string {
       @dragleave="dragOver === s && (dragOver = null)"
       @drop.prevent="onDrop(s)"
     >
-      <header class="mb-2 flex items-center justify-between">
-        <div>
-          <div class="flex items-center gap-2">
-            <UBadge variant="subtle" :color="statusColor(s)" size="sm">
-              {{ OPPORTUNITY_STATUS_LABEL[s] }}
-            </UBadge>
-            <span class="text-xs font-medium text-muted">{{ grouped[s].length }}</span>
-          </div>
-          <p class="mt-1 text-xs text-muted">{{ OPPORTUNITY_STATUS_DESCRIPTION[s] }}</p>
+      <header class="shrink-0 border-b border-default/60 px-3 py-2.5">
+        <div class="flex items-center gap-2">
+          <UBadge variant="subtle" :color="statusColor(s)" size="sm">
+            {{ OPPORTUNITY_STATUS_LABEL[s] }}
+          </UBadge>
+          <span class="text-xs font-medium text-muted">{{ grouped[s].length }}</span>
         </div>
+        <p class="mt-1 text-xs text-muted">{{ OPPORTUNITY_STATUS_DESCRIPTION[s] }}</p>
       </header>
 
       <div
         v-if="!grouped[s].length"
-        class="flex flex-1 items-center justify-center rounded-lg border border-dashed border-default p-6 text-center text-xs text-muted"
+        class="m-3 flex flex-1 items-center justify-center rounded-lg border border-dashed border-default p-6 text-center text-xs text-muted"
       >
         {{ canDrag && dragging ? 'Drop here' : 'Nothing here yet.' }}
       </div>
 
-      <ul v-else class="space-y-2">
+      <ul v-else class="flex-1 space-y-2 overflow-y-auto p-3">
         <li
           v-for="opp in visibleCards(s)"
           :key="opp.id"
@@ -130,7 +128,7 @@ function statusBorder(s: OpportunityStatus): string {
       <!-- Show more / less — keeps busy columns light -->
       <div
         v-if="(grouped[s]?.length ?? 0) > COLUMN_PAGE"
-        class="mt-2 flex items-center justify-center gap-2"
+        class="flex shrink-0 items-center justify-center gap-2 border-t border-default/60 p-2"
       >
         <UButton
           v-if="visibleCount(s) < (grouped[s]?.length ?? 0)"

@@ -191,6 +191,12 @@ const totalCount = computed(() => data.value?.total ?? data.value?.items?.length
 const capped = computed(() => data.value?.capped ?? false)
 const filteredCount = computed(() => filteredItems.value.length)
 
+// Permanent "basic" status filter (advanced filters live in OpportunityFilters).
+const statusOptions = OPPORTUNITY_STATUSES.map((s) => ({
+  label: OPPORTUNITY_STATUS_LABEL[s],
+  value: s,
+}))
+
 // List view pagination (board + dashboard intentionally show the full set).
 const {
   page: listPage,
@@ -241,13 +247,13 @@ const {
           </UButton>
         </UFieldGroup>
         <UButton
-          variant="outline"
+          variant="ghost"
           color="neutral"
-          icon="i-lucide-filter"
-          :aria-label="showFilters ? 'Hide filters' : 'Show filters'"
+          :icon="showFilters ? 'i-lucide-chevron-up' : 'i-lucide-sliders-horizontal'"
+          :aria-label="showFilters ? 'Hide advanced filters' : 'Show advanced filters'"
           @click="showFilters = !showFilters"
         >
-          <span class="hidden sm:inline">{{ showFilters ? 'Hide filters' : 'Filters' }}</span>
+          <span class="hidden sm:inline">{{ showFilters ? 'Less' : 'More filters' }}</span>
         </UButton>
         <UButton
           v-if="canCreate"
@@ -262,14 +268,25 @@ const {
       </div>
     </header>
 
-    <!-- Permanent search — advanced filters live behind the Filters toggle. -->
-    <UInput
-      v-model="filters.search"
-      icon="i-lucide-search"
-      placeholder="Search opportunities by title…"
-      size="md"
-      class="w-full sm:max-w-md"
-    />
+    <!-- Basics always visible (search + status); the rest behind "More filters". -->
+    <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <UInput
+        v-model="filters.search"
+        icon="i-lucide-search"
+        placeholder="Search opportunities by title…"
+        size="md"
+        class="w-full sm:max-w-md"
+      />
+      <USelectMenu
+        v-model="filters.statuses"
+        :items="statusOptions"
+        value-key="value"
+        multiple
+        placeholder="Any status"
+        size="md"
+        class="w-full sm:w-56"
+      />
+    </div>
 
     <OpportunityFilters v-if="showFilters" v-model="filters" />
 

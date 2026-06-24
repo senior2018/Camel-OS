@@ -1,10 +1,8 @@
 <script setup lang="ts">
-import {
-  OPPORTUNITY_STATUSES,
-  OPPORTUNITY_STATUS_LABEL,
-  type OpportunitySource,
-  type OpportunityStatus,
-  type OpportunityType,
+import type {
+  OpportunitySource,
+  OpportunityStatus,
+  OpportunityType,
 } from '@@/shared/schemas/opportunity'
 
 /**
@@ -66,10 +64,6 @@ const sourceOptions = computed(() =>
 const typeOptions = computed(() =>
   (lookupData.value?.types ?? []).map((t) => ({ label: t.label, value: t.key }))
 )
-const statusOptions = OPPORTUNITY_STATUSES.map((s) => ({
-  label: OPPORTUNITY_STATUS_LABEL[s],
-  value: s,
-}))
 
 const activeCount = computed(() => {
   let n = 0
@@ -119,17 +113,6 @@ function clearAll() {
       </div>
 
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <UFormField label="Status">
-          <USelectMenu
-            v-model="state.statuses"
-            :items="statusOptions"
-            value-key="value"
-            multiple
-            placeholder="Any status"
-            size="md"
-            class="w-full"
-          />
-        </UFormField>
         <UFormField label="Tag">
           <UInput v-model="state.tag" placeholder="e.g. tech" size="md" class="w-full" />
         </UFormField>

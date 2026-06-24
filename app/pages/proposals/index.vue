@@ -39,6 +39,9 @@ interface ProposalRow {
   createdByLastName: string | null
   opportunityTitle: string
   opportunityStatus: string
+  estimatedValue: string | null
+  currency: string | null
+  primaryClientName: string | null
 }
 
 const { data, status } = await useFetch<{ items: ProposalRow[]; total?: number; capped?: boolean }>(
@@ -48,35 +51,59 @@ const { data, status } = await useFetch<{ items: ProposalRow[]; total?: number; 
 const grandTotal = computed(() => data.value?.total ?? data.value?.items.length ?? 0)
 const capped = computed(() => data.value?.capped ?? false)
 
-const view = ref<'board' | 'dashboard'>('board')
+const view = ref<'board' | 'list' | 'dashboard'>('board')
 
-// ── Search + status filter (board view) ──
+// ── Filters — basics always visible (search + status), the rest behind a
+// collapsible "More filters" so the bar stays clean. Shared by Board + List. ──
 const search = ref('')
 const statusFilter = ref<ProposalStatus[]>([])
 const statusOptions = PROPOSAL_STATUSES.map((s) => ({ label: PROPOSAL_STATUS_LABEL[s], value: s }))
-const hasFilters = computed(() => search.value.trim().length > 0 || statusFilter.value.length > 0)
+const showAdvanced = ref(false)
+type DeadlineWindow = 'any' | 'overdue' | '7' | '30'
+const deadlineWindow = ref<DeadlineWindow>('any')
+const deadlineOptions = [
+  { label: 'Any deadline', value: 'any' },
+  { label: 'Overdue', value: 'overdue' },
+  { label: 'Due ≤ 7 days', value: '7' },
+  { label: 'Due ≤ 30 days', value: '30' },
+]
+const hasFilters = computed(
+  () =>
+    search.value.trim().length > 0 ||
+    statusFilter.value.length > 0 ||
+    deadlineWindow.value !== 'any'
+)
 function clearFilters() {
   search.value = ''
   statusFilter.value = []
+  deadlineWindow.value = 'any'
 }
 
 // ── PM-08: manager dashboard aggregates (always over the full set) ──
 const allItems = computed(() => data.value?.items ?? [])
 
-// Board respects the active search + status filter.
-const filteredItems = computed(() => {
-  const q = search.value.trim().toLowerCase()
-  const statuses = statusFilter.value
-  return allItems.value.filter((p) => {
-    if (statuses.length && !statuses.includes(p.status)) return false
-    if (q && !`${p.title} ${p.opportunityTitle}`.toLowerCase().includes(q)) return false
-    return true
-  })
-})
 function daysTo(d: string | null): number | null {
   if (!d) return null
   return Math.ceil((new Date(d).getTime() - Date.now()) / 86_400_000)
 }
+
+// Board + List respect the active filters.
+const filteredItems = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  const statuses = statusFilter.value
+  const win = deadlineWindow.value
+  return allItems.value.filter((p) => {
+    if (statuses.length && !statuses.includes(p.status)) return false
+    if (q && !`${p.title} ${p.opportunityTitle}`.toLowerCase().includes(q)) return false
+    if (win !== 'any') {
+      const d = daysTo(p.deadline)
+      if (win === 'overdue' && !(d !== null && d < 0)) return false
+      if (win === '7' && !(d !== null && d >= 0 && d <= 7)) return false
+      if (win === '30' && !(d !== null && d >= 0 && d <= 30)) return false
+    }
+    return true
+  })
+})
 const OPEN_STATUSES = new Set<ProposalStatus>([
   'assigned',
   'drafting',
@@ -136,16 +163,15 @@ const byLane = computed<Record<string, ProposalRow[]>>(() => {
   return map
 })
 
-// When filtering/searching, drop empty lanes so the board isn't a wall of
-// "0" columns; with no filter active, keep all lanes for the full overview.
+// Only show lanes that actually hold proposals — a board full of empty "0"
+// columns reads as clutter. Empty lanes simply fall away (the doc's ask).
 const visibleLanes = computed(() =>
-  hasFilters.value
-    ? PROPOSAL_BOARD_LANES.filter((l) => (byLane.value[l.key]?.length ?? 0) > 0)
-    : PROPOSAL_BOARD_LANES
+  PROPOSAL_BOARD_LANES.filter((l) => (byLane.value[l.key]?.length ?? 0) > 0)
 )
 
-// Per-lane "show more" — cap each column, reveal another batch on demand.
-const LANE_PAGE = 4
+// Per-lane "show more" — columns scroll independently, so seed a generous
+// batch and reveal more on demand (keeps initial render light for big lanes).
+const LANE_PAGE = 8
 const laneShown = reactive<Record<string, number>>({})
 function laneVisibleCount(key: string): number {
   return laneShown[key] ?? LANE_PAGE
@@ -186,6 +212,29 @@ function deadlineColor(d: string | null): 'error' | 'warning' | 'neutral' {
   return 'neutral'
 }
 
+// ── Card helpers ──
+// Subtitle: prefer the client; fall back to the opportunity title only when it
+// differs from the proposal title (they're often identical — avoid the dupe).
+function subtitle(p: ProposalRow): string | null {
+  if (p.primaryClientName) return p.primaryClientName
+  if (p.opportunityTitle && p.opportunityTitle !== p.title) return p.opportunityTitle
+  return null
+}
+function leadName(p: ProposalRow): string {
+  return [p.createdByFirstName, p.createdByLastName].filter(Boolean).join(' ') || 'Unassigned'
+}
+function initials(p: ProposalRow): string {
+  const a = p.createdByFirstName?.[0] ?? ''
+  const b = p.createdByLastName?.[0] ?? ''
+  return (a + b).toUpperCase() || '—'
+}
+function valueLabel(p: ProposalRow): string | null {
+  if (!p.estimatedValue) return null
+  const n = Number(p.estimatedValue)
+  if (!Number.isFinite(n) || n === 0) return null
+  return `${(p.currency ?? 'USD').toUpperCase()} ${Math.round(n).toLocaleString()}`
+}
+
 const totalCount = computed(() => data.value?.items.length ?? 0)
 </script>
 
@@ -207,6 +256,13 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
             icon="i-lucide-columns-3"
             label="Board"
             @click="view = 'board'"
+          />
+          <UButton
+            :color="view === 'list' ? 'primary' : 'neutral'"
+            :variant="view === 'list' ? 'solid' : 'outline'"
+            icon="i-lucide-list"
+            label="List"
+            @click="view = 'list'"
           />
           <UButton
             :color="view === 'dashboard' ? 'primary' : 'neutral'"
@@ -334,33 +390,55 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
     </div>
 
     <div v-else class="space-y-4">
-      <!-- Search + status filter -->
-      <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <UInput
-          v-model="search"
-          icon="i-lucide-search"
-          placeholder="Search by title or opportunity…"
-          class="sm:max-w-xs"
-        />
-        <USelectMenu
-          v-model="statusFilter"
-          :items="statusOptions"
-          value-key="value"
-          multiple
-          placeholder="Any status"
-          icon="i-lucide-filter"
-          class="sm:w-60"
-        />
-        <UButton
-          v-if="hasFilters"
-          variant="ghost"
-          color="neutral"
-          icon="i-lucide-x"
-          label="Clear"
-          size="sm"
-          @click="clearFilters"
-        />
-        <span class="text-xs text-muted sm:ml-auto">{{ filteredItems.length }} shown</span>
+      <!-- Filters: basics always visible; advanced behind "More filters" -->
+      <div class="space-y-2">
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <UInput
+            v-model="search"
+            icon="i-lucide-search"
+            placeholder="Search by title or opportunity…"
+            class="sm:max-w-xs"
+          />
+          <USelectMenu
+            v-model="statusFilter"
+            :items="statusOptions"
+            value-key="value"
+            multiple
+            placeholder="Any status"
+            class="sm:w-60"
+          />
+          <UButton
+            :icon="showAdvanced ? 'i-lucide-chevron-up' : 'i-lucide-sliders-horizontal'"
+            :label="showAdvanced ? 'Less' : 'More filters'"
+            variant="ghost"
+            color="neutral"
+            size="sm"
+            @click="showAdvanced = !showAdvanced"
+          />
+          <UButton
+            v-if="hasFilters"
+            variant="ghost"
+            color="neutral"
+            icon="i-lucide-x"
+            label="Clear"
+            size="sm"
+            @click="clearFilters"
+          />
+          <span class="text-xs text-muted sm:ml-auto">{{ filteredItems.length }} shown</span>
+        </div>
+        <div
+          v-if="showAdvanced"
+          class="flex flex-wrap items-center gap-2 rounded-lg border border-default bg-elevated/30 p-2"
+        >
+          <span class="text-xs font-medium text-muted">Deadline</span>
+          <USelect
+            v-model="deadlineWindow"
+            :items="deadlineOptions"
+            value-key="value"
+            size="sm"
+            class="w-44"
+          />
+        </div>
       </div>
 
       <div
@@ -371,30 +449,87 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
         <p class="text-sm text-muted">No proposals match your filters.</p>
       </div>
 
-      <div v-else class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+      <!-- List view -->
+      <div v-else-if="view === 'list'" class="overflow-hidden rounded-xl border border-default">
+        <table class="w-full text-sm">
+          <thead class="bg-elevated/40 text-left text-xs uppercase tracking-wide text-muted">
+            <tr>
+              <th class="px-4 py-2 font-medium">Proposal</th>
+              <th class="px-4 py-2 font-medium">Status</th>
+              <th class="hidden px-4 py-2 font-medium md:table-cell">Value</th>
+              <th class="px-4 py-2 font-medium">Deadline</th>
+              <th class="hidden px-4 py-2 font-medium sm:table-cell">Lead</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-default">
+            <tr
+              v-for="p in filteredItems"
+              :key="p.id"
+              class="cursor-pointer transition-colors hover:bg-elevated/40"
+              @click="navigateTo(`/proposals/${p.id}`)"
+            >
+              <td class="px-4 py-2.5">
+                <p class="font-medium text-default">{{ p.title }}</p>
+                <p v-if="subtitle(p)" class="truncate text-xs text-muted">{{ subtitle(p) }}</p>
+              </td>
+              <td class="px-4 py-2.5">
+                <UBadge
+                  :color="PROPOSAL_STATUS_COLOR[p.status]"
+                  variant="subtle"
+                  size="xs"
+                  :label="PROPOSAL_STATUS_LABEL[p.status]"
+                />
+              </td>
+              <td class="hidden px-4 py-2.5 text-muted md:table-cell">
+                {{ valueLabel(p) ?? '—' }}
+              </td>
+              <td class="px-4 py-2.5">
+                <UBadge
+                  v-if="p.deadline"
+                  variant="subtle"
+                  size="xs"
+                  :color="deadlineColor(p.deadline)"
+                  :label="deadlineLabel(p.deadline)"
+                />
+                <span v-else class="text-xs text-dimmed">—</span>
+              </td>
+              <td class="hidden px-4 py-2.5 sm:table-cell">
+                <div class="flex items-center gap-2 text-muted">
+                  <span
+                    class="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary"
+                  >
+                    {{ initials(p) }}
+                  </span>
+                  <span class="truncate">{{ leadName(p) }}</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Board view — horizontal Kanban: one pipeline left→right, columns
+           scroll independently, the row scrolls when there are many lanes. -->
+      <div class="flex gap-4 overflow-x-auto pb-3">
         <section
           v-for="lane in visibleLanes"
           :key="lane.key"
-          :class="['flex flex-col rounded-xl border bg-default/40 p-3', laneAccent(lane)]"
+          :class="[
+            'flex max-h-[calc(100dvh-15rem)] min-w-76 max-w-md flex-1 flex-col overflow-hidden rounded-xl border bg-default/40',
+            laneAccent(lane),
+          ]"
         >
-          <header class="mb-2">
+          <header class="shrink-0 border-b border-default/60 px-3 py-2.5">
             <div class="flex items-center gap-2">
               <span class="text-sm font-semibold text-default">{{ lane.label }}</span>
-              <span class="text-xs font-medium text-muted">{{
+              <span class="rounded-full bg-elevated px-1.5 text-xs font-medium text-muted">{{
                 byLane[lane.key]?.length ?? 0
               }}</span>
             </div>
             <p class="mt-0.5 text-xs text-muted">{{ lane.description }}</p>
           </header>
 
-          <div
-            v-if="!byLane[lane.key]?.length"
-            class="flex flex-1 items-center justify-center rounded-lg border border-dashed border-default p-6 text-center text-xs text-muted"
-          >
-            Nothing here yet.
-          </div>
-
-          <ul v-else class="space-y-2">
+          <ul class="flex-1 space-y-2 overflow-y-auto p-3">
             <li
               v-for="p in laneVisible(lane.key)"
               :key="p.id"
@@ -410,11 +545,14 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
                   :label="PROPOSAL_STATUS_LABEL[p.status]"
                 />
               </div>
-              <p class="mt-1 truncate text-xs text-muted">
-                <UIcon name="i-lucide-target" class="mr-1 inline size-3" />
-                {{ p.opportunityTitle }}
+              <p v-if="subtitle(p)" class="mt-1 flex items-center gap-1 text-xs text-muted">
+                <UIcon name="i-lucide-building-2" class="size-3 shrink-0" />
+                <span class="truncate">{{ subtitle(p) }}</span>
               </p>
-              <div class="mt-2 flex items-center justify-between text-xs">
+              <p v-if="valueLabel(p)" class="mt-1.5 text-xs font-medium text-default">
+                {{ valueLabel(p) }}
+              </p>
+              <div class="mt-2 flex items-center justify-between gap-2 text-xs">
                 <UBadge
                   v-if="p.deadline"
                   variant="subtle"
@@ -423,9 +561,11 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
                   :label="deadlineLabel(p.deadline)"
                 />
                 <span v-else class="text-dimmed">No deadline</span>
-                <span v-if="p.reminderRecipientUserIds.length" class="text-muted">
-                  <UIcon name="i-lucide-users" class="inline size-3" />
-                  {{ p.reminderRecipientUserIds.length }}
+                <span
+                  :title="`Lead: ${leadName(p)}`"
+                  class="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary"
+                >
+                  {{ initials(p) }}
                 </span>
               </div>
             </li>
@@ -433,7 +573,7 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
 
           <div
             v-if="(byLane[lane.key]?.length ?? 0) > LANE_PAGE"
-            class="mt-2 flex items-center justify-center gap-2"
+            class="flex shrink-0 items-center justify-center gap-2 border-t border-default/60 p-2"
           >
             <UButton
               v-if="laneVisibleCount(lane.key) < (byLane[lane.key]?.length ?? 0)"
