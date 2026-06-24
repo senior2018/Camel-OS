@@ -201,6 +201,7 @@ Internal roadmap lives in `PROGRESS.md` (gitignored). Major milestones:
 - build 1
 - build 2
 - build 3
+- build 4
   
 
 - **MVP v0.1** after S6 (Foundation → CRM)
