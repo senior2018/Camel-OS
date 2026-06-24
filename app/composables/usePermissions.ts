@@ -39,10 +39,15 @@ export async function usePermissions() {
   })
 
   const isAdmin = computed(() => fetchResult.data.value?.isAdmin === true)
+  // True god-mode (the legacy system administrator). Distinct from a module's
+  // `admin` action — used where we must mirror the server's `isSystemAdmin`
+  // bypass (e.g. content-editing) rather than mere module oversight.
+  const isSystemAdmin = computed(() => fetchResult.data.value?.adminLevel === 'system_admin')
 
   return {
     ...fetchResult,
     can,
     isAdmin,
+    isSystemAdmin,
   }
 }

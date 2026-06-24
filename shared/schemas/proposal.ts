@@ -130,8 +130,8 @@ export const PROPOSAL_BOARD_LANES: ProposalBoardLane[] = [
   },
   {
     key: 'closed',
-    label: 'Closed',
-    description: 'Stopped before submission',
+    label: 'Withdrawn',
+    description: 'Stopped before submission — not pursued',
     statuses: ['rejected', 'final_rejected'],
   },
 ]
@@ -171,6 +171,10 @@ export const updateProposalSchema = z.object({
   writingMode: z.enum(PROPOSAL_WRITING_MODES).optional(),
   submissionReference: z.string().trim().max(200).optional().nullable(),
   submissionChannel: z.string().trim().max(100).optional().nullable(),
+  // P3.3b — evaluation-stage label (free text) + an optional note that posts
+  // to the conversation and, for won/lost, is kept as the decision note.
+  evaluationStage: z.string().trim().max(120).optional().nullable(),
+  note: z.string().trim().max(2000).optional().nullable(),
   // Reminder fan-out — recipients to notify before the proposal deadline. We
   // keep this open (anyone in the org) since the team decides who needs to
   // know; final notification logic is wired in a later sprint.
@@ -178,3 +182,30 @@ export const updateProposalSchema = z.object({
 })
 
 export type UpdateProposalPayload = z.output<typeof updateProposalSchema>
+
+// P3.3 — configurable review policy.
+export const PROPOSAL_REVIEW_RULES = ['all', 'count', 'percent'] as const
+export type ProposalReviewRule = (typeof PROPOSAL_REVIEW_RULES)[number]
+export const PROPOSAL_REVIEW_RULE_LABEL: Record<ProposalReviewRule, string> = {
+  all: 'All reviewers must approve',
+  count: 'At least N reviewers approve',
+  percent: 'At least a percentage approve',
+}
+
+export const updateReviewPolicySchema = z
+  .object({
+    reviewMinReviewers: z.number().int().min(1).max(20),
+    reviewRule: z.enum(PROPOSAL_REVIEW_RULES),
+    reviewThreshold: z.number().int().min(1).max(100).nullable().optional(),
+    requireFinalApprover: z.boolean(),
+  })
+  .refine((v) => v.reviewRule === 'all' || (v.reviewThreshold ?? 0) >= 1, {
+    message: 'A threshold is required for count/percent rules',
+    path: ['reviewThreshold'],
+  })
+  .refine((v) => v.reviewRule !== 'percent' || (v.reviewThreshold ?? 0) <= 100, {
+    message: 'Percentage cannot exceed 100',
+    path: ['reviewThreshold'],
+  })
+
+export type UpdateReviewPolicyPayload = z.output<typeof updateReviewPolicySchema>

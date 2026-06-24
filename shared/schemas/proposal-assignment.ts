@@ -12,6 +12,9 @@ export const PROPOSAL_ASSIGNMENT_ROLES = [
   'finance_reviewer',
   'compliance_reviewer',
   'final_approver',
+  // P3.4 — access-only behaviours.
+  'commenter',
+  'viewer',
 ] as const
 
 export type ProposalAssignmentRole = (typeof PROPOSAL_ASSIGNMENT_ROLES)[number]
@@ -24,6 +27,8 @@ export const PROPOSAL_ASSIGNMENT_ROLE_LABEL: Record<ProposalAssignmentRole, stri
   finance_reviewer: 'Finance Reviewer',
   compliance_reviewer: 'Compliance Reviewer',
   final_approver: 'Final Approver',
+  commenter: 'Commenter',
+  viewer: 'Viewer',
 }
 
 export const PROPOSAL_ASSIGNMENT_ROLE_DESCRIPTION: Record<ProposalAssignmentRole, string> = {
@@ -34,6 +39,8 @@ export const PROPOSAL_ASSIGNMENT_ROLE_DESCRIPTION: Record<ProposalAssignmentRole
   finance_reviewer: 'Reviews budget and pricing',
   compliance_reviewer: 'Reviews compliance and legal aspects',
   final_approver: 'Final approval before submission',
+  commenter: 'Can view and join the conversation only',
+  viewer: 'Read-only access',
 }
 
 // Which roles belong to which team, and who manages each.
@@ -65,6 +72,46 @@ export const REVIEWER_ROLES: ProposalAssignmentRole[] = [
   'finance_reviewer',
   'compliance_reviewer',
 ]
+
+// ── Capability vocabulary (redesign v2) ─────────────────────────────────────
+// The workspace model expresses membership as capabilities (Google-Docs style)
+// rather than fixed job titles. Existing `proposalAssignments.roleType` rows map
+// onto these; the P2 "Manage access" UI is built on this vocabulary.
+export const PROPOSAL_CAPABILITIES = [
+  'lead',
+  'editor',
+  'reviewer',
+  'approver',
+  'commenter',
+  'viewer',
+] as const
+export type ProposalCapability = (typeof PROPOSAL_CAPABILITIES)[number]
+
+export const PROPOSAL_CAPABILITY_LABEL: Record<ProposalCapability, string> = {
+  lead: 'Lead',
+  editor: 'Editor',
+  reviewer: 'Reviewer',
+  approver: 'Approver',
+  commenter: 'Commenter',
+  viewer: 'Viewer',
+}
+
+export const PROPOSAL_CAPABILITY_DESCRIPTION: Record<ProposalCapability, string> = {
+  lead: 'Owns the proposal; invites members, reassigns lead, drives the workflow',
+  editor: 'Writes and edits the document',
+  reviewer: 'Approves, requests changes, or rejects — cannot edit content',
+  approver: 'Final sign-off before submission',
+  commenter: 'Can view and join the conversation, but not edit',
+  viewer: 'Read-only access',
+}
+
+/** Map a stored assignment role onto its workspace capability. */
+export function capabilityForRole(role: ProposalAssignmentRole): ProposalCapability {
+  if (role === 'lead') return 'lead'
+  if (role === 'contributor') return 'editor'
+  if (role === 'final_approver') return 'approver'
+  return 'reviewer' // reviewer + legacy technical/finance/compliance reviewers
+}
 
 export const createProposalAssignmentSchema = z.object({
   roleType: z.enum(PROPOSAL_ASSIGNMENT_ROLES),

@@ -24,9 +24,20 @@ export const PROPOSAL_REVIEWER_STATUS_COLOR: Record<ProposalReviewerStatus, Revi
   rejected: 'error',
 }
 
-export const submitProposalReviewSchema = z.object({
-  status: z.enum(['approved', 'changes_required', 'rejected']),
-  feedback: z.string().min(1, 'Feedback is required'),
-})
+// A message is optional for Approve / Changes — but a Reject must carry a reason.
+export const submitProposalReviewSchema = z
+  .object({
+    status: z.enum(['approved', 'changes_required', 'rejected']),
+    feedback: z
+      .string()
+      .trim()
+      .max(5000)
+      .optional()
+      .or(z.literal('').transform(() => undefined)),
+  })
+  .refine((v) => v.status !== 'rejected' || (v.feedback && v.feedback.length > 0), {
+    message: 'A reason is required when rejecting',
+    path: ['feedback'],
+  })
 
 export type SubmitProposalReviewPayload = z.infer<typeof submitProposalReviewSchema>

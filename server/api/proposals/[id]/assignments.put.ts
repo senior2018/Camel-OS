@@ -10,9 +10,14 @@ import { notifyProposalAssignments } from '@@/server/utils/proposal-notify'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import {
   GROUP_ROLES,
+  REVIEWER_ROLES,
   SINGLE_INSTANCE_ROLES,
   saveProposalTeamSchema,
 } from '@@/shared/schemas/proposal-assignment'
+
+// Separation of duties: a person who writes (Lead or Editor/contributor) may
+// not also review the same proposal. Mirrors the redesign blueprint.
+const WRITER_SIDE_ROLES = ['lead', 'contributor'] as const
 
 /**
  * Group-scoped team reconcile. The body carries a `group` ('writing' | 'review')
@@ -78,20 +83,46 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    // Snapshot the current roster for this group so we only email NEW members.
-    const existing = await db
+    // Current full roster — used for (a) emailing only NEW members of this
+    // group, and (b) the separation-of-duties check against the OTHER group.
+    const current = await db
       .select({
         roleType: proposalAssignments.roleType,
         assignedUserId: proposalAssignments.assignedUserId,
       })
       .from(proposalAssignments)
-      .where(
-        and(
-          eq(proposalAssignments.proposalId, id),
-          inArray(proposalAssignments.roleType, allowedRoles)
-        )
-      )
-    const existingKeys = new Set(existing.map((e) => `${e.roleType}:${e.assignedUserId}`))
+      .where(eq(proposalAssignments.proposalId, id))
+
+    const existingKeys = new Set(
+      current
+        .filter((e) => allowedRoles.includes(e.roleType))
+        .map((e) => `${e.roleType}:${e.assignedUserId}`)
+    )
+
+    // Separation of duties — combine the untouched OTHER group with the incoming
+    // assignments and reject anyone who would end up both writing and reviewing.
+    const resulting = [...current.filter((c) => !allowedRoles.includes(c.roleType)), ...assignments]
+    const writerSide = new Set(
+      resulting
+        .filter((r) => (WRITER_SIDE_ROLES as readonly string[]).includes(r.roleType))
+        .map((r) => r.assignedUserId)
+    )
+    const reviewerSide = new Set(
+      resulting.filter((r) => REVIEWER_ROLES.includes(r.roleType)).map((r) => r.assignedUserId)
+    )
+    const conflictUserId = [...writerSide].find((u) => reviewerSide.has(u))
+    if (conflictUserId) {
+      const [u] = await db
+        .select({ firstName: users.firstName, lastName: users.lastName, email: users.email })
+        .from(users)
+        .where(eq(users.id, conflictUserId))
+        .limit(1)
+      const who = [u?.firstName, u?.lastName].filter(Boolean).join(' ') || u?.email || 'A member'
+      throw createError({
+        statusCode: 400,
+        statusMessage: `${who} can't be both a writer and a reviewer on the same proposal (separation of duties).`,
+      })
+    }
 
     await db.transaction(async (tx) => {
       // Replace only this group's roles.

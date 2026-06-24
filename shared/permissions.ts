@@ -158,7 +158,10 @@ export const DEFAULT_ROLES: readonly DefaultRoleDefinition[] = [
       opportunity: ['read', 'create', 'update', 'approve'],
       crm: ['read', 'create', 'update'],
       communications: ['read', 'create', 'update'],
-      proposal: ['read', 'create', 'update'],
+      // `admin` here = proposal oversight (see every proposal in the org). It
+      // does NOT grant content-editing — writing still requires being the Lead
+      // or an Editor on that specific proposal (enforced server-side).
+      proposal: ['read', 'create', 'update', 'admin'],
       project: ['read', 'create', 'update'],
       mel: ['read', 'update'],
       hr: ['read'],

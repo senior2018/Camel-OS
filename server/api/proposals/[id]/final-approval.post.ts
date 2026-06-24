@@ -6,12 +6,19 @@ import { proposalAssignments, proposals } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { logAuditEvent } from '@@/server/utils/audit'
 import { logOpportunityActivity } from '@@/server/utils/opportunity-activity'
+import { postProposalSystemMessage } from '@@/server/utils/proposal-conversation'
 import { requirePermission } from '@@/server/utils/permission-guard'
 
-const bodySchema = z.object({
-  decision: z.enum(['approved', 'rejected']),
-  note: z.string().trim().max(2000).optional().nullable(),
-})
+const bodySchema = z
+  .object({
+    decision: z.enum(['approved', 'rejected']),
+    note: z.string().trim().max(2000).optional().nullable(),
+  })
+  // A final rejection must carry a reason (consistent with reviewer/loss).
+  .refine((v) => v.decision !== 'rejected' || (v.note && v.note.trim().length > 0), {
+    message: 'A reason is required to reject at final approval',
+    path: ['note'],
+  })
 
 /**
  * The assigned Final Approver signs off once all reviewers have aligned.
@@ -96,6 +103,17 @@ export default defineEventHandler(async (event) => {
       action: 'proposal:final_approval',
       details: { decision, newStatus, note: note ?? null },
     })
+
+    await postProposalSystemMessage({
+      proposalId: id,
+      organizationId: ctx.organizationId,
+      body:
+        decision === 'approved'
+          ? `Final approval granted — cleared to submit${note ? `: "${note}"` : ''}`
+          : `Final approval rejected${note ? `: "${note}"` : ''}`,
+      eventType: 'final_approval',
+      actorUserId: ctx.userId,
+    }).catch(() => {})
 
     return { success: true, proposal: updated }
   } catch (error) {

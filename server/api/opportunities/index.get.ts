@@ -1,5 +1,5 @@
 import { consola } from 'consola'
-import { asc, desc, eq, sql } from 'drizzle-orm'
+import { asc, count, desc, eq, sql } from 'drizzle-orm'
 
 import { clients, opportunities, opportunityClients, users } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
@@ -20,6 +20,9 @@ import {
  * Legacy `grouped` (by stage) is kept on the response for any caller that
  * still reads it; remove once every reader is migrated.
  */
+// Scale guard — never load an unbounded pipeline into the browser.
+const OPP_LIMIT = 500
+
 export default defineEventHandler(async (event) => {
   try {
     const ctx = await requirePermission(event, 'opportunity', 'read')
@@ -74,6 +77,13 @@ export default defineEventHandler(async (event) => {
       .leftJoin(users, eq(users.id, opportunities.ownerUserId))
       .where(eq(opportunities.organizationId, ctx.organizationId))
       .orderBy(asc(opportunities.deadline), desc(opportunities.createdAt))
+      .limit(OPP_LIMIT)
+
+    const totalRows = await useDrizzle()
+      .select({ total: count() })
+      .from(opportunities)
+      .where(eq(opportunities.organizationId, ctx.organizationId))
+    const total = totalRows[0]?.total ?? 0
 
     // Status columns (S7) — Pending / Accepted / Rejected.
     const groupedByStatus: Record<OpportunityStatus, typeof rows> = Object.fromEntries(
@@ -87,7 +97,13 @@ export default defineEventHandler(async (event) => {
     ) as Record<OpportunityStage, typeof rows>
     for (const row of rows) grouped[row.stage].push(row)
 
-    return { items: rows, grouped, groupedByStatus }
+    return {
+      items: rows,
+      grouped,
+      groupedByStatus,
+      total: total ?? rows.length,
+      capped: (total ?? 0) > OPP_LIMIT,
+    }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
     consola.error('Error listing opportunities', error)

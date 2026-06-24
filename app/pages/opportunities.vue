@@ -187,7 +187,8 @@ async function confirmMove() {
   if (ok) pendingMove.value = null
 }
 
-const totalCount = computed(() => data.value?.items?.length ?? 0)
+const totalCount = computed(() => data.value?.total ?? data.value?.items?.length ?? 0)
+const capped = computed(() => data.value?.capped ?? false)
 const filteredCount = computed(() => filteredItems.value.length)
 
 // List view pagination (board + dashboard intentionally show the full set).
@@ -261,7 +262,25 @@ const {
       </div>
     </header>
 
+    <!-- Permanent search — advanced filters live behind the Filters toggle. -->
+    <UInput
+      v-model="filters.search"
+      icon="i-lucide-search"
+      placeholder="Search opportunities by title…"
+      size="md"
+      class="w-full sm:max-w-md"
+    />
+
     <OpportunityFilters v-if="showFilters" v-model="filters" />
+
+    <UAlert
+      v-if="capped"
+      color="info"
+      variant="subtle"
+      icon="i-lucide-info"
+      title="Showing the most recent 500"
+      :description="`This view is capped for performance (${totalCount} total). Narrow with filters to find older opportunities.`"
+    />
 
     <div v-if="status === 'pending'" class="flex justify-center py-16">
       <UIcon name="i-lucide-loader-circle" class="size-8 animate-spin text-muted" />

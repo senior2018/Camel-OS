@@ -37,6 +37,8 @@ interface OpportunitiesResponse {
   items: Opportunity[]
   grouped: Record<OpportunityStage, Opportunity[]>
   groupedByStatus: Record<OpportunityStatus, Opportunity[]>
+  total?: number
+  capped?: boolean
 }
 
 /**

@@ -101,25 +101,21 @@ function clearAll() {
 <template>
   <UCard :ui="{ body: 'p-4' }">
     <div class="space-y-3">
-      <div class="flex items-center gap-3">
-        <UInput
-          v-model="state.search"
-          icon="i-lucide-search"
-          placeholder="Search by title…"
-          size="md"
-          class="flex-1"
-        />
-        <UBadge v-if="activeCount" variant="subtle" color="primary" size="sm">
-          {{ activeCount }} active
-        </UBadge>
-        <UButton
-          v-if="activeCount"
-          size="sm"
-          variant="ghost"
-          icon="i-lucide-x"
-          label="Clear"
-          @click="clearAll"
-        />
+      <div class="flex items-center justify-between gap-3">
+        <p class="text-xs font-semibold uppercase tracking-wide text-muted">Advanced filters</p>
+        <div class="flex items-center gap-2">
+          <UBadge v-if="activeCount" variant="subtle" color="primary" size="sm">
+            {{ activeCount }} active
+          </UBadge>
+          <UButton
+            v-if="activeCount"
+            size="sm"
+            variant="ghost"
+            icon="i-lucide-x"
+            label="Clear"
+            @click="clearAll"
+          />
+        </div>
       </div>
 
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

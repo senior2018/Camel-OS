@@ -84,6 +84,12 @@ const adminItems = computed(() => {
       icon: 'i-lucide-list-tree',
       active: route.path.startsWith('/admin/lookup-values'),
     },
+    {
+      label: 'Proposal settings',
+      to: '/admin/proposal-settings',
+      icon: 'i-lucide-sliders-horizontal',
+      active: route.path.startsWith('/admin/proposal-settings'),
+    },
   ]
 })
 

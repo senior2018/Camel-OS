@@ -3,14 +3,10 @@ import {
   PROPOSAL_STATUS_COLOR,
   PROPOSAL_STATUS_DESCRIPTION,
   PROPOSAL_STATUS_LABEL,
-  PROPOSAL_WRITING_MODES,
-  PROPOSAL_WRITING_MODE_LABEL,
   type ProposalStatus,
-  type ProposalWritingMode,
   type UpdateProposalPayload,
 } from '@@/shared/schemas/proposal'
-
-const WRITING_MODES = PROPOSAL_WRITING_MODES
+import type { ProposalRoleDef } from '@@/shared/schemas/proposal-settings'
 
 definePageMeta({
   layout: 'dashboard',
@@ -20,7 +16,7 @@ const route = useRoute()
 const proposalId = computed(() => route.params.id as string)
 const toast = useToast()
 
-const { can } = await usePermissions()
+const { can, isSystemAdmin } = await usePermissions()
 if (!can.value('proposal', 'read')) {
   throw createError({
     statusCode: 403,
@@ -38,6 +34,13 @@ interface ProposalDetail {
   opportunityId: string
   title: string
   status: ProposalStatus
+  reviewMinReviewers: number
+  reviewRule: 'all' | 'count' | 'percent'
+  reviewThreshold: number | null
+  requireFinalApprover: boolean
+  rolesOverride: ProposalRoleDef[] | null
+  outcomeStagesOverride: string[] | null
+  evaluationStage: string | null
   deadline: string | null
   contentDraft: string | null
   brainstorm: string | null
@@ -62,10 +65,19 @@ interface ProposalDetail {
   createdByLastName: string | null
 }
 
-const { data, refresh, status } = await useFetch<{ proposal: ProposalDetail }>(
-  () => `/api/proposals/${proposalId.value}`,
-  { key: () => `proposal-${proposalId.value}` }
-)
+interface ResolvedSettings {
+  roles: ProposalRoleDef[]
+  outcomeStages: string[]
+  reviewMinReviewers: number
+  reviewRule: 'all' | 'count' | 'percent'
+  reviewThreshold: number | null
+  requireFinalApprover: boolean
+}
+
+const { data, refresh, status } = await useFetch<{
+  proposal: ProposalDetail
+  settings: ResolvedSettings
+}>(() => `/api/proposals/${proposalId.value}`, { key: () => `proposal-${proposalId.value}` })
 
 useHead({
   title: computed(() => `${data.value?.proposal.title ?? 'Proposal'} — Camel OS`),
@@ -115,13 +127,17 @@ const isContributor = computed(() =>
     (a) => a.roleType === 'contributor' && a.assignedUserId === currentUserId.value
   )
 )
-const isAdmin = computed(() => can.value('proposal', 'admin'))
-// Writers (Lead + contributors, or admin) edit content; managers manage reviewers.
-const canWrite = computed(() => isAdmin.value || isLead.value || isContributor.value)
-const canManageWriting = computed(() => isAdmin.value || isLead.value)
-const canManageReview = computed(() => canEdit.value)
+// Content-editing mirrors the server's `isProposalWriter`: the Lead, an Editor
+// (contributor), or a true system admin. Module oversight (`proposal:admin`,
+// e.g. a Manager) deliberately does NOT grant editing — only visibility.
+const canWrite = computed(() => isSystemAdmin.value || isLead.value || isContributor.value)
 // Lead-or-manager may drive the workflow buttons.
 const canDrive = computed(() => canEdit.value || isLead.value)
+// Review policy + Manage Access are the Lead's or a manager's (proposal:admin).
+const canManagePolicy = computed(
+  () => isSystemAdmin.value || isLead.value || can.value('proposal', 'admin')
+)
+const canManageAccess = canManagePolicy
 
 const canSendForReview = computed(
   () =>
@@ -147,6 +163,9 @@ const showBdTracking = computed(
 const isClosed = computed(
   () => proposalStatus.value === 'rejected' || proposalStatus.value === 'final_rejected'
 )
+// P3.3c — a manager may override a decided outcome (e.g. correct Lost → Won).
+const isDecided = computed(() => ['won', 'lost', 'contract_signed'].includes(proposalStatus.value))
+const canOverride = computed(() => isSystemAdmin.value || can.value('proposal', 'admin'))
 // BD-02 — the post-submission log appears once a proposal has been submitted.
 const isPostSubmission = computed(() =>
   [
@@ -219,21 +238,6 @@ async function save() {
   }
 }
 
-async function setWritingMode(mode: ProposalWritingMode) {
-  if (mode === data.value?.proposal.writingMode) return
-  try {
-    await $fetch(`/api/proposals/${proposalId.value}`, {
-      method: 'PATCH',
-      body: { writingMode: mode },
-    })
-    await refresh()
-  } catch (err: unknown) {
-    const msg =
-      (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Please try again.'
-    toast.add({ title: 'Could not change mode', description: msg, color: 'error' })
-  }
-}
-
 // ─── Workflow actions ──────────────────────────────────────────────────────────
 async function onAfterChange() {
   await Promise.all([refresh(), refreshReviewers(), refreshAssignments()])
@@ -245,30 +249,6 @@ async function sendForReview() {
   const ok = await markReadyForReview()
   sendingForReview.value = false
   if (ok) await onAfterChange()
-}
-
-const finalNote = ref('')
-const finalActing = ref(false)
-async function finalDecision(decision: 'approved' | 'rejected') {
-  finalActing.value = true
-  try {
-    await $fetch(`/api/proposals/${proposalId.value}/final-approval`, {
-      method: 'POST',
-      body: { decision, note: finalNote.value || null },
-    })
-    toast.add({
-      title: decision === 'approved' ? 'Approved to submit' : 'Final rejection recorded',
-      color: decision === 'approved' ? 'success' : 'error',
-    })
-    finalNote.value = ''
-    await onAfterChange()
-  } catch (err: unknown) {
-    const msg =
-      (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Please try again.'
-    toast.add({ title: 'Could not record decision', description: msg, color: 'error' })
-  } finally {
-    finalActing.value = false
-  }
 }
 
 const settingStatus = ref(false)
@@ -299,6 +279,16 @@ const recipientChips = computed(() =>
     .map((id) => recipientOptions.value.find((o) => o.value === id)?.label)
     .filter(Boolean)
 )
+
+// Working surface tabs (left). The Conversation lives in a persistent right
+// rail — always visible, since not everyone scrolls. Documents sit under the
+// editor in the Document tab; reviewers act from a popup by the document.
+const workspaceTabs = [
+  { label: 'Document', icon: 'i-lucide-file-text', slot: 'document' as const },
+  { label: 'Team', icon: 'i-lucide-users', slot: 'team' as const },
+  { label: 'Activity', icon: 'i-lucide-history', slot: 'activity' as const },
+  { label: 'Details', icon: 'i-lucide-info', slot: 'details' as const },
+]
 </script>
 
 <template>
@@ -367,363 +357,351 @@ const recipientChips = computed(() =>
         </div>
       </header>
 
-      <!-- Workflow action bar — contextual to the current stage -->
-      <UCard
-        v-if="canSendForReview || showFinalApproval || showSubmit || showBdTracking || isClosed"
-      >
-        <div class="space-y-3">
-          <p class="text-xs font-medium uppercase tracking-wide text-muted">Next step</p>
-
-          <!-- Lead: send for review -->
-          <div v-if="canSendForReview" class="flex flex-wrap items-center gap-3">
-            <p class="text-sm text-default">
-              Drafting done? Send to the assigned reviewers for their decision.
-            </p>
-            <UButton
-              :loading="sendingForReview"
-              icon="i-lucide-send"
-              label="Send for review"
-              @click="sendForReview"
-            />
-          </div>
-
-          <!-- Final approver -->
-          <div v-if="showFinalApproval" class="space-y-2">
-            <p class="text-sm text-default">
-              All reviewers have aligned. Record your final decision.
-            </p>
-            <UTextarea
-              v-model="finalNote"
-              :rows="3"
-              placeholder="Optional note for the team…"
-              class="w-full"
-            />
-            <div class="flex gap-2">
-              <UButton
-                :loading="finalActing"
-                color="success"
-                icon="i-lucide-shield-check"
-                label="Approve to submit"
-                @click="finalDecision('approved')"
-              />
-              <UButton
-                :loading="finalActing"
-                color="error"
-                variant="soft"
-                icon="i-lucide-x"
-                label="Reject"
-                @click="finalDecision('rejected')"
-              />
-            </div>
-          </div>
-
-          <!-- Submit to client -->
-          <div v-if="showSubmit" class="flex flex-wrap items-center gap-3">
-            <p class="text-sm text-default">Cleared for submission.</p>
-            <UButton
-              :loading="settingStatus"
-              icon="i-lucide-upload"
-              label="Mark submitted"
-              @click="setStatus('submitted')"
-            />
-          </div>
-
-          <!-- BD tracking: evaluation stages + outcome -->
-          <div v-if="showBdTracking" class="flex flex-wrap items-center gap-2">
-            <p class="mr-1 text-sm text-default">Evaluation &amp; outcome:</p>
-            <UButton
-              v-if="proposalStatus !== 'under_evaluation'"
-              :loading="settingStatus"
-              color="info"
-              variant="soft"
-              size="sm"
-              label="Under evaluation"
-              @click="setStatus('under_evaluation')"
-            />
-            <UButton
-              v-if="proposalStatus !== 'clarification_requested'"
-              :loading="settingStatus"
-              color="warning"
-              variant="soft"
-              size="sm"
-              label="Clarification requested"
-              @click="setStatus('clarification_requested')"
-            />
-            <UButton
-              :loading="settingStatus"
-              color="warning"
-              variant="soft"
-              size="sm"
-              label="Shortlisted"
-              @click="setStatus('shortlisted')"
-            />
-            <UButton
-              :loading="settingStatus"
-              color="success"
-              size="sm"
-              label="Won"
-              @click="setStatus('won')"
-            />
-            <UButton
-              :loading="settingStatus"
-              color="error"
-              variant="soft"
-              size="sm"
-              label="Lost"
-              @click="setStatus('lost')"
-            />
-            <UButton
-              v-if="proposalStatus === 'won'"
-              :loading="settingStatus"
-              color="success"
-              icon="i-lucide-file-signature"
-              size="sm"
-              label="Contract signed → create project"
-              @click="setStatus('contract_signed')"
-            />
-          </div>
-
-          <div v-if="proposalStatus === 'contract_signed'" class="flex items-center gap-2">
-            <UIcon name="i-lucide-circle-check" class="size-4 text-success" />
-            <p class="text-sm text-success">Contract signed — a project was created.</p>
-          </div>
-
-          <!-- Closed -->
-          <div v-if="isClosed" class="flex flex-wrap items-center gap-3">
-            <p class="text-sm text-error">This proposal was stopped.</p>
-            <UButton
-              v-if="canDrive"
-              variant="outline"
-              size="sm"
-              icon="i-lucide-rotate-ccw"
-              label="Reopen for drafting"
-              @click="setStatus('drafting')"
-            />
-          </div>
-        </div>
-      </UCard>
-
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <!-- Main column -->
-        <div class="space-y-6 lg:col-span-2">
-          <!-- Authoring (PM-03): in-system sections and/or uploaded documents -->
-          <UCard>
-            <template #header>
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <h3 class="text-sm font-semibold text-default">Authoring</h3>
-                <UFieldGroup v-if="canWrite" size="xs">
-                  <UButton
-                    v-for="m in WRITING_MODES"
-                    :key="m"
-                    :variant="data.proposal.writingMode === m ? 'solid' : 'outline'"
-                    :color="data.proposal.writingMode === m ? 'primary' : 'neutral'"
-                    :label="PROPOSAL_WRITING_MODE_LABEL[m]"
-                    @click="setWritingMode(m)"
-                  />
-                </UFieldGroup>
-              </div>
-            </template>
-            <p class="text-sm text-muted">
-              How this proposal is being produced:
-              <b>{{ PROPOSAL_WRITING_MODE_LABEL[data.proposal.writingMode] }}</b
-              >.
-              <span v-if="!canWrite">Only the writing team can edit content.</span>
-            </p>
-          </UCard>
-
-          <ProposalSectionsCard
-            v-if="data.proposal.writingMode !== 'upload'"
-            :proposal-id="proposalId"
-            :can-write="canWrite"
-          />
-          <ProposalDocumentsCard
-            v-if="data.proposal.writingMode !== 'in_system'"
-            :proposal-id="proposalId"
-            :can-write="canWrite"
-          />
-
-          <ProposalBrainstormCard :proposal-id="proposalId" :can-write="canWrite" />
-
-          <ProposalBdLogCard
-            v-if="isPostSubmission"
-            :proposal-id="proposalId"
-            :can-log="canDrive"
-          />
-
-          <!-- Reviewer alignment + the current user's review form -->
-          <ProposalReviewerStatusCard :proposal-id="proposalId" />
-          <ProposalReviewForm
-            :proposal-id="proposalId"
-            :proposal-title="data.proposal.title"
-            @changed="onAfterChange"
-          />
-
-          <UCard
-            v-if="
-              data.proposal.status === 'won' ||
-              data.proposal.status === 'lost' ||
-              data.proposal.status === 'final_rejected' ||
-              editing
-            "
+        <!-- Working surface — tabbed -->
+        <div class="lg:col-span-2">
+          <UTabs
+            :items="workspaceTabs"
+            :unmount-on-hide="false"
+            variant="link"
+            class="w-full gap-4"
           >
-            <template #header>
-              <h3 class="text-sm font-semibold text-default">Decision note</h3>
-            </template>
-            <UTextarea
-              v-if="editing"
-              v-model="form.decisionNote"
-              :rows="4"
-              placeholder="Capture context about the win/loss decision."
-              class="w-full"
-            />
-            <p
-              v-else-if="data.proposal.decisionNote"
-              class="whitespace-pre-wrap text-sm text-default"
-            >
-              {{ data.proposal.decisionNote }}
-            </p>
-            <p v-else class="text-sm text-muted">No decision note yet.</p>
-          </UCard>
+            <!-- Document — one rich editor that fills the column; the Next-step
+                 workflow bar sits below it. Documents live in the right rail. -->
+            <template #document>
+              <!-- Height trimmed by the tab bar above it so this column's bottom
+                   lines up with the right rail's. -->
+              <div class="flex flex-col gap-3 lg:h-[calc(100dvh-10.5rem)]">
+                <!-- Reviewers act right by the document (popup → conversation) -->
+                <ProposalReviewAction :proposal-id="proposalId" @changed="onAfterChange" />
 
-          <div v-if="editing" class="flex justify-end gap-2">
-            <UButton variant="ghost" label="Cancel" @click="((editing = false), syncForm())" />
-            <UButton :loading="saving" label="Save changes" @click="save" />
-          </div>
-
-          <OpportunityActivityTimeline :opportunity-id="data.proposal.opportunityId" />
-        </div>
-
-        <!-- Sidebar -->
-        <div class="space-y-6 lg:col-span-1">
-          <ProposalTeamAssignmentCard
-            :proposal-id="proposalId"
-            :can-manage-review="canManageReview"
-            :can-manage-writing="canManageWriting"
-            @changed="onAfterChange"
-          />
-
-          <UCard>
-            <template #header>
-              <h3 class="text-sm font-semibold text-default">Proposal details</h3>
-            </template>
-            <div class="space-y-3 text-sm">
-              <div v-if="editing">
-                <UFormField label="Title">
-                  <UInput v-model="form.title" class="w-full" />
-                </UFormField>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted">Deadline</p>
-                <UInput
-                  v-if="editing"
-                  v-model="form.deadline"
-                  type="date"
-                  size="sm"
-                  class="mt-1 w-full"
-                />
-                <p v-else class="text-default">{{ data.proposal.deadline ?? '—' }}</p>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted">Submitted at</p>
-                <p class="text-default">{{ data.proposal.submittedAt ?? '—' }}</p>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted">Submission reference</p>
-                <UInput
-                  v-if="editing"
-                  v-model="form.submissionReference"
-                  size="sm"
-                  placeholder="Portal ref / tender no."
-                  class="mt-1 w-full"
-                />
-                <p v-else class="text-default">{{ data.proposal.submissionReference ?? '—' }}</p>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted">Submission channel</p>
-                <UInput
-                  v-if="editing"
-                  v-model="form.submissionChannel"
-                  size="sm"
-                  placeholder="Email / portal / physical"
-                  class="mt-1 w-full"
-                />
-                <p v-else class="text-default">{{ data.proposal.submissionChannel ?? '—' }}</p>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted">Decided at</p>
-                <p class="text-default">{{ data.proposal.decidedAt ?? '—' }}</p>
-              </div>
-            </div>
-          </UCard>
-
-          <UCard>
-            <template #header>
-              <h3 class="text-sm font-semibold text-default">Reminder recipients</h3>
-            </template>
-            <USelectMenu
-              v-if="editing"
-              v-model="form.reminderRecipientUserIds"
-              :items="recipientOptions"
-              value-key="value"
-              multiple
-              placeholder="Pick teammates…"
-              class="w-full"
-            />
-            <div v-else class="flex flex-wrap gap-1">
-              <UBadge
-                v-for="(label, i) in recipientChips"
-                :key="i"
-                variant="subtle"
-                color="primary"
-                size="xs"
-                :label="String(label)"
-              />
-              <span v-if="!recipientChips.length" class="text-sm text-muted">None yet.</span>
-            </div>
-          </UCard>
-
-          <UCard>
-            <template #header>
-              <h3 class="text-sm font-semibold text-default">Opportunity context</h3>
-            </template>
-            <div class="space-y-3 text-sm">
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted">Estimated value</p>
-                <p class="text-default">
-                  {{
-                    formatMoney(data.proposal.opportunityValue, data.proposal.opportunityCurrency)
-                  }}
+                <p class="text-sm text-muted">
+                  <span v-if="canWrite">Compose the proposal — changes autosave.</span>
+                  <span v-else>Read-only — only the writing team can edit this document.</span>
                 </p>
-              </div>
-              <div v-if="data.proposal.opportunityWinProbability !== null">
-                <p class="text-xs uppercase tracking-wide text-muted">Win probability</p>
-                <p class="text-default">{{ data.proposal.opportunityWinProbability }}%</p>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted">Opportunity deadline</p>
-                <p class="text-default">{{ data.proposal.opportunityDeadline ?? '—' }}</p>
-              </div>
-              <div v-if="data.proposal.opportunityTags?.length">
-                <p class="text-xs uppercase tracking-wide text-muted">Tags</p>
-                <div class="mt-1 flex flex-wrap gap-1">
-                  <UBadge
-                    v-for="t in data.proposal.opportunityTags"
-                    :key="t"
-                    variant="soft"
-                    color="neutral"
-                    size="xs"
-                    :label="`#${t}`"
+                <ClientOnly>
+                  <ProposalEditor
+                    :proposal-id="proposalId"
+                    :content="data.proposal.contentDraft"
+                    :editable="canWrite"
+                    class="min-h-0 flex-1"
                   />
+                  <template #fallback>
+                    <div
+                      class="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-default text-sm text-muted"
+                    >
+                      Loading editor…
+                    </div>
+                  </template>
+                </ClientOnly>
+
+                <!-- Next step — workflow actions, below the composer -->
+                <UCard
+                  v-if="
+                    canSendForReview ||
+                    showFinalApproval ||
+                    showSubmit ||
+                    showBdTracking ||
+                    isClosed ||
+                    (isDecided && canOverride)
+                  "
+                  :ui="{ body: 'p-3' }"
+                >
+                  <div class="space-y-3">
+                    <p class="text-xs font-medium uppercase tracking-wide text-muted">Next step</p>
+
+                    <div v-if="canSendForReview" class="flex flex-wrap items-center gap-3">
+                      <p class="text-sm text-default">
+                        Drafting done? Send to the assigned reviewers for their decision.
+                      </p>
+                      <UButton
+                        :loading="sendingForReview"
+                        icon="i-lucide-send"
+                        label="Send for review"
+                        @click="sendForReview"
+                      />
+                    </div>
+
+                    <ProposalFinalApprovalCard
+                      v-if="showFinalApproval"
+                      :proposal-id="proposalId"
+                      @changed="onAfterChange"
+                    />
+
+                    <div v-if="showSubmit" class="flex flex-wrap items-center gap-3">
+                      <p class="text-sm text-default">Cleared for submission.</p>
+                      <UButton
+                        :loading="settingStatus"
+                        icon="i-lucide-upload"
+                        label="Mark submitted"
+                        @click="setStatus('submitted')"
+                      />
+                    </div>
+
+                    <ProposalOutcomeCard
+                      v-if="showBdTracking || (isDecided && canOverride)"
+                      :proposal-id="proposalId"
+                      :status="proposalStatus"
+                      :evaluation-stage="data.proposal.evaluationStage"
+                      :can-override="isDecided && canOverride"
+                      :stages="data.settings?.outcomeStages ?? []"
+                      @changed="onAfterChange"
+                    />
+
+                    <div
+                      v-if="proposalStatus === 'contract_signed'"
+                      class="flex items-center gap-2"
+                    >
+                      <UIcon name="i-lucide-circle-check" class="size-4 text-success" />
+                      <p class="text-sm text-success">Contract signed — a project was created.</p>
+                    </div>
+
+                    <div v-if="isClosed" class="flex flex-wrap items-center gap-3">
+                      <p class="text-sm text-error">This proposal was stopped.</p>
+                      <UButton
+                        v-if="canDrive"
+                        variant="outline"
+                        size="sm"
+                        icon="i-lucide-rotate-ccw"
+                        label="Reopen for drafting"
+                        @click="setStatus('drafting')"
+                      />
+                    </div>
+                  </div>
+                </UCard>
+              </div>
+            </template>
+
+            <!-- Team -->
+            <template #team>
+              <div class="space-y-6">
+                <ProposalManageAccessCard
+                  :proposal-id="proposalId"
+                  :roles="data.settings?.roles ?? []"
+                  :min-reviewers="data.proposal.reviewMinReviewers"
+                  :can-manage="canManageAccess"
+                  @changed="onAfterChange"
+                />
+                <ProposalReviewPolicyCard
+                  :proposal-id="proposalId"
+                  :min-reviewers="data.proposal.reviewMinReviewers"
+                  :rule="data.proposal.reviewRule"
+                  :threshold="data.proposal.reviewThreshold"
+                  :require-final-approver="data.proposal.requireFinalApprover"
+                  :can-manage="canManagePolicy"
+                  @changed="refresh"
+                />
+                <ProposalSettingsOverrideCard
+                  :proposal-id="proposalId"
+                  :effective-roles="data.settings?.roles ?? []"
+                  :effective-stages="data.settings?.outcomeStages ?? []"
+                  :roles-overridden="!!data.proposal.rolesOverride"
+                  :stages-overridden="!!data.proposal.outcomeStagesOverride"
+                  :can-manage="canManageAccess"
+                  @changed="refresh"
+                />
+              </div>
+            </template>
+
+            <!-- Activity — timeline + post-submission tracking log -->
+            <template #activity>
+              <div class="space-y-6">
+                <ProposalBdLogCard
+                  v-if="isPostSubmission"
+                  :proposal-id="proposalId"
+                  :can-log="canDrive"
+                />
+                <OpportunityActivityTimeline :opportunity-id="data.proposal.opportunityId" />
+              </div>
+            </template>
+
+            <!-- Details — context + editable fields -->
+            <template #details>
+              <div class="space-y-6">
+                <UCard
+                  v-if="
+                    data.proposal.status === 'won' ||
+                    data.proposal.status === 'lost' ||
+                    data.proposal.status === 'final_rejected' ||
+                    editing
+                  "
+                >
+                  <template #header>
+                    <h3 class="text-sm font-semibold text-default">Decision note</h3>
+                  </template>
+                  <UTextarea
+                    v-if="editing"
+                    v-model="form.decisionNote"
+                    :rows="4"
+                    placeholder="Capture context about the win/loss decision."
+                    class="w-full"
+                  />
+                  <p
+                    v-else-if="data.proposal.decisionNote"
+                    class="whitespace-pre-wrap text-sm text-default"
+                  >
+                    {{ data.proposal.decisionNote }}
+                  </p>
+                  <p v-else class="text-sm text-muted">No decision note yet.</p>
+                </UCard>
+
+                <UCard>
+                  <template #header>
+                    <h3 class="text-sm font-semibold text-default">Proposal details</h3>
+                  </template>
+                  <div class="space-y-3 text-sm">
+                    <div v-if="editing">
+                      <UFormField label="Title">
+                        <UInput v-model="form.title" class="w-full" />
+                      </UFormField>
+                    </div>
+                    <div>
+                      <p class="text-xs uppercase tracking-wide text-muted">Deadline</p>
+                      <UInput
+                        v-if="editing"
+                        v-model="form.deadline"
+                        type="date"
+                        size="sm"
+                        class="mt-1 w-full"
+                      />
+                      <p v-else class="text-default">{{ data.proposal.deadline ?? '—' }}</p>
+                    </div>
+                    <div>
+                      <p class="text-xs uppercase tracking-wide text-muted">Submitted at</p>
+                      <p class="text-default">{{ data.proposal.submittedAt ?? '—' }}</p>
+                    </div>
+                    <div>
+                      <p class="text-xs uppercase tracking-wide text-muted">Submission reference</p>
+                      <UInput
+                        v-if="editing"
+                        v-model="form.submissionReference"
+                        size="sm"
+                        placeholder="Portal ref / tender no."
+                        class="mt-1 w-full"
+                      />
+                      <p v-else class="text-default">
+                        {{ data.proposal.submissionReference ?? '—' }}
+                      </p>
+                    </div>
+                    <div>
+                      <p class="text-xs uppercase tracking-wide text-muted">Submission channel</p>
+                      <UInput
+                        v-if="editing"
+                        v-model="form.submissionChannel"
+                        size="sm"
+                        placeholder="Email / portal / physical"
+                        class="mt-1 w-full"
+                      />
+                      <p v-else class="text-default">
+                        {{ data.proposal.submissionChannel ?? '—' }}
+                      </p>
+                    </div>
+                    <div>
+                      <p class="text-xs uppercase tracking-wide text-muted">Decided at</p>
+                      <p class="text-default">{{ data.proposal.decidedAt ?? '—' }}</p>
+                    </div>
+                  </div>
+                </UCard>
+
+                <UCard>
+                  <template #header>
+                    <h3 class="text-sm font-semibold text-default">Reminder recipients</h3>
+                  </template>
+                  <USelectMenu
+                    v-if="editing"
+                    v-model="form.reminderRecipientUserIds"
+                    :items="recipientOptions"
+                    value-key="value"
+                    multiple
+                    placeholder="Pick teammates…"
+                    class="w-full"
+                  />
+                  <div v-else class="flex flex-wrap gap-1">
+                    <UBadge
+                      v-for="(label, i) in recipientChips"
+                      :key="i"
+                      variant="subtle"
+                      color="primary"
+                      size="xs"
+                      :label="String(label)"
+                    />
+                    <span v-if="!recipientChips.length" class="text-sm text-muted">None yet.</span>
+                  </div>
+                </UCard>
+
+                <UCard>
+                  <template #header>
+                    <h3 class="text-sm font-semibold text-default">Opportunity context</h3>
+                  </template>
+                  <div class="space-y-3 text-sm">
+                    <div>
+                      <p class="text-xs uppercase tracking-wide text-muted">Estimated value</p>
+                      <p class="text-default">
+                        {{
+                          formatMoney(
+                            data.proposal.opportunityValue,
+                            data.proposal.opportunityCurrency
+                          )
+                        }}
+                      </p>
+                    </div>
+                    <div v-if="data.proposal.opportunityWinProbability !== null">
+                      <p class="text-xs uppercase tracking-wide text-muted">Win probability</p>
+                      <p class="text-default">{{ data.proposal.opportunityWinProbability }}%</p>
+                    </div>
+                    <div>
+                      <p class="text-xs uppercase tracking-wide text-muted">Opportunity deadline</p>
+                      <p class="text-default">{{ data.proposal.opportunityDeadline ?? '—' }}</p>
+                    </div>
+                    <div v-if="data.proposal.opportunityTags?.length">
+                      <p class="text-xs uppercase tracking-wide text-muted">Tags</p>
+                      <div class="mt-1 flex flex-wrap gap-1">
+                        <UBadge
+                          v-for="t in data.proposal.opportunityTags"
+                          :key="t"
+                          variant="soft"
+                          color="neutral"
+                          size="xs"
+                          :label="`#${t}`"
+                        />
+                      </div>
+                    </div>
+                    <div v-if="data.proposal.opportunityDescription">
+                      <p class="text-xs uppercase tracking-wide text-muted">Description</p>
+                      <p class="whitespace-pre-wrap text-default">
+                        {{ data.proposal.opportunityDescription }}
+                      </p>
+                    </div>
+                  </div>
+                </UCard>
+
+                <div v-if="editing" class="flex justify-end gap-2">
+                  <UButton
+                    variant="ghost"
+                    label="Cancel"
+                    @click="((editing = false), syncForm())"
+                  />
+                  <UButton :loading="saving" label="Save changes" @click="save" />
                 </div>
               </div>
-              <div v-if="data.proposal.opportunityDescription">
-                <p class="text-xs uppercase tracking-wide text-muted">Description</p>
-                <p class="whitespace-pre-wrap text-default">
-                  {{ data.proposal.opportunityDescription }}
-                </p>
-              </div>
-            </div>
-          </UCard>
+            </template>
+          </UTabs>
+        </div>
+
+        <!-- Right rail — Conversation + Documents, half-half, each scrolls
+             internally, persistent while the editor owns the main column. -->
+        <div
+          class="flex flex-col gap-6 lg:sticky lg:top-6 lg:col-span-1 lg:h-[calc(100dvh-7rem)] lg:self-start"
+        >
+          <ProposalConversationCard
+            :proposal-id="proposalId"
+            class="flex min-h-0 flex-1 flex-col"
+          />
+          <ProposalDocumentsCard
+            :proposal-id="proposalId"
+            :can-write="canWrite"
+            class="flex min-h-0 flex-1 flex-col"
+          />
         </div>
       </div>
     </template>

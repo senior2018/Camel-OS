@@ -41,10 +41,12 @@ interface ProposalRow {
   opportunityStatus: string
 }
 
-const { data, status } = await useFetch<{ items: ProposalRow[] }>('/api/proposals', {
-  key: 'proposals-list',
-  default: () => ({ items: [] }),
-})
+const { data, status } = await useFetch<{ items: ProposalRow[]; total?: number; capped?: boolean }>(
+  '/api/proposals',
+  { key: 'proposals-list', default: () => ({ items: [], total: 0, capped: false }) }
+)
+const grandTotal = computed(() => data.value?.total ?? data.value?.items.length ?? 0)
+const capped = computed(() => data.value?.capped ?? false)
 
 const view = ref<'board' | 'dashboard'>('board')
 
@@ -84,10 +86,21 @@ const OPEN_STATUSES = new Set<ProposalStatus>([
   'awaiting_final_approval',
   'final_approved',
 ])
+// Dashboard analytics date range — scopes the won/lost/win-rate metrics by
+// decision date. Open/submitted/at-risk stay live (current snapshot).
+const dashFrom = ref('')
+const dashTo = ref('')
+function decidedInRange(p: ProposalRow): boolean {
+  if (!p.decidedAt) return false
+  const t = new Date(p.decidedAt).getTime()
+  if (dashFrom.value && t < new Date(dashFrom.value).getTime()) return false
+  if (dashTo.value && t > new Date(`${dashTo.value}T23:59:59`).getTime()) return false
+  return true
+}
 const dash = computed(() => {
   const items = allItems.value
-  const won = items.filter((p) => p.status === 'won').length
-  const lost = items.filter((p) => p.status === 'lost').length
+  const won = items.filter((p) => p.status === 'won' && decidedInRange(p)).length
+  const lost = items.filter((p) => p.status === 'lost' && decidedInRange(p)).length
   const submitted = items.filter((p) => p.status === 'submitted').length
   const open = items.filter((p) => OPEN_STATUSES.has(p.status))
   // At-risk: open proposals with a deadline ≤7 days out or already overdue.
@@ -122,6 +135,14 @@ const byLane = computed<Record<string, ProposalRow[]>>(() => {
   for (const p of filteredItems.value) map[laneForStatus(p.status).key]!.push(p)
   return map
 })
+
+// When filtering/searching, drop empty lanes so the board isn't a wall of
+// "0" columns; with no filter active, keep all lanes for the full overview.
+const visibleLanes = computed(() =>
+  hasFilters.value
+    ? PROPOSAL_BOARD_LANES.filter((l) => (byLane.value[l.key]?.length ?? 0) > 0)
+    : PROPOSAL_BOARD_LANES
+)
 
 // Per-lane "show more" — cap each column, reveal another batch on demand.
 const LANE_PAGE = 4
@@ -195,9 +216,18 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
             @click="view = 'dashboard'"
           />
         </UFieldGroup>
-        <UBadge variant="subtle" color="neutral" size="md">{{ totalCount }} total</UBadge>
+        <UBadge variant="subtle" color="neutral" size="md">{{ grandTotal }} total</UBadge>
       </div>
     </header>
+
+    <UAlert
+      v-if="capped"
+      color="info"
+      variant="subtle"
+      icon="i-lucide-info"
+      title="Showing the most recent 500"
+      :description="`This view is capped for performance (${grandTotal} total). Use search, or the Win/Loss report, to reach the full archive.`"
+    />
 
     <div v-if="status === 'pending'" class="flex justify-center py-16">
       <UIcon name="i-lucide-loader-circle" class="size-8 animate-spin text-muted" />
@@ -221,13 +251,29 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
 
     <!-- PM-08 — manager dashboard -->
     <div v-else-if="view === 'dashboard'" class="space-y-6">
-      <div class="flex justify-end">
+      <div class="flex flex-wrap items-end justify-end gap-2">
+        <UFormField label="Decided from" size="xs">
+          <UInput v-model="dashFrom" type="date" size="sm" />
+        </UFormField>
+        <UFormField label="To" size="xs">
+          <UInput v-model="dashTo" type="date" size="sm" />
+        </UFormField>
+        <UButton
+          v-if="dashFrom || dashTo"
+          variant="ghost"
+          color="neutral"
+          size="sm"
+          icon="i-lucide-x"
+          label="Clear"
+          @click="((dashFrom = ''), (dashTo = ''))"
+        />
         <UButton
           variant="outline"
           color="neutral"
           size="sm"
           icon="i-lucide-bar-chart-2"
           label="Win / Loss report"
+          class="sm:ml-auto"
           @click="navigateTo('/reports/win-loss')"
         />
       </div>
@@ -327,7 +373,7 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
 
       <div v-else class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
         <section
-          v-for="lane in PROPOSAL_BOARD_LANES"
+          v-for="lane in visibleLanes"
           :key="lane.key"
           :class="['flex flex-col rounded-xl border bg-default/40 p-3', laneAccent(lane)]"
         >

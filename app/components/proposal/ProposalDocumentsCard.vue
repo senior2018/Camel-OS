@@ -66,7 +66,7 @@ function sizeLabel(bytes: number): string {
 </script>
 
 <template>
-  <UCard>
+  <UCard :ui="{ body: 'flex min-h-0 flex-1 flex-col' }">
     <template #header>
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-semibold text-default">Proposal documents</h3>
@@ -74,44 +74,47 @@ function sizeLabel(bytes: number): string {
       </div>
     </template>
 
-    <div class="space-y-3">
-      <ul v-if="attachments.length" class="space-y-2">
-        <li
-          v-for="a in attachments"
-          :key="a.id"
-          class="flex items-start justify-between gap-3 rounded-lg border border-default bg-default/40 p-3"
-        >
-          <div class="min-w-0 flex-1">
-            <a
-              v-if="a.url"
-              :href="a.url"
-              target="_blank"
-              rel="noopener"
-              class="truncate text-sm font-medium text-primary hover:underline"
-            >
-              {{ a.fileName }}
-            </a>
-            <span v-else class="truncate text-sm font-medium text-default">{{ a.fileName }}</span>
-            <p class="text-xs text-muted">
-              {{ sizeLabel(a.fileSize) }} ·
-              {{
-                [a.uploadedByFirstName, a.uploadedByLastName].filter(Boolean).join(' ') || 'Unknown'
-              }}
-            </p>
-            <p v-if="a.brief" class="mt-1 text-xs text-default">{{ a.brief }}</p>
-          </div>
-          <UButton
-            v-if="canWrite"
-            size="xs"
-            variant="ghost"
-            color="error"
-            icon="i-lucide-trash-2"
-            aria-label="Delete"
-            @click="remove(a.id)"
-          />
-        </li>
-      </ul>
-      <p v-else class="text-sm text-muted">No documents uploaded yet.</p>
+    <div class="flex min-h-0 flex-1 flex-col gap-3">
+      <div class="max-h-72 min-h-0 flex-1 space-y-2 overflow-y-auto lg:max-h-none">
+        <ul v-if="attachments.length" class="space-y-2">
+          <li
+            v-for="a in attachments"
+            :key="a.id"
+            class="flex items-start justify-between gap-3 rounded-lg border border-default bg-default/40 p-3"
+          >
+            <div class="min-w-0 flex-1">
+              <a
+                v-if="a.url"
+                :href="a.url"
+                target="_blank"
+                rel="noopener"
+                class="truncate text-sm font-medium text-primary hover:underline"
+              >
+                {{ a.fileName }}
+              </a>
+              <span v-else class="truncate text-sm font-medium text-default">{{ a.fileName }}</span>
+              <p class="text-xs text-muted">
+                {{ sizeLabel(a.fileSize) }} ·
+                {{
+                  [a.uploadedByFirstName, a.uploadedByLastName].filter(Boolean).join(' ') ||
+                  'Unknown'
+                }}
+              </p>
+              <p v-if="a.brief" class="mt-1 text-xs text-default">{{ a.brief }}</p>
+            </div>
+            <UButton
+              v-if="canWrite"
+              size="xs"
+              variant="ghost"
+              color="error"
+              icon="i-lucide-trash-2"
+              aria-label="Delete"
+              @click="remove(a.id)"
+            />
+          </li>
+        </ul>
+        <p v-else class="text-sm text-muted">No documents uploaded yet.</p>
+      </div>
 
       <div v-if="canWrite" class="space-y-2 border-t border-default pt-3">
         <UInput v-model="brief" placeholder="Short brief (optional)…" size="sm" class="w-full" />

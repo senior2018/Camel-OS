@@ -50,11 +50,13 @@ export default defineEventHandler(async (event) => {
         )
       )
 
-    // PM-05 — the review gate requires at least three reviewers.
-    if (reviewerAssignments.length < 3) {
+    // The review gate requires at least the configured minimum reviewers
+    // (PM-05 default 3, tunable per proposal in P3.3).
+    const minReviewers = proposal.reviewMinReviewers ?? 3
+    if (reviewerAssignments.length < minReviewers) {
       throw createError({
         statusCode: 400,
-        statusMessage: `Assign at least 3 reviewers before sending for review (currently ${reviewerAssignments.length}).`,
+        statusMessage: `Assign at least ${minReviewers} reviewer${minReviewers === 1 ? '' : 's'} before sending for review (currently ${reviewerAssignments.length}).`,
       })
     }
 

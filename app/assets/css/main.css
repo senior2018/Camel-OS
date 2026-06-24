@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
 
+/* Rich-text (`prose`) styling for the proposal document editor. */
+@plugin "@tailwindcss/typography";
+
 /* Disable OS dark-mode detection — dark variant only fires when an ancestor has `.dark`.
    Combined with `colorMode.preference = 'light'`, the `.dark` class is never set, so
    the app stays in its designed light theme regardless of the user's OS preference. */

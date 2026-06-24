@@ -1,0 +1,1 @@
+ALTER TABLE "proposals" ADD COLUMN "evaluation_stage" text;

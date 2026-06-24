@@ -606,6 +606,10 @@ export const proposalAssignmentRoleEnum = pgEnum('proposal_assignment_role', [
   'finance_reviewer',
   'compliance_reviewer',
   'final_approver',
+  // Redesign v2 (P3.4) — access-only members (Google-Docs style): can see the
+  // proposal and join the conversation, but don't write or review.
+  'commenter',
+  'viewer',
 ])
 
 // S11 — how a proposal is authored: structured in-system sections, uploaded
@@ -623,6 +627,16 @@ export const proposalBdNoteKindEnum = pgEnum('proposal_bd_note_kind', [
   'note',
 ])
 
+// Redesign v2 (P3) — conversation message kind. `message` = a person's chat
+// post; `system` = an auto-generated workflow event (review decision, status
+// change, membership change) rendered as a subtle event line.
+export const proposalMessageKindEnum = pgEnum('proposal_message_kind', ['message', 'system'])
+
+// Redesign v2 (P3.3) — how reviewer approvals are tallied before a proposal can
+// move to final approval. `all` = every required reviewer; `count` = at least N;
+// `percent` = at least P% of reviewers.
+export const proposalReviewRuleEnum = pgEnum('proposal_review_rule', ['all', 'count', 'percent'])
+
 export const proposals = pgTable(
   'proposals',
   {
@@ -635,6 +649,22 @@ export const proposals = pgTable(
       .references(() => organizations.id, { onDelete: 'cascade' }),
     title: text().notNull(),
     status: proposalStatusEnum().notNull().default('assigned'),
+    // P3.3 — configurable review policy (per proposal). `reviewMinReviewers` is
+    // the floor required before sending for review (PM-05 default 3).
+    // `reviewRule` + `reviewThreshold` decide how many approvals advance it to
+    // final approval. `requireFinalApprover` toggles the final sign-off step.
+    reviewMinReviewers: integer('review_min_reviewers').notNull().default(3),
+    reviewRule: proposalReviewRuleEnum('review_rule').notNull().default('all'),
+    reviewThreshold: integer('review_threshold'),
+    requireFinalApprover: boolean('require_final_approver').notNull().default(true),
+    // P3.4 — per-proposal overrides of the org settings (null = inherit org).
+    // `rolesOverride`: ProposalRoleDef[]; `outcomeStagesOverride`: string[].
+    rolesOverride: jsonb('roles_override'),
+    outcomeStagesOverride: jsonb('outcome_stages_override'),
+    // P3.3b — free-text evaluation-stage label while a bid is under evaluation
+    // (e.g. "Shortlisted", "Interview", "BAFO"). Keeps post-submission tracking
+    // dynamic without locking the status enum. Null unless in evaluation.
+    evaluationStage: text('evaluation_stage'),
     // ISO date — usually the bid submission deadline, separate from the
     // opportunity's discovery-stage deadline so a proposal team can manage its
     // own runway.
@@ -722,7 +752,11 @@ export const proposalAssignments = pgTable(
     organizationId: uuid('organization_id')
       .notNull()
       .references(() => organizations.id, { onDelete: 'cascade' }),
+    // `roleType` is the engine behaviour (lead/contributor/reviewer/…).
     roleType: proposalAssignmentRoleEnum().notNull(),
+    // P3.4 — the configured role label this assignment was made under, e.g.
+    // "Technical Reviewer". Null = a plain role matching the behaviour.
+    roleLabel: text('role_label'),
     assignedUserId: uuid('assigned_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
@@ -734,6 +768,26 @@ export const proposalAssignments = pgTable(
     index('proposal_assignments_role_type_idx').on(table.roleType),
   ]
 )
+
+// ─── Configurable proposal settings (redesign v2 — P3.4) ────────────────────
+// One row per organization holding the *system-wide* defaults that every
+// proposal inherits: the configurable role catalogue, evaluation-outcome
+// stages, and the default review policy. Absent row ⇒ fall back to the shipped
+// DEFAULT_* constants. Per-proposal overrides live on `proposals`.
+export const organizationProposalSettings = pgTable('organization_proposal_settings', {
+  organizationId: uuid('organization_id')
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  // ProposalRoleDef[] — see shared/schemas/proposal-settings.ts
+  roles: jsonb('roles').notNull(),
+  // string[] — evaluation-stage labels
+  outcomeStages: jsonb('outcome_stages').notNull(),
+  reviewMinReviewers: integer('review_min_reviewers').notNull().default(3),
+  reviewRule: proposalReviewRuleEnum('review_rule').notNull().default('all'),
+  reviewThreshold: integer('review_threshold'),
+  requireFinalApprover: boolean('require_final_approver').notNull().default(true),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+})
 
 // ─── Proposal Sections (S11 — PM-02, PM-03) ──────────────────────────────────
 // Structured, co-authored sections of a proposal (Executive Summary, Technical
@@ -770,6 +824,27 @@ export const proposalSections = pgTable(
     index('proposal_sections_proposal_id_idx').on(table.proposalId),
     index('proposal_sections_assigned_to_user_id_idx').on(table.assignedToUserId),
   ]
+)
+
+// ─── Proposal Document Versions (PM-03, redesign editor) ────────────────────
+// Periodic snapshots of the single rich-text document (`proposals.contentDraft`)
+// so editors get a version history with author attribution and can roll back.
+// Throttled on save (one snapshot per editing burst) — see index.patch.ts.
+export const proposalDocumentVersions = pgTable(
+  'proposal_document_versions',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    proposalId: uuid('proposal_id')
+      .notNull()
+      .references(() => proposals.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    content: text('content'),
+    savedByUserId: uuid('saved_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('proposal_document_versions_proposal_id_idx').on(table.proposalId)]
 )
 
 // ─── Proposal Section Versions (PM-03) ───────────────────────────────────────
@@ -816,6 +891,31 @@ export const proposalBrainstormNotes = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [index('proposal_brainstorm_notes_proposal_id_idx').on(table.proposalId)]
+)
+
+// ─── Proposal Conversation (redesign v2 — P3) ───────────────────────────────
+// One running discussion per proposal (WhatsApp-style). Members chat here, and
+// workflow events (review decisions, status changes) auto-post as `system`
+// messages. `eventType` tags system rows so the UI can filter (e.g. "reviewer
+// decisions only").
+export const proposalMessages = pgTable(
+  'proposal_messages',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    proposalId: uuid('proposal_id')
+      .notNull()
+      .references(() => proposals.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    kind: proposalMessageKindEnum().notNull().default('message'),
+    body: text().notNull(),
+    // For system rows — e.g. 'review_decision', 'status_change'. Null for chat.
+    eventType: text('event_type'),
+    authorUserId: uuid('author_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('proposal_messages_proposal_id_idx').on(table.proposalId)]
 )
 
 // ─── Proposal Section Comments (S12 — PM-06) ─────────────────────────────────
@@ -1508,8 +1608,17 @@ export type NewProposalSection = typeof proposalSections.$inferInsert
 export type ProposalSectionVersion = typeof proposalSectionVersions.$inferSelect
 export type NewProposalSectionVersion = typeof proposalSectionVersions.$inferInsert
 
+export type ProposalDocumentVersion = typeof proposalDocumentVersions.$inferSelect
+export type NewProposalDocumentVersion = typeof proposalDocumentVersions.$inferInsert
+
 export type ProposalBrainstormNote = typeof proposalBrainstormNotes.$inferSelect
 export type NewProposalBrainstormNote = typeof proposalBrainstormNotes.$inferInsert
+
+export type ProposalMessage = typeof proposalMessages.$inferSelect
+export type NewProposalMessage = typeof proposalMessages.$inferInsert
+
+export type OrganizationProposalSettings = typeof organizationProposalSettings.$inferSelect
+export type NewOrganizationProposalSettings = typeof organizationProposalSettings.$inferInsert
 
 export type ProposalSectionComment = typeof proposalSectionComments.$inferSelect
 export type NewProposalSectionComment = typeof proposalSectionComments.$inferInsert

@@ -1,12 +1,22 @@
 import { consola } from 'consola'
-import { and, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 
-import { opportunities, projects, proposals } from '@@/server/database/schema'
+import {
+  opportunities,
+  projects,
+  proposalDocumentVersions,
+  proposals,
+} from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import { logAuditEvent } from '@@/server/utils/audit'
 import { logOpportunityActivity } from '@@/server/utils/opportunity-activity'
-import { updateProposalSchema } from '@@/shared/schemas/proposal'
+import { postProposalSystemMessage } from '@@/server/utils/proposal-conversation'
+import { userHasPermission } from '@@/server/utils/role'
+import { PROPOSAL_STATUS_LABEL, updateProposalSchema } from '@@/shared/schemas/proposal'
+
+// Decided outcomes — changing one of these is an override, not a normal step.
+const DECIDED_STATUSES = ['won', 'lost', 'contract_signed']
 
 /**
  * S7 — Update a proposal. Status transitions stamp `submittedAt` / `decidedAt`
@@ -36,6 +46,37 @@ export default defineEventHandler(async (event) => {
     if (!existing) throw createError({ statusCode: 404, statusMessage: 'Proposal not found' })
 
     const data = parsed.data
+
+    // P3.3c — overriding a decided outcome (won/lost/contract_signed) is a
+    // privileged correction: only a manager (proposal:admin) or system admin.
+    if (
+      data.status !== undefined &&
+      data.status !== existing.status &&
+      DECIDED_STATUSES.includes(existing.status)
+    ) {
+      const canOverride =
+        ctx.isSystemAdmin || (await userHasPermission(ctx.userId, 'proposal', 'admin'))
+      if (!canOverride) {
+        throw createError({
+          statusCode: 403,
+          statusMessage: 'Only a manager can override a decided outcome.',
+        })
+      }
+    }
+
+    // P3.3b — a Lost outcome must carry a reason.
+    if (
+      data.status === 'lost' &&
+      !data.note?.trim() &&
+      !data.decisionNote?.trim() &&
+      !existing.decisionNote
+    ) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'A reason is required when marking a proposal Lost.',
+      })
+    }
+
     const now = new Date()
     const updates: Partial<typeof proposals.$inferInsert> = { updatedAt: now }
 
@@ -54,18 +95,22 @@ export default defineEventHandler(async (event) => {
     if (data.submissionChannel !== undefined) {
       updates.submissionChannel = data.submissionChannel ?? null
     }
+    if (data.evaluationStage !== undefined) updates.evaluationStage = data.evaluationStage ?? null
     if (data.status !== undefined && data.status !== existing.status) {
       updates.status = data.status
       // Stamp milestone timestamps so the timeline is self-explanatory.
       if (data.status === 'submitted' && !existing.submittedAt) updates.submittedAt = now
-      if (
-        (data.status === 'won' ||
-          data.status === 'lost' ||
-          data.status === 'shortlisted' ||
-          data.status === 'contract_signed') &&
-        !existing.decidedAt
-      ) {
-        updates.decidedAt = now
+      const isDecision =
+        data.status === 'won' ||
+        data.status === 'lost' ||
+        data.status === 'shortlisted' ||
+        data.status === 'contract_signed'
+      if (isDecision && !existing.decidedAt) updates.decidedAt = now
+      // Leaving the evaluation phase clears the working stage label.
+      if (isDecision || data.status === 'final_rejected') updates.evaluationStage = null
+      // A win/loss note is kept as the decision note.
+      if ((data.status === 'won' || data.status === 'lost') && data.note?.trim()) {
+        updates.decisionNote = data.note.trim()
       }
     }
 
@@ -73,6 +118,29 @@ export default defineEventHandler(async (event) => {
     // inheriting value/currency from the opportunity. Guarded so it fires once.
     const enteringContract =
       data.status === 'contract_signed' && existing.status !== 'contract_signed'
+
+    // PM-03 — snapshot the document for version history, throttled to one per
+    // ~2-minute editing burst so autosave doesn't flood the history.
+    if (
+      data.contentDraft !== undefined &&
+      (data.contentDraft ?? '') !== (existing.contentDraft ?? '')
+    ) {
+      const [last] = await db
+        .select({ createdAt: proposalDocumentVersions.createdAt })
+        .from(proposalDocumentVersions)
+        .where(eq(proposalDocumentVersions.proposalId, id))
+        .orderBy(desc(proposalDocumentVersions.createdAt))
+        .limit(1)
+      const stale = !last || Date.now() - new Date(last.createdAt).getTime() > 2 * 60 * 1000
+      if (stale) {
+        await db.insert(proposalDocumentVersions).values({
+          proposalId: id,
+          organizationId: ctx.organizationId,
+          content: data.contentDraft ?? null,
+          savedByUserId: ctx.userId,
+        })
+      }
+    }
 
     const [updated] = await db
       .update(proposals)
@@ -101,6 +169,19 @@ export default defineEventHandler(async (event) => {
         action: 'proposal:status',
         details: { from: existing.status, to: data.status },
       })
+      // Surface the milestone in the conversation (best-effort). Include the
+      // evaluation-stage label and/or the note when provided.
+      const label =
+        data.status === 'under_evaluation' && data.evaluationStage
+          ? data.evaluationStage
+          : PROPOSAL_STATUS_LABEL[data.status]
+      await postProposalSystemMessage({
+        proposalId: id,
+        organizationId: ctx.organizationId,
+        body: `Status changed to ${label}${data.note?.trim() ? `: "${data.note.trim()}"` : ''}`,
+        eventType: 'status_change',
+        actorUserId: ctx.userId,
+      }).catch(() => {})
     }
 
     let createdProjectId: string | null = null

@@ -1,11 +1,17 @@
 import { consola } from 'consola'
 import { and, eq } from 'drizzle-orm'
 
-import { opportunities, opportunityComments, proposals } from '@@/server/database/schema'
+import {
+  opportunities,
+  opportunityComments,
+  proposalAssignments,
+  proposals,
+} from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import { logAuditEvent } from '@@/server/utils/audit'
 import { logOpportunityActivity } from '@@/server/utils/opportunity-activity'
+import { resolveOrgProposalSettings } from '@@/server/utils/proposal-settings'
 import { updateOpportunityStatusSchema } from '@@/shared/schemas/opportunity'
 
 /**
@@ -45,6 +51,8 @@ export default defineEventHandler(async (event) => {
         status: opportunities.status,
         title: opportunities.title,
         deadline: opportunities.deadline,
+        createdByUserId: opportunities.createdByUserId,
+        ownerUserId: opportunities.ownerUserId,
       })
       .from(opportunities)
       .where(and(eq(opportunities.id, id), eq(opportunities.organizationId, ctx.organizationId)))
@@ -89,18 +97,38 @@ export default defineEventHandler(async (event) => {
           .where(eq(proposals.opportunityId, id))
           .limit(1)
         if (!existingProposal) {
+          // Lead defaults to the opportunity's originator (the BD Officer who
+          // raised it), per the workspace model — not the manager who accepted.
+          // A Proposal Manager can reassign the lead later. With a lead present
+          // the proposal opens straight into Drafting.
+          const defaultLeadId = existing.createdByUserId ?? existing.ownerUserId
+          // Inherit the org's default review policy (system-wise settings).
+          const orgSettings = await resolveOrgProposalSettings(ctx.organizationId)
           const [proposal] = await tx
             .insert(proposals)
             .values({
               opportunityId: id,
               organizationId: ctx.organizationId,
               title: existing.title,
-              status: 'assigned',
+              status: defaultLeadId ? 'drafting' : 'assigned',
               deadline: existing.deadline ?? null,
               createdByUserId: ctx.userId,
+              reviewMinReviewers: orgSettings.reviewMinReviewers,
+              reviewRule: orgSettings.reviewRule,
+              reviewThreshold: orgSettings.reviewThreshold,
+              requireFinalApprover: orgSettings.requireFinalApprover,
             })
             .returning({ id: proposals.id })
           createdProposalId = proposal?.id ?? null
+
+          if (createdProposalId && defaultLeadId) {
+            await tx.insert(proposalAssignments).values({
+              proposalId: createdProposalId,
+              organizationId: ctx.organizationId,
+              roleType: 'lead',
+              assignedUserId: defaultLeadId,
+            })
+          }
         } else {
           createdProposalId = existingProposal.id
         }

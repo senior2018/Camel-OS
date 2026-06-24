@@ -31,6 +31,7 @@ export default defineEventHandler(async (event) => {
       .select({
         id: proposalAssignments.id,
         roleType: proposalAssignments.roleType,
+        roleLabel: proposalAssignments.roleLabel,
         assignedUserId: proposalAssignments.assignedUserId,
         assignedAt: proposalAssignments.assignedAt,
         assignedUserEmail: users.email,
