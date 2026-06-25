@@ -30,3 +30,6 @@ PROGRESS.md
 DEMO_GUIDE.md
 S5B_TEST_PLAN.md
 S8_PHASE1_SUMMARY.md
+
+# Internal planning docs — never commit
+*.pdf
