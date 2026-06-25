@@ -50,6 +50,26 @@ Internal operating platform for Sahara Consult — a PSA (Professional Services 
 - **Deadline reminders**: daily Nitro scheduled task (08:00 UTC), fires email at 14 / 7 / 2 days out
 - **Audit**: every stage transition + approval + attachment event is hash-chained
 
+### S11–S13 — Proposal Management + BD Tracking (MVP v0.1)
+
+> **Scope note:** to reach a usable MVP sooner we **intentionally skipped S7–S10 (Communications)** and jumped from S6 straight to the Proposal Management block — **S11** (proposal foundation: teams, document upload, submission reference), **S12** (review gate, comments, dashboard, PDF export), **S13** (BD tracking: evaluation stages, win/loss report, contract→project). Communications is the next sprint.
+
+A major pivot after the client demo: the opportunity becomes a lean **review pipeline**, and everything from drafting onward moves into a dedicated, configurable **Proposal** module — then hardened into a world-class workspace.
+
+- **Opportunity = 3-status review pipeline**: **Pending → Accepted → Rejected**. Accept / Reject is **Manager-only** (`opportunity:approve`) — BD Officers create, Managers decide. Reviewer opinions + owner updates live in a per-opportunity comment thread (reason required on Reject). Tags + win probability re-introduced (`winProbabilitySource` column ready for AI later).
+- **Auto-created proposals**: accepting an opportunity spawns a Proposal, with the opportunity creator set as **Lead** by default.
+- **Three views, like opportunities**: **Board** (readable lanes, empty lanes drop away), **List** (filter to a single status), **Dashboard** (date-scoped win/loss analytics). Filter UX is basics-inline (search + status) with advanced filters behind an expand — no filter button.
+- **Need-to-know visibility**: a user sees a proposal only if they're a member or its creator; oversight roles (`proposal:admin` / system admin) see all.
+- **Proposal workspace**: tabbed (**Document / Team / Activity / Details**) with a persistent right rail (**Conversation** + **Documents**). Free-form **Tiptap** editor with debounced autosave and **document version history** (restore any snapshot).
+- **Behaviors vs roles**: a fixed engine of behaviors (lead / writer / reviewer / approver / commenter / viewer) mapped to **configurable role labels** (Author, Technical / Finance / Compliance Reviewer, Final Approver, …).
+- **Configurable workflow — system-wide *and* per-proposal**: role catalogue, review policy (minimum reviewers, all / N / %, require-final-approver), and evaluation outcome stages are all editable at `/admin/proposal-settings`, with per-proposal overrides. Nothing is hard-coded.
+- **Manage Access**: the Lead assigns the team; **one role per person** enforces separation of duties (an editor cannot review their own work).
+- **Review gate**: a single **Review** action → popup (Approve / Changes Required / Reject, reason required on reject) that posts the decision to the conversation; the configurable rule routes to final approval; **Final Approver** sign-off.
+- **Conversation layer**: per-proposal chat + system events (created, status changes, review decisions) with a "reviewer decisions" filter — the need-to-know audit trail of the bid.
+- **Outcomes**: Submitted → Won / Lost / Shortlisted / Clarification / Contract-signed; reason required on loss; **status override** (admin) to reverse a decision. Contract-signed spins up a stub Project (BD-04).
+- **BD tracking**: win/loss report (`/reports/win-loss`, CSV + print), evaluation stages, weighted dashboard.
+- **Scale guard**: list endpoints cap at 500 with a true total + a "showing most recent" notice, so a 1000-row pipeline never floods the browser.
+
 ## Setup
 
 ### 1. Install dependencies
@@ -193,17 +213,34 @@ See [CODING_STANDARDS.md](CODING_STANDARDS.md) (gitignored, local). Highlights:
 - `<script setup lang="ts">` always; no Options API
 - No manual component imports — Nuxt auto-imports
 
-## Sprint plan
+## Roadmap
 
-Internal roadmap lives in `PROGRESS.md` (gitignored). Major milestones:
+Internal sprint detail lives in `PROGRESS.md` (gitignored). Major milestones:
 
-##For Vercel build
+- **MVP v0.1 — ✅ shipped** — Foundation → CRM (S1–S6) + Proposal Management & BD Tracking (S11–S13). **Communications (S7–S10) was intentionally deferred** to ship the MVP sooner.
+- **Beta v0.5** — after S15 (Communications → Projects)
+- **Beta v0.8** — after S23 (MEL → Procurement)
+- **v1.0 GA** — after S30
+
+### Next sprint — S7 Communications Officer
+
+With the proposal pipeline MVP-complete, we circle back to the **deferred S7–S10 Communications block**, starting with the Communications Officer.
+
+- **Proposal reference register** — link submitted proposals to the comms outputs and outreach they generate
+- **Multi-recipient reminder dispatcher** — fan-out of proposal deadline/decision reminders to the captured recipient list (recipients are already stored; this lights up delivery)
+- **Communications Officer / Lead workspace** — outreach log, templates, and channel tracking on top of the existing CRM interaction timeline
+
+### Deferred — picked up in a later sprint
+
+Conscious cuts from the proposal redesign, to be scheduled deliberately:
+
+- **Real-time co-editing** — two writers editing live, with presence cursors (Yjs). Needs a persistent sync server; the production deploy is serverless (Vercel), so this pairs with a managed realtime provider or a standalone Node service.
+- **Inline comments** — highlight a passage in the editor and thread a comment anchored to it (Google-Docs style).
+- **Opportunity decision reversal** — reverse a Reject/Accept under an override permission, with guardrails against accidental flips.
+- **AI assistance** — draft sections, summarise the conversation, suggest reviewers, and AI-driven win probability. The data model already carries `winProbabilitySource` so AI output slots in without a migration.
+
+<!-- Vercel deploy trigger — bump a build number to force a redeploy -->
+### For Vercel build
 - build 1
 - build 2
 - build 3
-  
-
-- **MVP v0.1** after S6 (Foundation → CRM)
-- **Beta v0.5** after S15 (Comms → Projects)
-- **Beta v0.8** after S23 (MEL → Procurement)
-- **v1.0 GA** after S30

@@ -24,6 +24,8 @@ import {
   partnershipAgreements,
   projects,
   proposalAssignments,
+  proposalDocumentVersions,
+  proposalMessages,
   proposalReviewers,
   proposals,
   roles,
@@ -689,19 +691,68 @@ async function run() {
     const proposalId = p!.id
     proposalCount++
 
-    // assignments once we're past 'assigned'
+    // Team assignments. Every proposal has a Lead (the creator becomes lead on
+    // accept — the lead-default refinement). roleLabel mirrors the configurable
+    // role catalogue; distinct people per role enforce separation of duties.
+    const assignments: (typeof proposalAssignments.$inferInsert)[] = [
+      {
+        proposalId,
+        organizationId: orgId,
+        roleType: 'lead',
+        roleLabel: 'Proposal Lead',
+        assignedUserId: lead,
+      },
+    ]
     if (beyondAssigned) {
-      await db.insert(proposalAssignments).values([
-        { proposalId, organizationId: orgId, roleType: 'lead', assignedUserId: lead },
-        // Writing team
-        { proposalId, organizationId: orgId, roleType: 'contributor', assignedUserId: writer1 },
-        { proposalId, organizationId: orgId, roleType: 'contributor', assignedUserId: writer2 },
-        // Review team (3 distinct reviewers)
-        { proposalId, organizationId: orgId, roleType: 'reviewer', assignedUserId: rev1 },
-        { proposalId, organizationId: orgId, roleType: 'reviewer', assignedUserId: rev2 },
-        { proposalId, organizationId: orgId, roleType: 'reviewer', assignedUserId: rev3 },
-        { proposalId, organizationId: orgId, roleType: 'final_approver', assignedUserId: approver },
-      ])
+      assignments.push(
+        // Writing team (collaborators / contributors — can edit)
+        {
+          proposalId,
+          organizationId: orgId,
+          roleType: 'contributor',
+          roleLabel: 'Author',
+          assignedUserId: writer1,
+        },
+        {
+          proposalId,
+          organizationId: orgId,
+          roleType: 'contributor',
+          roleLabel: 'Author',
+          assignedUserId: writer2,
+        },
+        // Review team — 3 distinct reviewers, each a different discipline
+        {
+          proposalId,
+          organizationId: orgId,
+          roleType: 'reviewer',
+          roleLabel: 'Technical Reviewer',
+          assignedUserId: rev1,
+        },
+        {
+          proposalId,
+          organizationId: orgId,
+          roleType: 'reviewer',
+          roleLabel: 'Finance Reviewer',
+          assignedUserId: rev2,
+        },
+        {
+          proposalId,
+          organizationId: orgId,
+          roleType: 'reviewer',
+          roleLabel: 'Compliance Reviewer',
+          assignedUserId: rev3,
+        },
+        {
+          proposalId,
+          organizationId: orgId,
+          roleType: 'final_approver',
+          roleLabel: 'Final Approver',
+          assignedUserId: approver,
+        }
+      )
+    }
+    await db.insert(proposalAssignments).values(assignments)
+    if (beyondAssigned) {
       await db.insert(opportunityActivities).values({
         opportunityId: opp.id,
         organizationId: orgId,
@@ -757,6 +808,155 @@ async function run() {
         action: 'proposal:ready_for_review',
         details: { reviewerCount: 3 },
       })
+    }
+
+    // Conversation thread — varied, realistic BD chatter + system events that
+    // the redesigned workspace surfaces in the right rail. Lines rotate so no
+    // two proposals read the same, and the flow mirrors the real review gate.
+    const msgs: Pick<
+      typeof proposalMessages.$inferInsert,
+      'kind' | 'body' | 'eventType' | 'authorUserId'
+    >[] = [
+      {
+        kind: 'system',
+        body: `Proposal created from the accepted opportunity "${opp.title}".`,
+        eventType: 'created',
+        authorUserId: null,
+      },
+    ]
+    if (beyondAssigned) {
+      const kickoff = pick([
+        `Kicking off "${opp.title}". Sam — technical approach; Priya — budget & staffing. Win themes first.`,
+        `Workspace is live. Let's aim to submit two days early on this one — no last-minute scrambles.`,
+        `Priority bid for us. Rita, Nadia, Omar — I'll bring you in the moment the first full draft lands.`,
+      ])
+      const reply = pick([
+        'On it — methodology and work-plan first, then past performance.',
+        "I'll own the budget and the staffing matrix. Already flagging a tight travel line.",
+        'Outline is up with inline notes where I need reviewer input.',
+      ])
+      msgs.push(
+        { kind: 'message', body: kickoff, eventType: null, authorUserId: lead },
+        {
+          kind: 'message',
+          body: reply,
+          eventType: null,
+          authorUserId: chance(0.5) ? writer1 : writer2,
+        }
+      )
+    }
+    if (inReviewOrLater) {
+      msgs.push({
+        kind: 'system',
+        body: 'Sent for review — 3 reviewers required (all must align).',
+        eventType: 'status_change',
+        authorUserId: lead,
+      })
+      if (pstatus === 'awaiting_review') {
+        msgs.push({
+          kind: 'message',
+          body: pick([
+            'Starting my pass now — focusing on the technical scoring criteria.',
+            "Reviewing the budget tables today; I'll flag anything over the ceiling.",
+            'Running the compliance checklist against the ToR this afternoon.',
+          ]),
+          eventType: null,
+          authorUserId: pick([rev1, rev2, rev3]),
+        })
+      } else if (pstatus === 'revision_required') {
+        msgs.push(
+          {
+            kind: 'system',
+            body: 'Rita (Technical) requested changes.',
+            eventType: 'review_decision',
+            authorUserId: rev1,
+          },
+          {
+            kind: 'message',
+            body: pick([
+              'Section 2 needs a tighter logframe and measurable indicators.',
+              'Budget narrative and the cost tables disagree in a few places — please reconcile.',
+              'Add the risk-mitigation annex; reviewers will look for it.',
+            ]),
+            eventType: null,
+            authorUserId: rev1,
+          }
+        )
+      } else {
+        msgs.push(
+          {
+            kind: 'system',
+            body: 'Rita (Technical) approved.',
+            eventType: 'review_decision',
+            authorUserId: rev1,
+          },
+          {
+            kind: 'system',
+            body: 'Nadia (Finance) approved.',
+            eventType: 'review_decision',
+            authorUserId: rev2,
+          },
+          {
+            kind: 'message',
+            body: pick([
+              'Compliance annex attached and verified — good to proceed.',
+              'All clear from my side; nicely structured response.',
+            ]),
+            eventType: null,
+            authorUserId: rev3,
+          }
+        )
+      }
+    }
+    if (pstatus === 'submitted') {
+      msgs.push({
+        kind: 'system',
+        body: 'Submitted to the client ahead of the deadline.',
+        eventType: 'status_change',
+        authorUserId: lead,
+      })
+    }
+    if (['won', 'lost', 'shortlisted'].includes(pstatus)) {
+      msgs.push({
+        kind: 'system',
+        body:
+          pstatus === 'won'
+            ? 'Outcome recorded: WON 🎉 — handover to delivery next.'
+            : pstatus === 'lost'
+              ? 'Outcome recorded: Lost. Debrief notes captured for next time.'
+              : 'Outcome recorded: Shortlisted — preparing for the interview stage.',
+        eventType: 'status_change',
+        authorUserId: lead,
+      })
+    }
+    const nowMs = Date.now()
+    await db.insert(proposalMessages).values(
+      msgs.map((m, idx) => ({
+        ...m,
+        proposalId,
+        organizationId: orgId,
+        createdAt: new Date(nowMs - (msgs.length - idx) * 3_600_000),
+      }))
+    )
+
+    // Document version history (PM-03) — a couple of snapshots for drafts.
+    if (beyondAssigned) {
+      await db.insert(proposalDocumentVersions).values([
+        {
+          proposalId,
+          organizationId: orgId,
+          content: `<h1>${opp.title}</h1><h2>Outline</h2><p>Section headings and overall approach — first pass.</p>`,
+          savedByUserId: writer1,
+          createdAt: daysFromNow(-3),
+        },
+        {
+          proposalId,
+          organizationId: orgId,
+          content: `<h1>${opp.title}</h1><h2>Executive summary</h2><p>We propose a phased delivery aligned to the client's objectives.</p><h2>Technical approach</h2><p>Methodology, work-plan, and quality assurance.</p><h2>Team &amp; budget</h2><p>Staffing matrix and a value-for-money budget narrative.</p>`,
+          savedByUserId: writer2,
+          createdAt: daysFromNow(-1),
+        },
+      ])
     }
   }
   consola.success(`Proposals: ${proposalCount} (spread across the workflow)`)
