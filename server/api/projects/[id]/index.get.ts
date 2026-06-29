@@ -45,6 +45,7 @@ export default defineEventHandler(async (event) => {
         pmLastName: users.lastName,
         closedAt: projects.closedAt,
         closeChecklist: projects.closeChecklist,
+        portalToken: projects.portalToken,
         createdAt: projects.createdAt,
       })
       .from(projects)

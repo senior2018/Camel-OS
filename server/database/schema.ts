@@ -1696,6 +1696,8 @@ export const projects = pgTable(
     // PJ-11 — close + archive.
     closedAt: timestamp('closed_at', { withTimezone: true }),
     closeChecklist: jsonb('close_checklist').$type<Record<string, boolean>>(),
+    // ME-06 — read-only donor/client portal share token (null = portal off).
+    portalToken: text('portal_token').unique(),
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -1915,6 +1917,157 @@ export const timesheetEntries = pgTable(
   (table) => [index('timesheet_entries_project_idx').on(table.projectId)]
 )
 
+// ─── Monitoring & Evaluation (S16, ME-01..06) ────────────────────────────────
+export const melLevelEnum = pgEnum('mel_level', ['goal', 'outcome', 'output', 'indicator'])
+export const melQuestionTypeEnum = pgEnum('mel_question_type', ['text', 'scale', 'multiple_choice'])
+export const melEvaluationStatusEnum = pgEnum('mel_evaluation_status', ['draft', 'open', 'closed'])
+
+// ME-01 — hierarchical results framework; leaf 'indicator' rows carry targets.
+export const melIndicators = pgTable(
+  'mel_indicators',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    parentId: uuid('parent_id'),
+    level: melLevelEnum().notNull().default('indicator'),
+    name: text().notNull(),
+    baseline: numeric({ precision: 14, scale: 2 }),
+    target: numeric({ precision: 14, scale: 2 }),
+    unit: text(),
+    frequency: text(),
+    dataSource: text('data_source'),
+    orderIndex: integer('order_index').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('mel_indicators_project_idx').on(table.projectId)]
+)
+
+// ME-02 — periodic data entered against an indicator.
+export const melDataPoints = pgTable(
+  'mel_data_points',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    indicatorId: uuid('indicator_id')
+      .notNull()
+      .references(() => melIndicators.id, { onDelete: 'cascade' }),
+    periodDate: date('period_date').notNull(),
+    value: numeric({ precision: 14, scale: 2 }).notNull(),
+    note: text(),
+    evidenceUrl: text('evidence_url'),
+    enteredByUserId: uuid('entered_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('mel_data_points_indicator_idx').on(table.indicatorId)]
+)
+
+// ME-04 — evaluation questionnaires distributed via a public link.
+export const melEvaluations = pgTable(
+  'mel_evaluations',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
+    title: text().notNull(),
+    description: text(),
+    status: melEvaluationStatusEnum().notNull().default('draft'),
+    publicToken: text('public_token').unique(),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('mel_evaluations_org_idx').on(table.organizationId)]
+)
+
+export const melQuestions = pgTable(
+  'mel_questions',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    evaluationId: uuid('evaluation_id')
+      .notNull()
+      .references(() => melEvaluations.id, { onDelete: 'cascade' }),
+    type: melQuestionTypeEnum().notNull().default('text'),
+    prompt: text().notNull(),
+    options: jsonb().$type<string[]>().notNull().default([]),
+    orderIndex: integer('order_index').notNull().default(0),
+    required: boolean().notNull().default(false),
+  },
+  (table) => [index('mel_questions_evaluation_idx').on(table.evaluationId)]
+)
+
+export const melResponses = pgTable(
+  'mel_responses',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    evaluationId: uuid('evaluation_id')
+      .notNull()
+      .references(() => melEvaluations.id, { onDelete: 'cascade' }),
+    respondentName: text('respondent_name'),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('mel_responses_evaluation_idx').on(table.evaluationId)]
+)
+
+export const melAnswers = pgTable(
+  'mel_answers',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    responseId: uuid('response_id')
+      .notNull()
+      .references(() => melResponses.id, { onDelete: 'cascade' }),
+    questionId: uuid('question_id')
+      .notNull()
+      .references(() => melQuestions.id, { onDelete: 'cascade' }),
+    value: text(),
+  },
+  (table) => [index('mel_answers_response_idx').on(table.responseId)]
+)
+
+// ME-05 — lessons learned, linked to a project, searchable by tag/sector.
+export const melLessons = pgTable(
+  'mel_lessons',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
+    title: text().notNull(),
+    description: text(),
+    sector: text(),
+    tags: jsonb().$type<string[]>().notNull().default([]),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('mel_lessons_org_idx').on(table.organizationId)]
+)
+
 // CR-10 — Donor ↔ project pivot. Funding amount is per-link (the same donor may
 // contribute to many projects, the same project may have many donors). Currency
 // follows the donor's preferred currency, not the project's, so each link carries
@@ -2095,6 +2248,21 @@ export type ProjectReport = typeof projectReports.$inferSelect
 export type NewProjectReport = typeof projectReports.$inferInsert
 export type TimesheetEntry = typeof timesheetEntries.$inferSelect
 export type NewTimesheetEntry = typeof timesheetEntries.$inferInsert
+
+export type MelIndicator = typeof melIndicators.$inferSelect
+export type NewMelIndicator = typeof melIndicators.$inferInsert
+export type MelDataPoint = typeof melDataPoints.$inferSelect
+export type NewMelDataPoint = typeof melDataPoints.$inferInsert
+export type MelEvaluation = typeof melEvaluations.$inferSelect
+export type NewMelEvaluation = typeof melEvaluations.$inferInsert
+export type MelQuestion = typeof melQuestions.$inferSelect
+export type NewMelQuestion = typeof melQuestions.$inferInsert
+export type MelResponse = typeof melResponses.$inferSelect
+export type NewMelResponse = typeof melResponses.$inferInsert
+export type MelAnswer = typeof melAnswers.$inferSelect
+export type NewMelAnswer = typeof melAnswers.$inferInsert
+export type MelLesson = typeof melLessons.$inferSelect
+export type NewMelLesson = typeof melLessons.$inferInsert
 
 export type DonorProject = typeof donorProjects.$inferSelect
 export type NewDonorProject = typeof donorProjects.$inferInsert

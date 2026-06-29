@@ -105,6 +105,7 @@ interface Project {
   pmLastName: string | null
   closedAt: string | null
   closeChecklist: Record<string, boolean> | null
+  portalToken: string | null
 }
 interface Summary {
   budgetTotal: number
@@ -168,14 +169,17 @@ function fdate(s: string | null) {
     : '—'
 }
 
-const tab = ref<'overview' | 'plan' | 'budget' | 'team' | 'reports'>('overview')
-const tabs = [
+type TabKey = 'overview' | 'plan' | 'budget' | 'team' | 'reports' | 'mel'
+const canMel = computed(() => can.value('mel', 'read'))
+const tab = ref<TabKey>('overview')
+const tabs = computed<{ key: TabKey; label: string; icon: string }[]>(() => [
   { key: 'overview', label: 'Overview', icon: 'i-lucide-gauge' },
   { key: 'plan', label: 'Plan', icon: 'i-lucide-list-checks' },
   { key: 'budget', label: 'Budget', icon: 'i-lucide-wallet' },
   { key: 'team', label: 'Team', icon: 'i-lucide-users' },
   { key: 'reports', label: 'Reports', icon: 'i-lucide-file-text' },
-] as const
+  ...(canMel.value ? [{ key: 'mel' as TabKey, label: 'M&E', icon: 'i-lucide-line-chart' }] : []),
+])
 
 // RAG helpers for the health dashboard (PJ-10).
 const scheduleRag = computed(() => {
@@ -1098,6 +1102,16 @@ const milestoneItems = computed(() => [
           <p v-else class="text-sm text-muted">No time logged yet.</p>
         </UCard>
       </div>
+    </div>
+
+    <!-- M&E (S16) -->
+    <div v-if="canMel" v-show="tab === 'mel'">
+      <ProjectMel
+        :project-id="id"
+        :can-edit="can('mel', 'update') && !closed"
+        :portal-token="data.project.portalToken"
+        @portal-changed="refresh"
+      />
     </div>
 
     <!-- Modals -->

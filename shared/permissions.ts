@@ -164,7 +164,7 @@ export const DEFAULT_ROLES: readonly DefaultRoleDefinition[] = [
       // or an Editor on that specific proposal (enforced server-side).
       proposal: ['read', 'create', 'update', 'admin'],
       project: ['read', 'create', 'update'],
-      mel: ['read', 'update'],
+      mel: ['read', 'create', 'update'],
       hr: ['read'],
       timesheet: ['read', 'update'],
       strategy: ['read', 'update'],
@@ -308,6 +308,8 @@ export const DEFAULT_ROLES: readonly DefaultRoleDefinition[] = [
     isSystem: false,
     permissions: {
       knowledge: ['read', 'create', 'update', 'delete', 'admin'],
+      // ME-05 — capture & curate lessons learned.
+      mel: ['read', 'create', 'update'],
       notifications: ['read'],
     },
   },

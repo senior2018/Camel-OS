@@ -18,7 +18,10 @@ export default defineNuxtRouteMiddleware(async (to) => {
   }
 
   const isAuthenticated = loggedIn.value
-  const isPublicRoute = PUBLIC_ROUTES.has(to.path)
+  // Token-gated public pages (ME-06 donor portal, ME-04 survey links) are open
+  // to anyone with the link — no session required.
+  const isTokenPublic = to.path.startsWith('/portal/') || to.path.startsWith('/survey/')
+  const isPublicRoute = PUBLIC_ROUTES.has(to.path) || isTokenPublic
 
   // Root always routes based on session — no landing page exists.
   if (to.path === '/') {
