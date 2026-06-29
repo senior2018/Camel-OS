@@ -32,6 +32,50 @@ const navItems = computed(() => {
       active: route.path.startsWith('/proposals'),
     })
   }
+  if (
+    can.value('communications', 'create') ||
+    can.value('communications', 'update') ||
+    can.value('communications', 'approve')
+  ) {
+    items.push({
+      label: 'Communications',
+      to: '/communications',
+      icon: 'i-lucide-megaphone',
+      active: route.path === '/communications' || /^\/communications\/[^/]+$/.test(route.path),
+    })
+    items.push({
+      label: 'Content Calendar',
+      to: '/communications/calendar',
+      icon: 'i-lucide-calendar-days',
+      active: route.path === '/communications/calendar',
+    })
+    items.push({
+      label: 'Campaigns',
+      to: '/campaigns',
+      icon: 'i-lucide-rocket',
+      active: route.path.startsWith('/campaigns'),
+    })
+    items.push({
+      label: 'Stakeholders',
+      to: '/stakeholders',
+      icon: 'i-lucide-network',
+      active: route.path.startsWith('/stakeholders'),
+    })
+    items.push({
+      label: 'Media Monitoring',
+      to: '/media',
+      icon: 'i-lucide-radio',
+      active: route.path.startsWith('/media'),
+    })
+  }
+  if (can.value('communications', 'read')) {
+    items.push({
+      label: 'Insights Library',
+      to: '/library',
+      icon: 'i-lucide-library',
+      active: route.path.startsWith('/library'),
+    })
+  }
   if (can.value('crm', 'read')) {
     // Customer Management covers clients, prospects, donors, and partners —
     // the page itself has tab filters per type and surfaces the two reports
@@ -236,15 +280,18 @@ const userMenu = [
           <h1 class="text-lg font-semibold text-default">Dashboard</h1>
         </div>
 
-        <UDropdownMenu :items="userMenu">
-          <button
-            type="button"
-            class="flex size-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary lg:hidden"
-            aria-label="Account menu"
-          >
-            {{ userInitials }}
-          </button>
-        </UDropdownMenu>
+        <div class="flex items-center gap-1.5">
+          <AppNotificationBell />
+          <UDropdownMenu :items="userMenu">
+            <button
+              type="button"
+              class="flex size-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary lg:hidden"
+              aria-label="Account menu"
+            >
+              {{ userInitials }}
+            </button>
+          </UDropdownMenu>
+        </div>
       </header>
 
       <main class="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">

@@ -156,6 +156,60 @@ export async function sendProposalAssignmentEmail(
   }
 }
 
+export async function sendContentReviewRequestEmail(
+  to: string,
+  options: { recipientName: string; contentTitle: string; requesterName: string; url: string }
+): Promise<void> {
+  try {
+    await getClient().transactionalEmails.sendTransacEmail({
+      sender: { name: 'Camel OS', email: getFromEmail() },
+      to: [{ email: to }],
+      subject: `Review requested: "${options.contentTitle}"`,
+      htmlContent: `
+        <p>Hi ${options.recipientName},</p>
+        <p><strong>${options.requesterName}</strong> has asked you to review the content item <strong>${options.contentTitle}</strong>.</p>
+        <p><a href="${options.url}">Open it in Camel OS</a> to approve, request changes, or reject.</p>
+      `,
+    })
+  } catch (err) {
+    throw new Error(`Failed to send email: ${(err as Error).message}`)
+  }
+}
+
+export async function sendContentDecisionEmail(
+  to: string,
+  options: {
+    recipientName: string
+    contentTitle: string
+    decision: string
+    reviewerName: string
+    comment?: string | null
+    url: string
+  }
+): Promise<void> {
+  const verb =
+    options.decision === 'approved'
+      ? 'approved'
+      : options.decision === 'rejected'
+        ? 'rejected'
+        : 'requested changes on'
+  try {
+    await getClient().transactionalEmails.sendTransacEmail({
+      sender: { name: 'Camel OS', email: getFromEmail() },
+      to: [{ email: to }],
+      subject: `Your content "${options.contentTitle}" was reviewed`,
+      htmlContent: `
+        <p>Hi ${options.recipientName},</p>
+        <p><strong>${options.reviewerName}</strong> has <strong>${verb}</strong> your content item <strong>${options.contentTitle}</strong>.</p>
+        ${options.comment ? `<blockquote>${options.comment}</blockquote>` : ''}
+        <p><a href="${options.url}">Open it in Camel OS</a></p>
+      `,
+    })
+  } catch (err) {
+    throw new Error(`Failed to send email: ${(err as Error).message}`)
+  }
+}
+
 export async function sendMfaEmailCode(
   to: string,
   options: { code: string; expiresInMinutes: number }

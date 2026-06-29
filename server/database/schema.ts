@@ -918,6 +918,281 @@ export const proposalMessages = pgTable(
   (table) => [index('proposal_messages_proposal_id_idx').on(table.proposalId)]
 )
 
+// ─── Communications — Content Items (S7, CC-01..07) ──────────────────────────
+// Rich-text content (insights, reports, articles) authored in-platform, taken
+// through a named-reviewer approval workflow, then published to the staff library.
+export const contentStatusEnum = pgEnum('content_status', [
+  'draft',
+  'in_review',
+  'changes_requested',
+  'approved',
+  'published',
+  'archived',
+])
+export const contentReviewDecisionEnum = pgEnum('content_review_decision', [
+  'pending',
+  'approved',
+  'changes_requested',
+  'rejected',
+])
+
+export const contentItems = pgTable(
+  'content_items',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    title: text().notNull(),
+    // Content type label (insight / report / article / news / blog). Plain text
+    // so admins can extend the vocabulary later via lookup values.
+    type: text().notNull().default('insight'),
+    category: text(),
+    excerpt: text(),
+    body: text(), // rich-text HTML (CC-01)
+    coverImageUrl: text('cover_image_url'),
+    tags: jsonb().$type<string[]>().notNull().default([]),
+    status: contentStatusEnum().notNull().default('draft'),
+    authorUserId: uuid('author_user_id').references(() => users.id, { onDelete: 'set null' }),
+    // CC-04 — planned publish date for the content calendar.
+    scheduledFor: timestamp('scheduled_for', { withTimezone: true }),
+    // CC-10 — optional campaign this content contributes to.
+    campaignId: uuid('campaign_id').references(() => campaigns.id, { onDelete: 'set null' }),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('content_items_org_idx').on(table.organizationId),
+    index('content_items_status_idx').on(table.status),
+    index('content_items_campaign_idx').on(table.campaignId),
+  ]
+)
+
+// ─── Communications — Campaigns (S8, CC-09..13) ──────────────────────────────
+export const campaignStatusEnum = pgEnum('campaign_status', ['planning', 'active', 'closed'])
+
+export const campaigns = pgTable(
+  'campaigns',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    name: text().notNull(),
+    objective: text(),
+    audience: text(),
+    startDate: date('start_date'),
+    endDate: date('end_date'),
+    budgetPlanned: numeric('budget_planned', { precision: 14, scale: 2 }),
+    currency: text().notNull().default('USD'),
+    status: campaignStatusEnum().notNull().default('planning'),
+    ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
+    // CC-13 — final report captured on close.
+    reportSummary: text('report_summary'),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('campaigns_org_idx').on(table.organizationId)]
+)
+
+// CC-08 — per-content engagement metrics (one row per content per date).
+export const contentMetrics = pgTable(
+  'content_metrics',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    contentItemId: uuid('content_item_id')
+      .notNull()
+      .references(() => contentItems.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    metricDate: date('metric_date').notNull(),
+    impressions: integer().notNull().default(0),
+    clicks: integer().notNull().default(0),
+    shares: integer().notNull().default(0),
+    likes: integer().notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('content_metrics_content_idx').on(table.contentItemId),
+    unique('content_metrics_content_date_uniq').on(table.contentItemId, table.metricDate),
+  ]
+)
+
+// ─── Communications — Stakeholders (S9, CC-14..17) ───────────────────────────
+export const stakeholderLevelEnum = pgEnum('stakeholder_level', ['high', 'medium', 'low'])
+
+export const stakeholders = pgTable(
+  'stakeholders',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    name: text().notNull(),
+    type: text(),
+    sector: text(),
+    geography: text(),
+    influence: stakeholderLevelEnum().notNull().default('medium'),
+    interest: stakeholderLevelEnum().notNull().default('medium'),
+    // CC-15 — deliberate engagement strategy + owner.
+    engagementStrategy: text('engagement_strategy'),
+    ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('stakeholders_org_idx').on(table.organizationId)]
+)
+
+// CC-16 — logged engagement activities per stakeholder.
+export const stakeholderActivities = pgTable(
+  'stakeholder_activities',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    stakeholderId: uuid('stakeholder_id')
+      .notNull()
+      .references(() => stakeholders.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    activityDate: date('activity_date').notNull(),
+    type: text().notNull(),
+    description: text(),
+    outcome: text(),
+    nextStep: text('next_step'),
+    loggedByUserId: uuid('logged_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('stakeholder_activities_stakeholder_idx').on(table.stakeholderId)]
+)
+
+// ─── Communications — Media Monitoring (S10, CC-18/20/21) ────────────────────
+export const mediaSentimentEnum = pgEnum('media_sentiment', ['positive', 'neutral', 'negative'])
+export const mediaSourceTypeEnum = pgEnum('media_source_type', [
+  'print',
+  'online',
+  'tv',
+  'radio',
+  'social',
+])
+
+export const mediaMentions = pgTable(
+  'media_mentions',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    title: text().notNull(),
+    outlet: text(),
+    sourceType: mediaSourceTypeEnum('source_type').notNull().default('online'),
+    sentiment: mediaSentimentEnum().notNull().default('neutral'),
+    url: text(),
+    mentionDate: date('mention_date').notNull(),
+    summary: text(),
+    // CC-21 — escalation to management.
+    flagged: boolean().notNull().default(false),
+    escalationNote: text('escalation_note'),
+    flaggedByUserId: uuid('flagged_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    flaggedAt: timestamp('flagged_at', { withTimezone: true }),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('media_mentions_org_idx').on(table.organizationId),
+    index('media_mentions_date_idx').on(table.mentionDate),
+  ]
+)
+
+// CC-12 — planned vs actual spend lines per campaign.
+export const campaignBudgetLines = pgTable(
+  'campaign_budget_lines',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    campaignId: uuid('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    label: text().notNull(),
+    plannedAmount: numeric('planned_amount', { precision: 14, scale: 2 }).notNull().default('0'),
+    actualAmount: numeric('actual_amount', { precision: 14, scale: 2 }).notNull().default('0'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('campaign_budget_lines_campaign_idx').on(table.campaignId)]
+)
+
+// Approval workflow — ordered, named reviewers per content item (CC-02 / CC-03).
+export const contentReviews = pgTable(
+  'content_reviews',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    contentItemId: uuid('content_item_id')
+      .notNull()
+      .references(() => contentItems.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    reviewerUserId: uuid('reviewer_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    stepOrder: integer('step_order').notNull().default(1),
+    decision: contentReviewDecisionEnum().notNull().default('pending'),
+    comment: text(),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('content_reviews_content_item_id_idx').on(table.contentItemId)]
+)
+
+// Discussion thread on a content item (comments support for CC-02 / CC-03).
+export const contentComments = pgTable(
+  'content_comments',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    contentItemId: uuid('content_item_id')
+      .notNull()
+      .references(() => contentItems.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    authorUserId: uuid('author_user_id').references(() => users.id, { onDelete: 'set null' }),
+    body: text().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('content_comments_content_item_id_idx').on(table.contentItemId)]
+)
+
+// ─── In-app notifications (lightweight; full NT-01 centre lands in S26) ───────
+// A per-user feed surfaced by the header bell. Used by the content approval
+// workflow (review requests, decisions) and media escalations (CC-21).
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: text().notNull(),
+    title: text().notNull(),
+    body: text(),
+    linkUrl: text('link_url'),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('notifications_user_idx').on(table.userId, table.readAt)]
+)
+
 // ─── Proposal Section Comments (S12 — PM-06) ─────────────────────────────────
 // Reviewer feedback anchored to a specific section, with threaded replies via
 // `parentCommentId`. `sectionId` null = a general proposal-level comment.
@@ -1625,6 +1900,36 @@ export type NewProposalSectionComment = typeof proposalSectionComments.$inferIns
 
 export type ProposalBdNote = typeof proposalBdNotes.$inferSelect
 export type NewProposalBdNote = typeof proposalBdNotes.$inferInsert
+
+export type ContentItem = typeof contentItems.$inferSelect
+export type NewContentItem = typeof contentItems.$inferInsert
+
+export type ContentReview = typeof contentReviews.$inferSelect
+export type NewContentReview = typeof contentReviews.$inferInsert
+
+export type ContentComment = typeof contentComments.$inferSelect
+export type NewContentComment = typeof contentComments.$inferInsert
+
+export type Notification = typeof notifications.$inferSelect
+export type NewNotification = typeof notifications.$inferInsert
+
+export type Campaign = typeof campaigns.$inferSelect
+export type NewCampaign = typeof campaigns.$inferInsert
+
+export type CampaignBudgetLine = typeof campaignBudgetLines.$inferSelect
+export type NewCampaignBudgetLine = typeof campaignBudgetLines.$inferInsert
+
+export type ContentMetric = typeof contentMetrics.$inferSelect
+export type NewContentMetric = typeof contentMetrics.$inferInsert
+
+export type Stakeholder = typeof stakeholders.$inferSelect
+export type NewStakeholder = typeof stakeholders.$inferInsert
+
+export type StakeholderActivity = typeof stakeholderActivities.$inferSelect
+export type NewStakeholderActivity = typeof stakeholderActivities.$inferInsert
+
+export type MediaMention = typeof mediaMentions.$inferSelect
+export type NewMediaMention = typeof mediaMentions.$inferInsert
 
 export type ProposalAttachment = typeof proposalAttachments.$inferSelect
 export type NewProposalAttachment = typeof proposalAttachments.$inferInsert

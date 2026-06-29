@@ -79,3 +79,32 @@ export async function requirePermission(
     statusMessage: `You don't have permission to ${action} ${module}.`,
   })
 }
+
+/**
+ * Resolve the authenticated user without requiring a specific module permission.
+ * For endpoints every signed-in user may call (e.g. their own notifications).
+ */
+export async function requireUser(event: H3Event): Promise<PermissionContext> {
+  const session = await getUserSession(event)
+  if (!session.user) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+  const sessionUser = session.user as { id: string; email: string }
+
+  const [userRow] = await useDrizzle()
+    .select({
+      id: users.id,
+      email: users.email,
+      organizationId: users.organizationId,
+      systemRole: users.role,
+    })
+    .from(users)
+    .where(eq(users.id, sessionUser.id))
+    .limit(1)
+  if (!userRow) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+
+  return {
+    userId: userRow.id,
+    organizationId: userRow.organizationId,
+    email: userRow.email,
+    isSystemAdmin: userRow.systemRole === 'system_admin',
+  }
+}

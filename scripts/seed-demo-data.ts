@@ -9,12 +9,21 @@ import consola from 'consola'
 import * as schema from '../server/database/schema'
 import {
   authAccounts,
+  campaignBudgetLines,
+  campaigns,
   clientContacts,
   clientInteractions,
   clientReminders,
   clients,
+  contentComments,
+  contentItems,
+  contentMetrics,
+  contentReviews,
   donorGrants,
   donorProjects,
+  mediaMentions,
+  stakeholderActivities,
+  stakeholders,
   opportunities,
   opportunityActivities,
   opportunityClients,
@@ -295,7 +304,12 @@ async function run() {
   await db.delete(opportunities).where(eq(opportunities.organizationId, orgId))
   await db.delete(clients).where(eq(clients.organizationId, orgId))
   await db.delete(projects).where(eq(projects.organizationId, orgId))
-  consola.success('Wiped clients, opportunities, proposals, grants, agreements, projects.')
+  // Communications (S7–S10) — children cascade from these.
+  await db.delete(contentItems).where(eq(contentItems.organizationId, orgId))
+  await db.delete(campaigns).where(eq(campaigns.organizationId, orgId))
+  await db.delete(stakeholders).where(eq(stakeholders.organizationId, orgId))
+  await db.delete(mediaMentions).where(eq(mediaMentions.organizationId, orgId))
+  consola.success('Wiped clients, opportunities, proposals, communications, grants, agreements.')
 
   // ── 2) user roster across roles (idempotent) ──
   const orgRoles = await db.select().from(roles).where(eq(roles.organizationId, orgId))
@@ -960,6 +974,371 @@ async function run() {
     }
   }
   consola.success(`Proposals: ${proposalCount} (spread across the workflow)`)
+
+  // ── Communications (S7–S10) ──────────────────────────────────────────────────
+  const commsAuthor = userIdByEmail.get('cathy@camel-os.com')!
+  const commsLead = userIdByEmail.get('carl@camel-os.com')!
+  const cm = [
+    userIdByEmail.get('rita@camel-os.com')!,
+    userIdByEmail.get('nadia@camel-os.com')!,
+    userIdByEmail.get('omar@camel-os.com')!,
+  ]
+
+  const [campA] = await db
+    .insert(campaigns)
+    .values({
+      organizationId: orgId,
+      name: 'Q3 Agriculture Thought-Leadership',
+      objective: 'Position the firm as a leader in agricultural transformation across East Africa.',
+      audience: 'Development partners, government, agribusiness',
+      startDate: isoDate(daysFromNow(-30)),
+      endDate: isoDate(daysFromNow(60)),
+      budgetPlanned: '15000.00',
+      currency: 'USD',
+      status: 'active',
+      ownerUserId: commsLead,
+    })
+    .returning({ id: campaigns.id })
+  const [campB] = await db
+    .insert(campaigns)
+    .values({
+      organizationId: orgId,
+      name: 'Annual Report 2026 Launch',
+      objective: 'Drive awareness and downloads of the annual report.',
+      audience: 'Clients, donors, staff',
+      startDate: isoDate(daysFromNow(20)),
+      endDate: isoDate(daysFromNow(80)),
+      budgetPlanned: '8000.00',
+      currency: 'USD',
+      status: 'planning',
+      ownerUserId: commsLead,
+    })
+    .returning({ id: campaigns.id })
+  await db.insert(campaignBudgetLines).values([
+    {
+      campaignId: campA!.id,
+      organizationId: orgId,
+      label: 'Paid social promotion',
+      plannedAmount: '6000.00',
+      actualAmount: '4200.00',
+    },
+    {
+      campaignId: campA!.id,
+      organizationId: orgId,
+      label: 'Design & production',
+      plannedAmount: '5000.00',
+      actualAmount: '5200.00',
+    },
+    {
+      campaignId: campA!.id,
+      organizationId: orgId,
+      label: 'Webinar platform',
+      plannedAmount: '2000.00',
+      actualAmount: '1500.00',
+    },
+  ])
+
+  const CONTENT_PLAN = [
+    {
+      title: 'Unlocking Climate-Smart Agriculture in Tanzania',
+      type: 'insight',
+      category: 'Agriculture',
+      status: 'published',
+      campaign: 'A',
+      metrics: true,
+    },
+    {
+      title: 'Five Lessons from Our M&E Practice',
+      type: 'article',
+      category: 'M&E',
+      status: 'published',
+      campaign: null,
+      metrics: true,
+    },
+    {
+      title: 'Digital Finance: A 2026 Outlook',
+      type: 'report',
+      category: 'Finance',
+      status: 'approved',
+      campaign: 'A',
+      metrics: false,
+    },
+    {
+      title: 'Strengthening Health Systems — Field Notes',
+      type: 'insight',
+      category: 'Health',
+      status: 'in_review',
+      campaign: null,
+      metrics: false,
+    },
+    {
+      title: 'Youth Employment: What Works',
+      type: 'article',
+      category: 'Employment',
+      status: 'changes_requested',
+      campaign: 'A',
+      metrics: false,
+    },
+    {
+      title: 'Governance Reform Brief',
+      type: 'insight',
+      category: 'Governance',
+      status: 'draft',
+      campaign: null,
+      metrics: false,
+    },
+    {
+      title: 'Water & Sanitation Trends',
+      type: 'news',
+      category: 'WASH',
+      status: 'draft',
+      campaign: 'B',
+      metrics: false,
+    },
+    {
+      title: 'Legacy Tax Policy Review',
+      type: 'report',
+      category: 'Finance',
+      status: 'archived',
+      campaign: null,
+      metrics: false,
+    },
+  ] as const
+  const BODY =
+    '<h2>Executive summary</h2><p>Key findings and what they mean for practitioners.</p><h2>Background</h2><p>Context and our approach.</p><h2>Recommendations</h2><ul><li>Invest in local capacity</li><li>Leverage data and evidence</li><li>Partner deliberately</li></ul>'
+  for (const c of CONTENT_PLAN) {
+    const published = c.status === 'published'
+    const [ci] = await db
+      .insert(contentItems)
+      .values({
+        organizationId: orgId,
+        title: c.title,
+        type: c.type,
+        category: c.category,
+        excerpt: `${c.title} — a concise, practical perspective from our consultants.`,
+        body: `<h1>${c.title}</h1>${BODY}`,
+        tags: [c.category.toLowerCase()],
+        status: c.status,
+        authorUserId: commsAuthor,
+        campaignId: c.campaign === 'A' ? campA!.id : c.campaign === 'B' ? campB!.id : null,
+        scheduledFor: ['approved', 'in_review'].includes(c.status)
+          ? daysFromNow(rand(20) + 3)
+          : null,
+        publishedAt: published ? daysFromNow(-rand(20) - 1) : null,
+      })
+      .returning({ id: contentItems.id })
+    const id = ci!.id
+
+    if (['in_review', 'changes_requested', 'approved', 'published'].includes(c.status)) {
+      const decisions: ('pending' | 'approved' | 'changes_requested')[] =
+        c.status === 'in_review'
+          ? ['pending', 'pending', 'approved']
+          : c.status === 'changes_requested'
+            ? ['changes_requested', 'approved', 'pending']
+            : ['approved', 'approved', 'approved']
+      await db.insert(contentReviews).values(
+        cm.map((uid, i) => ({
+          contentItemId: id,
+          organizationId: orgId,
+          reviewerUserId: uid,
+          stepOrder: 1,
+          decision: decisions[i]!,
+          comment:
+            decisions[i] === 'changes_requested'
+              ? 'Please tighten section 2 and add a recent data point.'
+              : null,
+          decidedAt: decisions[i] !== 'pending' ? daysFromNow(-rand(5)) : null,
+        }))
+      )
+      await db.insert(contentComments).values([
+        {
+          contentItemId: id,
+          organizationId: orgId,
+          authorUserId: null,
+          body: 'Sent for review — 3 reviewers assigned.',
+        },
+        {
+          contentItemId: id,
+          organizationId: orgId,
+          authorUserId: cm[0]!,
+          body: 'Reviewing now — strong angle on this one.',
+        },
+      ])
+    }
+
+    if (published && c.metrics) {
+      const days = 6
+      await db.insert(contentMetrics).values(
+        Array.from({ length: days }, (_, i) => ({
+          contentItemId: id,
+          organizationId: orgId,
+          metricDate: isoDate(daysFromNow(-(days - i) * 2)),
+          impressions: 200 + rand(800),
+          clicks: 10 + rand(120),
+          shares: rand(40),
+          likes: rand(90),
+        }))
+      )
+    }
+  }
+
+  const STAKE = [
+    {
+      name: 'Ministry of Agriculture',
+      type: 'Government',
+      sector: 'Public',
+      geography: 'Tanzania',
+      influence: 'high',
+      interest: 'high',
+      strategy: 'Manage closely',
+    },
+    {
+      name: 'Gates Foundation',
+      type: 'Donor',
+      sector: 'Philanthropy',
+      geography: 'Global',
+      influence: 'high',
+      interest: 'medium',
+      strategy: 'Keep satisfied',
+    },
+    {
+      name: 'Daily News',
+      type: 'Media',
+      sector: 'Media',
+      geography: 'Tanzania',
+      influence: 'medium',
+      interest: 'high',
+      strategy: 'Keep informed',
+    },
+    {
+      name: 'Agribusiness Council',
+      type: 'Partner',
+      sector: 'Private',
+      geography: 'East Africa',
+      influence: 'medium',
+      interest: 'medium',
+      strategy: 'Keep informed',
+    },
+    {
+      name: 'University of Dar es Salaam',
+      type: 'Academia',
+      sector: 'Education',
+      geography: 'Tanzania',
+      influence: 'low',
+      interest: 'high',
+      strategy: 'Keep informed',
+    },
+    {
+      name: 'Local Farmers Cooperative',
+      type: 'Community',
+      sector: 'Agriculture',
+      geography: 'Mwanza',
+      influence: 'low',
+      interest: 'low',
+      strategy: 'Monitor',
+    },
+  ] as const
+  for (const s of STAKE) {
+    const [sk] = await db
+      .insert(stakeholders)
+      .values({
+        organizationId: orgId,
+        name: s.name,
+        type: s.type,
+        sector: s.sector,
+        geography: s.geography,
+        influence: s.influence,
+        interest: s.interest,
+        engagementStrategy: s.strategy,
+        ownerUserId: commsLead,
+      })
+      .returning({ id: stakeholders.id })
+    await db.insert(stakeholderActivities).values({
+      stakeholderId: sk!.id,
+      organizationId: orgId,
+      activityDate: isoDate(daysFromNow(-rand(30) - 1)),
+      type: pick(['Meeting', 'Call', 'Email', 'Event']),
+      description: `Engaged ${s.name} on upcoming collaboration.`,
+      outcome: 'Positive — agreed to follow up.',
+      nextStep: 'Share concept note.',
+      loggedByUserId: commsLead,
+    })
+  }
+
+  const MENTIONS = [
+    {
+      title: 'Sahara Consult drives agri-innovation forum',
+      outlet: 'Daily News',
+      sourceType: 'print',
+      sentiment: 'positive',
+    },
+    {
+      title: 'Consultancy report shapes policy debate',
+      outlet: 'The Citizen',
+      sourceType: 'online',
+      sentiment: 'positive',
+    },
+    {
+      title: 'Experts weigh in on water access',
+      outlet: 'TBC',
+      sourceType: 'tv',
+      sentiment: 'neutral',
+    },
+    {
+      title: 'Mixed reactions to reform proposals',
+      outlet: 'Mwananchi',
+      sourceType: 'online',
+      sentiment: 'negative',
+    },
+    {
+      title: 'Radio panel features our economist',
+      outlet: 'Radio One',
+      sourceType: 'radio',
+      sentiment: 'positive',
+    },
+    {
+      title: 'Social thread questions methodology',
+      outlet: 'X / Twitter',
+      sourceType: 'social',
+      sentiment: 'negative',
+    },
+    {
+      title: 'Annual report widely shared online',
+      outlet: 'LinkedIn',
+      sourceType: 'social',
+      sentiment: 'positive',
+    },
+    {
+      title: 'Op-ed cites our findings',
+      outlet: 'The Guardian',
+      sourceType: 'print',
+      sentiment: 'neutral',
+    },
+  ] as const
+  await db.insert(mediaMentions).values(
+    MENTIONS.map((m, i) => {
+      const flag = m.sentiment === 'negative' && i % 2 === 0
+      return {
+        organizationId: orgId,
+        title: m.title,
+        outlet: m.outlet,
+        sourceType: m.sourceType,
+        sentiment: m.sentiment,
+        url: 'https://example.com/news',
+        mentionDate: isoDate(daysFromNow(-rand(40) - 1)),
+        summary: 'Coverage referencing Sahara Consult work.',
+        flagged: flag,
+        escalationNote: flag ? 'Negative coverage — recommend a coordinated response.' : null,
+        flaggedByUserId: flag ? commsLead : null,
+        flaggedAt: flag ? daysFromNow(-rand(5)) : null,
+        createdByUserId: commsAuthor,
+      }
+    })
+  )
+
+  consola.success(
+    `Communications: ${CONTENT_PLAN.length} content items, 2 campaigns, ${STAKE.length} stakeholders, ${MENTIONS.length} media mentions.`
+  )
 
   consola.box(
     [

@@ -157,7 +157,8 @@ export const DEFAULT_ROLES: readonly DefaultRoleDefinition[] = [
     permissions: {
       opportunity: ['read', 'create', 'update', 'approve'],
       crm: ['read', 'create', 'update'],
-      communications: ['read', 'create', 'update'],
+      // `approve` = sign off on content items in the approval workflow (CC-03).
+      communications: ['read', 'create', 'update', 'approve'],
       // `admin` here = proposal oversight (see every proposal in the org). It
       // does NOT grant content-editing — writing still requires being the Lead
       // or an Editor on that specific proposal (enforced server-side).
@@ -252,6 +253,8 @@ export const DEFAULT_ROLES: readonly DefaultRoleDefinition[] = [
     isSystem: false,
     permissions: {
       proposal: ['read', 'update'],
+      // Reviewers also sign off on Communications content items (CC-03).
+      communications: ['read', 'approve'],
       knowledge: ['read'],
       notifications: ['read'],
     },
