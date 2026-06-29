@@ -1686,6 +1686,16 @@ export const projects = pgTable(
     endDate: date('end_date'),
     totalBudget: numeric('total_budget', { precision: 14, scale: 2 }),
     currency: varchar('currency', { length: 3 }).notNull().default('USD'),
+    // S14 (PJ-01) — delivery ownership + inherited context from the won proposal.
+    clientId: uuid('client_id').references(() => clients.id, { onDelete: 'set null' }),
+    proposalId: uuid('proposal_id').references(() => proposals.id, { onDelete: 'set null' }),
+    projectManagerUserId: uuid('project_manager_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    scope: text(),
+    // PJ-11 — close + archive.
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    closeChecklist: jsonb('close_checklist').$type<Record<string, boolean>>(),
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -1696,6 +1706,213 @@ export const projects = pgTable(
     index('projects_organization_id_idx').on(table.organizationId),
     index('projects_status_idx').on(table.status),
   ]
+)
+
+// ─── Project Management (S14–S15, PJ-01..11) ─────────────────────────────────
+export const projectMilestoneStatusEnum = pgEnum('project_milestone_status', [
+  'not_started',
+  'in_progress',
+  'completed',
+])
+export const projectActivityStatusEnum = pgEnum('project_activity_status', [
+  'todo',
+  'in_progress',
+  'blocked',
+  'done',
+])
+export const projectReportStatusEnum = pgEnum('project_report_status', [
+  'draft',
+  'in_review',
+  'approved',
+])
+
+// PJ-02 — project team with defined roles + allocation (for capacity warnings).
+export const projectMembers = pgTable(
+  'project_members',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    role: text().notNull().default('Team Member'),
+    allocationPct: integer('allocation_pct').notNull().default(100),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('project_members_project_idx').on(table.projectId),
+    unique('project_members_project_user_uniq').on(table.projectId, table.userId),
+  ]
+)
+
+// PJ-03 — milestones with due dates + completion criteria (Gantt timeline).
+export const projectMilestones = pgTable(
+  'project_milestones',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    name: text().notNull(),
+    dueDate: date('due_date'),
+    completionCriteria: text('completion_criteria'),
+    status: projectMilestoneStatusEnum().notNull().default('not_started'),
+    orderIndex: integer('order_index').notNull().default(0),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('project_milestones_project_idx').on(table.projectId)]
+)
+
+// PJ-04 — granular activities under milestones, assigned, with dependencies.
+export const projectActivities = pgTable(
+  'project_activities',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    milestoneId: uuid('milestone_id').references(() => projectMilestones.id, {
+      onDelete: 'set null',
+    }),
+    name: text().notNull(),
+    assignedUserId: uuid('assigned_user_id').references(() => users.id, { onDelete: 'set null' }),
+    startDate: date('start_date'),
+    endDate: date('end_date'),
+    plannedHours: numeric('planned_hours', { precision: 7, scale: 2 }),
+    percentComplete: integer('percent_complete').notNull().default(0),
+    status: projectActivityStatusEnum().notNull().default('todo'),
+    dependsOnActivityId: uuid('depends_on_activity_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('project_activities_project_idx').on(table.projectId)]
+)
+
+// PJ-05 — budget by category + phase (original vs revised).
+export const projectBudgetLines = pgTable(
+  'project_budget_lines',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    category: text().notNull(),
+    phase: text(),
+    originalAmount: numeric('original_amount', { precision: 14, scale: 2 }).notNull().default('0'),
+    revisedAmount: numeric('revised_amount', { precision: 14, scale: 2 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('project_budget_lines_project_idx').on(table.projectId)]
+)
+
+// PJ-07 — expenditure recorded against budget lines.
+export const projectExpenses = pgTable(
+  'project_expenses',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    budgetLineId: uuid('budget_line_id').references(() => projectBudgetLines.id, {
+      onDelete: 'set null',
+    }),
+    amount: numeric({ precision: 14, scale: 2 }).notNull(),
+    category: text(),
+    expenseDate: date('expense_date').notNull(),
+    description: text(),
+    receiptUrl: text('receipt_url'),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('project_expenses_project_idx').on(table.projectId)]
+)
+
+// PJ-08 — vendors / subcontractors.
+export const projectVendors = pgTable(
+  'project_vendors',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    name: text().notNull(),
+    contactName: text('contact_name'),
+    contactEmail: text('contact_email'),
+    contractAmount: numeric('contract_amount', { precision: 14, scale: 2 }),
+    currency: varchar({ length: 3 }).notNull().default('USD'),
+    scope: text(),
+    paymentSchedule: text('payment_schedule'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('project_vendors_project_idx').on(table.projectId)]
+)
+
+// PJ-09 — standardised project reports (template + draft/review/approved).
+export const projectReports = pgTable(
+  'project_reports',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    title: text().notNull(),
+    content: text(),
+    status: projectReportStatusEnum().notNull().default('draft'),
+    authorUserId: uuid('author_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('project_reports_project_idx').on(table.projectId)]
+)
+
+// PJ-06 — lightweight timesheet entries (the full TS module, S18–S19, extends this).
+export const timesheetEntries = pgTable(
+  'timesheet_entries',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    activityId: uuid('activity_id').references(() => projectActivities.id, {
+      onDelete: 'set null',
+    }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    entryDate: date('entry_date').notNull(),
+    hours: numeric({ precision: 5, scale: 2 }).notNull(),
+    note: text(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('timesheet_entries_project_idx').on(table.projectId)]
 )
 
 // CR-10 — Donor ↔ project pivot. Funding amount is per-link (the same donor may
@@ -1861,6 +2078,23 @@ export type NewClientReminder = typeof clientReminders.$inferInsert
 
 export type Project = typeof projects.$inferSelect
 export type NewProject = typeof projects.$inferInsert
+
+export type ProjectMember = typeof projectMembers.$inferSelect
+export type NewProjectMember = typeof projectMembers.$inferInsert
+export type ProjectMilestone = typeof projectMilestones.$inferSelect
+export type NewProjectMilestone = typeof projectMilestones.$inferInsert
+export type ProjectActivity = typeof projectActivities.$inferSelect
+export type NewProjectActivity = typeof projectActivities.$inferInsert
+export type ProjectBudgetLine = typeof projectBudgetLines.$inferSelect
+export type NewProjectBudgetLine = typeof projectBudgetLines.$inferInsert
+export type ProjectExpense = typeof projectExpenses.$inferSelect
+export type NewProjectExpense = typeof projectExpenses.$inferInsert
+export type ProjectVendor = typeof projectVendors.$inferSelect
+export type NewProjectVendor = typeof projectVendors.$inferInsert
+export type ProjectReport = typeof projectReports.$inferSelect
+export type NewProjectReport = typeof projectReports.$inferInsert
+export type TimesheetEntry = typeof timesheetEntries.$inferSelect
+export type NewTimesheetEntry = typeof timesheetEntries.$inferInsert
 
 export type DonorProject = typeof donorProjects.$inferSelect
 export type NewDonorProject = typeof donorProjects.$inferInsert

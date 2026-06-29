@@ -2,19 +2,20 @@ import { consola } from 'consola'
 
 import { projects } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
-import { requirePermission } from '@@/server/utils/permission-guard'
+import { requireAnyPermission } from '@@/server/utils/permission-guard'
 import { logAuditEvent } from '@@/server/utils/audit'
 import { createProjectSchema } from '@@/shared/schemas/project'
 
 /**
- * CR-10 — Create a project stub. Until the full project module ships (S13+),
- * this is the only way to seed a project record so donors can be linked.
- * `crm:create` is sufficient since the linking flow lives in the CRM module;
- * we'll raise this to `project:create` when the project module replaces this.
+ * Create a project. Used both by the full Project Management module (PJ-01) and
+ * by the CRM donor-link picker — hence either `project:create` or `crm:create`.
  */
 export default defineEventHandler(async (event) => {
   try {
-    const ctx = await requirePermission(event, 'crm', 'create')
+    const ctx = await requireAnyPermission(event, [
+      ['project', 'create'],
+      ['crm', 'create'],
+    ])
     const parsed = createProjectSchema.safeParse(await readBody(event))
     if (!parsed.success) {
       throw createError({
@@ -38,6 +39,9 @@ export default defineEventHandler(async (event) => {
         endDate: data.endDate ?? null,
         totalBudget: data.totalBudget ?? null,
         currency: data.currency,
+        scope: data.scope ?? null,
+        clientId: data.clientId ?? null,
+        projectManagerUserId: data.projectManagerUserId ?? null,
         createdByUserId: ctx.userId,
       })
       .returning()

@@ -108,3 +108,20 @@ export async function requireUser(event: H3Event): Promise<PermissionContext> {
     isSystemAdmin: userRow.systemRole === 'system_admin',
   }
 }
+
+/**
+ * Allow access if the caller holds ANY of the given module:action pairs. Used by
+ * resources shared between modules (e.g. the projects list is read both by the
+ * Project module and by the CRM donor-link picker).
+ */
+export async function requireAnyPermission(
+  event: H3Event,
+  pairs: [string, PermissionAction][]
+): Promise<PermissionContext> {
+  const ctx = await requireUser(event)
+  if (ctx.isSystemAdmin) return ctx
+  for (const [module, action] of pairs) {
+    if (await userHasPermission(ctx.userId, module, action)) return ctx
+  }
+  throw createError({ statusCode: 403, statusMessage: 'You do not have permission to do that.' })
+}

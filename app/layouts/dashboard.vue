@@ -32,6 +32,14 @@ const navItems = computed(() => {
       active: route.path.startsWith('/proposals'),
     })
   }
+  if (can.value('project', 'read')) {
+    items.push({
+      label: 'Projects',
+      to: '/projects',
+      icon: 'i-lucide-briefcase',
+      active: route.path.startsWith('/projects'),
+    })
+  }
   if (
     can.value('communications', 'create') ||
     can.value('communications', 'update') ||
