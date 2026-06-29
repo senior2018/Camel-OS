@@ -31,7 +31,15 @@ import {
   organizationMembers,
   organizations,
   partnershipAgreements,
+  projectActivities,
+  projectBudgetLines,
+  projectExpenses,
+  projectMembers,
+  projectMilestones,
+  projectReports,
+  projectVendors,
   projects,
+  timesheetEntries,
   proposalAssignments,
   proposalDocumentVersions,
   proposalMessages,
@@ -1338,6 +1346,188 @@ async function run() {
 
   consola.success(
     `Communications: ${CONTENT_PLAN.length} content items, 2 campaigns, ${STAKE.length} stakeholders, ${MENTIONS.length} media mentions.`
+  )
+
+  // ── Project Management (S14–S15) — enrich the first few stub projects ─────────
+  const pmCandidates = [
+    userIdByEmail.get('paul@camel-os.com')!,
+    userIdByEmail.get('david@camel-os.com')!,
+    userIdByEmail.get('maria@camel-os.com')!,
+  ]
+  const teamPool = [
+    userIdByEmail.get('sam@camel-os.com')!,
+    userIdByEmail.get('priya@camel-os.com')!,
+    userIdByEmail.get('rita@camel-os.com')!,
+    userIdByEmail.get('nadia@camel-os.com')!,
+    userIdByEmail.get('omar@camel-os.com')!,
+    userIdByEmail.get('ben@camel-os.com')!,
+  ]
+  const memberRoles = ['Lead Consultant', 'Analyst', 'M&E Specialist', 'Field Coordinator']
+  const enriched = projectIds.slice(0, 5)
+  for (const pid of enriched) {
+    const pm = pick(pmCandidates)
+    await db
+      .update(projects)
+      .set({
+        projectManagerUserId: pm,
+        status: 'active',
+        scope:
+          'Deliver the engagement to scope, schedule, and budget with quarterly client reporting.',
+      })
+      .where(eq(projects.id, pid))
+
+    const team = pickN(teamPool, 3 + rand(2))
+    await db.insert(projectMembers).values(
+      team.map((u, i) => ({
+        projectId: pid,
+        organizationId: orgId,
+        userId: u,
+        role: memberRoles[i % memberRoles.length]!,
+        allocationPct: pick([50, 75, 100]),
+      }))
+    )
+
+    const msPlan: {
+      name: string
+      status: 'completed' | 'in_progress' | 'not_started'
+      due: number
+    }[] = [
+      { name: 'Inception & work-plan', status: 'completed', due: -60 },
+      { name: 'Fieldwork & data collection', status: 'in_progress', due: 20 },
+      { name: 'Analysis & draft report', status: 'not_started', due: 60 },
+      { name: 'Final report & close-out', status: 'not_started', due: 100 },
+    ]
+    const msIds: string[] = []
+    for (let i = 0; i < msPlan.length; i++) {
+      const m = msPlan[i]!
+      const [ms] = await db
+        .insert(projectMilestones)
+        .values({
+          projectId: pid,
+          organizationId: orgId,
+          name: m.name,
+          status: m.status,
+          dueDate: isoDate(daysFromNow(m.due)),
+          orderIndex: i,
+          completedAt: m.status === 'completed' ? daysFromNow(m.due) : null,
+        })
+        .returning({ id: projectMilestones.id })
+      msIds.push(ms!.id)
+    }
+
+    const actStatuses: ('todo' | 'in_progress' | 'blocked' | 'done')[] = [
+      'done',
+      'in_progress',
+      'todo',
+    ]
+    for (let mi = 0; mi < msIds.length; mi++) {
+      const base = daysFromNow(-50 + mi * 30)
+      for (let a = 0; a < 2; a++) {
+        const st = msPlan[mi]!.status === 'completed' ? 'done' : actStatuses[(mi + a) % 3]!
+        await db.insert(projectActivities).values({
+          projectId: pid,
+          organizationId: orgId,
+          milestoneId: msIds[mi]!,
+          name: `${msPlan[mi]!.name.split(' ')[0]} task ${a + 1}`,
+          assignedUserId: pick(team),
+          startDate: isoDate(base),
+          endDate: isoDate(new Date(base.getTime() + (7 + rand(14)) * 86_400_000)),
+          plannedHours: String(20 + rand(40)),
+          percentComplete: st === 'done' ? 100 : st === 'in_progress' ? 30 + rand(50) : 0,
+          status: st,
+        })
+      }
+    }
+
+    await db.insert(projectBudgetLines).values([
+      {
+        projectId: pid,
+        organizationId: orgId,
+        category: 'Personnel',
+        phase: 'All phases',
+        originalAmount: '120000.00',
+        revisedAmount: '128000.00',
+      },
+      {
+        projectId: pid,
+        organizationId: orgId,
+        category: 'Travel & fieldwork',
+        phase: 'Phase 2',
+        originalAmount: '40000.00',
+        revisedAmount: null,
+      },
+      {
+        projectId: pid,
+        organizationId: orgId,
+        category: 'Equipment & supplies',
+        phase: 'Phase 1',
+        originalAmount: '15000.00',
+        revisedAmount: null,
+      },
+    ])
+    await db.insert(projectExpenses).values([
+      {
+        projectId: pid,
+        organizationId: orgId,
+        amount: '32000.00',
+        category: 'Personnel',
+        expenseDate: isoDate(daysFromNow(-40)),
+        description: 'Consultant fees — month 1',
+        createdByUserId: pm,
+      },
+      {
+        projectId: pid,
+        organizationId: orgId,
+        amount: '11500.00',
+        category: 'Travel & fieldwork',
+        expenseDate: isoDate(daysFromNow(-15)),
+        description: 'Field mission — Mwanza',
+        createdByUserId: pm,
+      },
+    ])
+    await db.insert(projectVendors).values({
+      projectId: pid,
+      organizationId: orgId,
+      name: pick(['Savannah Data Co', 'Rift Survey Partners', 'Coastal Translators']),
+      contactName: 'Vendor Contact',
+      contractAmount: '18000.00',
+      currency: 'USD',
+      scope: 'Enumerator hire and data entry',
+      paymentSchedule: '50% on signing, 50% on delivery',
+    })
+    await db.insert(projectReports).values([
+      {
+        projectId: pid,
+        organizationId: orgId,
+        title: 'Inception Report',
+        status: 'approved',
+        content: '## Summary\nInception complete.\n',
+        authorUserId: pm,
+      },
+      {
+        projectId: pid,
+        organizationId: orgId,
+        title: 'Monthly Progress — latest',
+        status: 'in_review',
+        content: '## Summary\nFieldwork underway.\n',
+        authorUserId: pick(team),
+      },
+    ])
+    for (const u of team) {
+      await db.insert(timesheetEntries).values(
+        Array.from({ length: 3 }, (_, w) => ({
+          organizationId: orgId,
+          projectId: pid,
+          userId: u,
+          entryDate: isoDate(daysFromNow(-(w + 1) * 7)),
+          hours: String(15 + rand(20)),
+          note: 'Weekly delivery work',
+        }))
+      )
+    }
+  }
+  consola.success(
+    `Projects: enriched ${enriched.length} with full PM data (team, milestones, budget, reports).`
   )
 
   consola.box(
