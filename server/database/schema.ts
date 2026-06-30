@@ -2614,3 +2614,132 @@ export const growthPlans = pgTable(
 
 export type GrowthPlan = typeof growthPlans.$inferSelect
 export type NewGrowthPlan = typeof growthPlans.$inferInsert
+
+// ─── Recruitment (HR-02) & Performance reviews (HR-05) — S19 ─────────────────
+
+export const vacancyStatusEnum = pgEnum('vacancy_status', ['open', 'on_hold', 'closed', 'filled'])
+export const applicantStageEnum = pgEnum('applicant_stage', [
+  'applied',
+  'screening',
+  'interview',
+  'offer',
+  'hired',
+  'rejected',
+])
+export const performanceReviewStatusEnum = pgEnum('performance_review_status', [
+  'draft',
+  'collecting',
+  'completed',
+])
+export const feedbackRelationshipEnum = pgEnum('feedback_relationship', [
+  'self',
+  'manager',
+  'peer',
+  'report',
+])
+
+// HR-02 — job vacancy + its applicant pipeline.
+export const jobVacancies = pgTable(
+  'job_vacancies',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    title: text().notNull(),
+    department: text(),
+    description: text(),
+    employmentType: employmentTypeEnum('employment_type').notNull().default('full_time'),
+    location: text(),
+    openings: integer().notNull().default(1),
+    status: vacancyStatusEnum().notNull().default('open'),
+    closingDate: date('closing_date'),
+    postedByUserId: uuid('posted_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('job_vacancies_org_idx').on(table.organizationId)]
+)
+
+export const jobApplicants = pgTable(
+  'job_applicants',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    vacancyId: uuid('vacancy_id')
+      .notNull()
+      .references(() => jobVacancies.id, { onDelete: 'cascade' }),
+    name: text().notNull(),
+    email: text(),
+    phone: text(),
+    cvUrl: text('cv_url'),
+    stage: applicantStageEnum().notNull().default('applied'),
+    rating: integer(),
+    notes: text(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('job_applicants_vacancy_idx').on(table.vacancyId)]
+)
+
+// HR-05 — a performance review for one subject, gathering 360° feedback.
+export const performanceReviews = pgTable(
+  'performance_reviews',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    subjectUserId: uuid('subject_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    periodLabel: text('period_label'),
+    status: performanceReviewStatusEnum().notNull().default('draft'),
+    overallRating: integer('overall_rating'),
+    summary: text(),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('performance_reviews_org_idx').on(table.organizationId)]
+)
+
+export const performanceFeedback = pgTable(
+  'performance_feedback',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    reviewId: uuid('review_id')
+      .notNull()
+      .references(() => performanceReviews.id, { onDelete: 'cascade' }),
+    reviewerUserId: uuid('reviewer_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    relationship: feedbackRelationshipEnum().notNull().default('peer'),
+    rating: integer(),
+    strengths: text(),
+    improvements: text(),
+    comments: text(),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    unique('performance_feedback_review_reviewer_unique').on(table.reviewId, table.reviewerUserId),
+    index('performance_feedback_review_idx').on(table.reviewId),
+  ]
+)
+
+export type JobVacancy = typeof jobVacancies.$inferSelect
+export type NewJobVacancy = typeof jobVacancies.$inferInsert
+export type JobApplicant = typeof jobApplicants.$inferSelect
+export type NewJobApplicant = typeof jobApplicants.$inferInsert
+export type PerformanceReview = typeof performanceReviews.$inferSelect
+export type NewPerformanceReview = typeof performanceReviews.$inferInsert
+export type PerformanceFeedback = typeof performanceFeedback.$inferSelect
+export type NewPerformanceFeedback = typeof performanceFeedback.$inferInsert

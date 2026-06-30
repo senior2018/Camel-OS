@@ -76,6 +76,8 @@ export default defineNuxtConfig({
       // building a per-reminder job queue. Worst-case delivery latency: ~5 min.
       // The `notified_at` stamp guarantees each reminder is emailed exactly once.
       '*/5 * * * *': ['clients:reminders'],
+      // Monday 09:00 UTC — nudge staff who didn't submit last week's timesheet (TS-06).
+      '0 9 * * 1': ['hr:timesheet-reminders'],
     },
   },
 

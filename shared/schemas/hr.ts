@@ -228,5 +228,118 @@ export const growthPlanSchema = z.object({
     .default([]),
 })
 
+// ── HR-02 — recruitment ──────────────────────────────────────────────────────
+export const VACANCY_STATUSES = ['open', 'on_hold', 'closed', 'filled'] as const
+export type VacancyStatus = (typeof VACANCY_STATUSES)[number]
+export const VACANCY_STATUS_LABEL: Record<VacancyStatus, string> = {
+  open: 'Open',
+  on_hold: 'On hold',
+  closed: 'Closed',
+  filled: 'Filled',
+}
+export const VACANCY_STATUS_COLOR: Record<VacancyStatus, BadgeColor> = {
+  open: 'success',
+  on_hold: 'warning',
+  closed: 'neutral',
+  filled: 'info',
+}
+
+export const APPLICANT_STAGES = [
+  'applied',
+  'screening',
+  'interview',
+  'offer',
+  'hired',
+  'rejected',
+] as const
+export type ApplicantStage = (typeof APPLICANT_STAGES)[number]
+export const APPLICANT_STAGE_LABEL: Record<ApplicantStage, string> = {
+  applied: 'Applied',
+  screening: 'Screening',
+  interview: 'Interview',
+  offer: 'Offer',
+  hired: 'Hired',
+  rejected: 'Rejected',
+}
+export const APPLICANT_STAGE_COLOR: Record<ApplicantStage, BadgeColor> = {
+  applied: 'neutral',
+  screening: 'info',
+  interview: 'primary',
+  offer: 'warning',
+  hired: 'success',
+  rejected: 'error',
+}
+
+export const vacancySchema = z.object({
+  title: shortText.min(1, 'Title is required'),
+  department: optShortText,
+  description: optLongText,
+  employmentType: z.enum(EMPLOYMENT_TYPES).default('full_time'),
+  location: optShortText,
+  openings: z.coerce.number().int().min(1).max(999).default(1),
+  status: z.enum(VACANCY_STATUSES).default('open'),
+  closingDate: optDate,
+})
+export const vacancyUpdateSchema = vacancySchema.partial()
+
+export const applicantSchema = z.object({
+  name: shortText.min(1, 'Name is required'),
+  email: z
+    .union([z.string().email(), z.literal('')])
+    .optional()
+    .nullable(),
+  phone: optShortText,
+  cvUrl: z
+    .union([z.string().url(), z.literal('')])
+    .optional()
+    .nullable(),
+  stage: z.enum(APPLICANT_STAGES).default('applied'),
+  rating: z.coerce.number().int().min(1).max(5).nullish(),
+  notes: optLongText,
+})
+export const applicantUpdateSchema = applicantSchema.partial()
+
+// ── HR-05 — performance reviews (360°) ───────────────────────────────────────
+export const REVIEW_STATUSES = ['draft', 'collecting', 'completed'] as const
+export type ReviewStatus = (typeof REVIEW_STATUSES)[number]
+export const REVIEW_STATUS_LABEL: Record<ReviewStatus, string> = {
+  draft: 'Draft',
+  collecting: 'Collecting feedback',
+  completed: 'Completed',
+}
+export const REVIEW_STATUS_COLOR: Record<ReviewStatus, BadgeColor> = {
+  draft: 'neutral',
+  collecting: 'warning',
+  completed: 'success',
+}
+
+export const FEEDBACK_RELATIONSHIPS = ['self', 'manager', 'peer', 'report'] as const
+export type FeedbackRelationship = (typeof FEEDBACK_RELATIONSHIPS)[number]
+export const FEEDBACK_RELATIONSHIP_LABEL: Record<FeedbackRelationship, string> = {
+  self: 'Self',
+  manager: 'Manager',
+  peer: 'Peer',
+  report: 'Direct report',
+}
+
+export const reviewSchema = z.object({
+  subjectUserId: z.string().uuid(),
+  periodLabel: optShortText,
+})
+export const reviewUpdateSchema = z.object({
+  periodLabel: optShortText,
+  status: z.enum(REVIEW_STATUSES).optional(),
+  overallRating: z.coerce.number().int().min(1).max(5).nullish(),
+  summary: optLongText,
+})
+export const feedbackSchema = z.object({
+  reviewerUserId: z.string().uuid(),
+  relationship: z.enum(FEEDBACK_RELATIONSHIPS).default('peer'),
+  rating: z.coerce.number().int().min(1).max(5).nullish(),
+  strengths: optLongText,
+  improvements: optLongText,
+  comments: optLongText,
+})
+
 export type EmployeeProfileInput = z.infer<typeof employeeProfileSchema>
 export type ExpertProfileInput = z.infer<typeof expertProfileSchema>

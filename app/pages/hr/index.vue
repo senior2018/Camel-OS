@@ -72,6 +72,28 @@ const withFiles = computed(() => (data.value?.items ?? []).filter((r) => r.profi
           label="Certifications"
         />
         <UButton
+          to="/hr/recruitment"
+          icon="i-lucide-user-search"
+          color="neutral"
+          variant="outline"
+          label="Recruitment"
+        />
+        <UButton
+          to="/hr/reviews"
+          icon="i-lucide-clipboard-check"
+          color="neutral"
+          variant="outline"
+          label="Reviews"
+        />
+        <UButton
+          v-if="can('hr', 'admin')"
+          to="/hr/payroll"
+          icon="i-lucide-banknote"
+          color="neutral"
+          variant="outline"
+          label="Payroll"
+        />
+        <UButton
           to="/experts"
           icon="i-lucide-graduation-cap"
           color="neutral"

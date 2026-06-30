@@ -9,6 +9,9 @@ import {
 definePageMeta({ layout: 'dashboard' })
 useHead({ title: 'Timesheets — Camel OS' })
 
+const { can } = await usePermissions()
+const canReview = computed(() => can.value('timesheet', 'update') || can.value('hr', 'read'))
+
 interface Entry {
   id: string
   entryDate: string
@@ -157,7 +160,17 @@ function label(e: Entry) {
         <h1 class="text-2xl font-semibold tracking-tight text-default">Timesheets</h1>
         <p class="mt-1 text-sm text-muted">Log daily hours and submit your week for approval.</p>
       </div>
-      <UButton v-if="!data.locked" icon="i-lucide-plus" label="Log time" @click="open = true" />
+      <div class="flex gap-2">
+        <UButton
+          v-if="canReview"
+          to="/timesheets/approvals"
+          variant="outline"
+          color="neutral"
+          icon="i-lucide-check-check"
+          label="Approvals"
+        />
+        <UButton v-if="!data.locked" icon="i-lucide-plus" label="Log time" @click="open = true" />
+      </div>
     </header>
 
     <!-- Week bar -->

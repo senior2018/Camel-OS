@@ -141,6 +141,13 @@
       "when": 1782810384597,
       "tag": "0019_brainy_lionheart",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1782813383605,
+      "tag": "0020_premium_sasquatch",
+      "breakpoints": true
     }
   ]
 }
