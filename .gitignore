@@ -33,3 +33,6 @@ S8_PHASE1_SUMMARY.md
 *.pdf
 *.xlsx
 docs/
+
+#claude
+.claudeignore
