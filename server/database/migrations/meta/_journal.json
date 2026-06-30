@@ -134,6 +134,13 @@
       "when": 1782763967687,
       "tag": "0018_true_shooting_star",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1782810384597,
+      "tag": "0019_brainy_lionheart",
+      "breakpoints": true
     }
   ]
 }

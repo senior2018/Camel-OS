@@ -1893,6 +1893,15 @@ export const projectReports = pgTable(
 )
 
 // PJ-06 — lightweight timesheet entries (the full TS module, S18–S19, extends this).
+// TS-01/02 — daily logs against a project activity OR an internal task, grouped
+// into a weekly timesheet that moves through draft → submitted → approved.
+export const timesheetStatusEnum = pgEnum('timesheet_status', [
+  'draft',
+  'submitted',
+  'approved',
+  'rejected',
+])
+
 export const timesheetEntries = pgTable(
   'timesheet_entries',
   {
@@ -1900,21 +1909,33 @@ export const timesheetEntries = pgTable(
     organizationId: uuid('organization_id')
       .notNull()
       .references(() => organizations.id, { onDelete: 'cascade' }),
-    projectId: uuid('project_id')
-      .notNull()
-      .references(() => projects.id, { onDelete: 'cascade' }),
+    // Nullable: internal (non-project) tasks carry a free-text taskLabel instead.
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
     activityId: uuid('activity_id').references(() => projectActivities.id, {
       onDelete: 'set null',
     }),
+    taskLabel: text('task_label'),
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     entryDate: date('entry_date').notNull(),
+    // Monday of entryDate's week — groups entries into a submittable timesheet.
+    weekStartDate: date('week_start_date'),
     hours: numeric({ precision: 5, scale: 2 }).notNull(),
     note: text(),
+    status: timesheetStatusEnum().notNull().default('draft'),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    reviewedByUserId: uuid('reviewed_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    decisionNote: text('decision_note'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [index('timesheet_entries_project_idx').on(table.projectId)]
+  (table) => [
+    index('timesheet_entries_project_idx').on(table.projectId),
+    index('timesheet_entries_user_week_idx').on(table.userId, table.weekStartDate),
+  ]
 )
 
 // ─── Monitoring & Evaluation (S16, ME-01..06) ────────────────────────────────
@@ -2553,3 +2574,43 @@ export type Certification = typeof certifications.$inferSelect
 export type NewCertification = typeof certifications.$inferInsert
 export type ExpertProfile = typeof expertProfiles.$inferSelect
 export type NewExpertProfile = typeof expertProfiles.$inferInsert
+
+// EX-06 — Personal Growth Plan (one per staff member, upserted).
+export const growthPlans = pgTable(
+  'growth_plans',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    periodLabel: text('period_label'),
+    goals: jsonb()
+      .$type<
+        {
+          area: string
+          objective: string
+          actions?: string
+          targetDate?: string
+          status: 'not_started' | 'in_progress' | 'achieved'
+        }[]
+      >()
+      .notNull()
+      .default([]),
+    reviewNotes: text('review_notes'),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    unique('growth_plans_user_unique').on(table.userId),
+    index('growth_plans_org_idx').on(table.organizationId),
+  ]
+)
+
+export type GrowthPlan = typeof growthPlans.$inferSelect
+export type NewGrowthPlan = typeof growthPlans.$inferInsert

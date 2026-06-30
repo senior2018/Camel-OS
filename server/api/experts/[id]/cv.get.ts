@@ -3,25 +3,23 @@ import { and, desc, eq } from 'drizzle-orm'
 
 import { certifications, expertProfiles, users } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
-import { requirePermission, requireUser } from '@@/server/utils/permission-guard'
+import { buildCvHtml } from '@@/server/utils/expert-cv'
+import { requireAnyPermission } from '@@/server/utils/permission-guard'
 
-/** EX-01 / EX-02 — one expert's profile + virtual CV + certifications. */
+/** EX-04 — expert CV rendered as an HTML fragment for proposal insertion / print. */
 export default defineEventHandler(async (event) => {
   try {
-    const ctx = await requireUser(event)
+    const ctx = await requireAnyPermission(event, [
+      ['hr', 'read'],
+      ['proposal', 'update'],
+      ['proposal', 'create'],
+    ])
     const userId = getRouterParam(event, 'id')
     if (!userId) throw createError({ statusCode: 400, statusMessage: 'User ID is required' })
-    // EX-07 — anyone may read their own profile; others need hr:read.
-    if (userId !== ctx.userId) await requirePermission(event, 'hr', 'read')
     const db = useDrizzle()
 
     const [user] = await db
-      .select({
-        id: users.id,
-        firstName: users.firstName,
-        lastName: users.lastName,
-        email: users.email,
-      })
+      .select({ firstName: users.firstName, lastName: users.lastName, email: users.email })
       .from(users)
       .where(and(eq(users.id, userId), eq(users.organizationId, ctx.organizationId)))
       .limit(1)
@@ -32,17 +30,17 @@ export default defineEventHandler(async (event) => {
       .from(expertProfiles)
       .where(eq(expertProfiles.userId, userId))
       .limit(1)
-
     const certs = await db
       .select()
       .from(certifications)
       .where(eq(certifications.userId, userId))
       .orderBy(desc(certifications.expiryDate))
 
-    return { user, profile: profile ?? null, certifications: certs }
+    const name = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email
+    return { name, html: buildCvHtml(user, profile ?? null, certs) }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
-    consola.error('Error loading expert', error)
+    consola.error('Error building CV', error)
     throw createError({ statusCode: 500, statusMessage: 'Internal server error' })
   }
 })

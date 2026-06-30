@@ -112,12 +112,27 @@ const navItems = computed(() => {
       active: route.path.startsWith('/experts'),
     })
   }
-  // Self-service: every authenticated user can request and track their own leave.
+  // Self-service: every authenticated user logs time, requests leave, and keeps
+  // their own expert profile current (EX-07).
+  if (can.value('timesheet', 'read') || can.value('timesheet', 'create')) {
+    items.push({
+      label: 'Timesheets',
+      to: '/timesheets',
+      icon: 'i-lucide-clock',
+      active: route.path.startsWith('/timesheets'),
+    })
+  }
   items.push({
     label: 'My Leave',
     to: '/leave',
     icon: 'i-lucide-palmtree',
     active: route.path.startsWith('/leave'),
+  })
+  items.push({
+    label: 'My Expert Profile',
+    to: '/experts/me',
+    icon: 'i-lucide-id-card',
+    active: route.path === '/experts/me',
   })
   if (can.value('crm', 'read')) {
     // Customer Management covers clients, prospects, donors, and partners —

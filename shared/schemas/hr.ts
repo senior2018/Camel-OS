@@ -198,5 +198,35 @@ export const expertProfileSchema = z.object({
 })
 export const expertProfileUpdateSchema = expertProfileSchema.omit({ userId: true })
 
+// ── EX-06 — Personal Growth Plan ─────────────────────────────────────────────
+export const GOAL_STATUSES = ['not_started', 'in_progress', 'achieved'] as const
+export type GoalStatus = (typeof GOAL_STATUSES)[number]
+export const GOAL_STATUS_LABEL: Record<GoalStatus, string> = {
+  not_started: 'Not started',
+  in_progress: 'In progress',
+  achieved: 'Achieved',
+}
+export const GOAL_STATUS_COLOR: Record<GoalStatus, BadgeColor> = {
+  not_started: 'neutral',
+  in_progress: 'info',
+  achieved: 'success',
+}
+
+export const growthPlanSchema = z.object({
+  periodLabel: optShortText,
+  reviewNotes: optLongText,
+  goals: z
+    .array(
+      z.object({
+        area: z.string().trim().min(1),
+        objective: z.string().trim().min(1),
+        actions: z.string().trim().max(1000).optional(),
+        targetDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal('')]).optional(),
+        status: z.enum(GOAL_STATUSES).default('not_started'),
+      })
+    )
+    .default([]),
+})
+
 export type EmployeeProfileInput = z.infer<typeof employeeProfileSchema>
 export type ExpertProfileInput = z.infer<typeof expertProfileSchema>

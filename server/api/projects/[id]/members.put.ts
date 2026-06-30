@@ -1,8 +1,8 @@
 import { consola } from 'consola'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 
-import { projectMembers, projects } from '@@/server/database/schema'
+import { expertProfiles, projectMembers, projects } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import { createNotifications } from '@@/server/utils/notifications'
@@ -63,6 +63,42 @@ export default defineEventHandler(async (event) => {
         linkUrl: `/projects/${id}`,
       }))
     )
+
+    // EX-05 — append this project to the assignment history of any member who
+    // has an expert profile (skips duplicates so re-saving the team is safe).
+    if (body.members.length) {
+      const expertRows = await db
+        .select({
+          id: expertProfiles.id,
+          userId: expertProfiles.userId,
+          assignmentHistory: expertProfiles.assignmentHistory,
+        })
+        .from(expertProfiles)
+        .where(
+          and(
+            eq(expertProfiles.organizationId, ctx.organizationId),
+            inArray(
+              expertProfiles.userId,
+              body.members.map((m) => m.userId)
+            )
+          )
+        )
+      for (const ex of expertRows) {
+        const member = body.members.find((m) => m.userId === ex.userId)!
+        const history = ex.assignmentHistory ?? []
+        if (history.some((h) => h.projectId === id)) continue
+        await db
+          .update(expertProfiles)
+          .set({
+            assignmentHistory: [
+              ...history,
+              { projectId: id, projectName: project.name, role: member.role },
+            ],
+            updatedAt: new Date(),
+          })
+          .where(eq(expertProfiles.id, ex.id))
+      }
+    }
 
     return { success: true }
   } catch (error) {

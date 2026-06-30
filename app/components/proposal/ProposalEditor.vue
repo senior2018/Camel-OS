@@ -130,6 +130,49 @@ function versionTime(iso: string): string {
   })
 }
 
+// EX-04 — insert an expert's CV into the proposal document.
+interface PickerExpert {
+  userId: string
+  firstName: string | null
+  lastName: string | null
+  headline: string | null
+}
+const cvPickerOpen = ref(false)
+const experts = ref<PickerExpert[]>([])
+const loadingExperts = ref(false)
+const insertingId = ref<string | null>(null)
+async function openCvPicker() {
+  cvPickerOpen.value = true
+  if (experts.value.length) return
+  loadingExperts.value = true
+  try {
+    const res = await $fetch<{ items: PickerExpert[] }>('/api/experts/picker')
+    experts.value = res.items
+  } catch {
+    experts.value = []
+  } finally {
+    loadingExperts.value = false
+  }
+}
+function expertName(e: PickerExpert) {
+  return [e.firstName, e.lastName].filter(Boolean).join(' ') || 'Expert'
+}
+async function insertCv(e: PickerExpert) {
+  const ed = editor.value
+  if (!ed) return
+  insertingId.value = e.userId
+  try {
+    const res = await $fetch<{ html: string }>(`/api/experts/${e.userId}/cv`)
+    ed.chain().focus().insertContent(res.html).run()
+    cvPickerOpen.value = false
+    save()
+  } catch {
+    toast.add({ title: 'Could not insert CV', color: 'error' })
+  } finally {
+    insertingId.value = null
+  }
+}
+
 interface ToolAction {
   icon: string
   label: string
@@ -215,6 +258,14 @@ const tools = computed<ToolAction[]>(() => {
       />
       <UButton
         class="ml-auto"
+        icon="i-lucide-user-plus"
+        size="xs"
+        variant="ghost"
+        color="neutral"
+        label="Insert CV"
+        @click="openCvPicker"
+      />
+      <UButton
         icon="i-lucide-history"
         size="xs"
         variant="ghost"
@@ -255,6 +306,38 @@ const tools = computed<ToolAction[]>(() => {
           </li>
         </ul>
         <p v-else class="py-8 text-center text-sm text-muted">No saved versions yet.</p>
+      </template>
+    </UModal>
+
+    <!-- EX-04 insert-CV picker -->
+    <UModal v-model:open="cvPickerOpen" title="Insert expert CV">
+      <template #body>
+        <div v-if="loadingExperts" class="flex justify-center py-8">
+          <UIcon name="i-lucide-loader-circle" class="size-6 animate-spin text-muted" />
+        </div>
+        <ul v-else-if="experts.length" class="divide-y divide-default">
+          <li
+            v-for="e in experts"
+            :key="e.userId"
+            class="flex items-center justify-between gap-3 py-2"
+          >
+            <div class="min-w-0">
+              <p class="truncate text-sm font-medium text-default">{{ expertName(e) }}</p>
+              <p class="truncate text-xs text-muted">{{ e.headline ?? '—' }}</p>
+            </div>
+            <UButton
+              size="xs"
+              variant="soft"
+              icon="i-lucide-file-plus"
+              label="Insert"
+              :loading="insertingId === e.userId"
+              @click="insertCv(e)"
+            />
+          </li>
+        </ul>
+        <p v-else class="py-8 text-center text-sm text-muted">
+          No expert profiles yet. Build them in the Expert Database.
+        </p>
       </template>
     </UModal>
 

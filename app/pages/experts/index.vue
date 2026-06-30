@@ -76,13 +76,22 @@ function reset() {
           Find the right consultant by skill, language, availability, and rate.
         </p>
       </div>
-      <UButton
-        to="/hr"
-        variant="outline"
-        color="neutral"
-        icon="i-lucide-arrow-left"
-        label="People"
-      />
+      <div class="flex gap-2">
+        <UButton
+          to="/experts/utilisation"
+          variant="outline"
+          color="neutral"
+          icon="i-lucide-bar-chart-3"
+          label="Utilisation"
+        />
+        <UButton
+          to="/hr"
+          variant="outline"
+          color="neutral"
+          icon="i-lucide-arrow-left"
+          label="People"
+        />
+      </div>
     </header>
 
     <!-- Filters -->

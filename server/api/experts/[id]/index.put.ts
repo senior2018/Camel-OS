@@ -3,15 +3,17 @@ import { and, eq } from 'drizzle-orm'
 
 import { expertProfiles, users } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
-import { requirePermission } from '@@/server/utils/permission-guard'
+import { requirePermission, requireUser } from '@@/server/utils/permission-guard'
 import { expertProfileUpdateSchema } from '@@/shared/schemas/hr'
 
-/** EX-01 / EX-02 — create/update an expert profile (id = userId, upsert). */
+/** EX-01 / EX-02 / EX-07 — create/update an expert profile (id = userId, upsert). */
 export default defineEventHandler(async (event) => {
   try {
-    const ctx = await requirePermission(event, 'hr', 'update')
+    const ctx = await requireUser(event)
     const userId = getRouterParam(event, 'id')
     if (!userId) throw createError({ statusCode: 400, statusMessage: 'User ID is required' })
+    // EX-07 — staff may maintain their own profile; editing others needs hr:update.
+    if (userId !== ctx.userId) await requirePermission(event, 'hr', 'update')
     const body = await readValidatedBody(event, expertProfileUpdateSchema.parse)
     const db = useDrizzle()
 
