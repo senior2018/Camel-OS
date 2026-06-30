@@ -2,7 +2,6 @@
 import { Editor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
-import Link from '@tiptap/extension-link'
 import { TableKit } from '@tiptap/extension-table'
 
 /**
@@ -27,9 +26,14 @@ onMounted(() => {
     content: props.content ?? '',
     editable: props.editable,
     extensions: [
-      StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
+      // StarterKit v3 already bundles `link` (and underline) — configure it here
+      // rather than adding a second Link extension, which throws a duplicate-name
+      // error and blanks the editor.
+      StarterKit.configure({
+        heading: { levels: [1, 2, 3] },
+        link: { openOnClick: false, autolink: true },
+      }),
       Image,
-      Link.configure({ openOnClick: false, autolink: true }),
       TableKit.configure({ table: { resizable: true } }),
     ],
     editorProps: {
