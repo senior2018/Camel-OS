@@ -7,6 +7,13 @@ const { data: perms, can } = await usePermissions()
 // Modules registered here as they ship. Each entry declares its required permission
 // so users only see what they can actually access. `Overview` is unconditional —
 // every authenticated user can see their own dashboard.
+// ── Temporary nav feature flags ──────────────────────────────────────────────
+// Hide modules still under internal testing from the sidebar WITHOUT touching
+// their code or routes. Set back to `true` to restore them in the UI.
+// (UI-only: the pages/permissions are untouched and ship as soon as flipped.)
+const SHOW_COMMUNICATIONS: boolean = false
+const SHOW_PROJECTS: boolean = false
+
 const navItems = computed(() => {
   const items: Array<{ label: string; to: string; icon: string; active: boolean }> = [
     {
@@ -32,7 +39,7 @@ const navItems = computed(() => {
       active: route.path.startsWith('/proposals'),
     })
   }
-  if (can.value('project', 'read')) {
+  if (SHOW_PROJECTS && can.value('project', 'read')) {
     items.push({
       label: 'Projects',
       to: '/projects',
@@ -41,9 +48,10 @@ const navItems = computed(() => {
     })
   }
   if (
-    can.value('communications', 'create') ||
-    can.value('communications', 'update') ||
-    can.value('communications', 'approve')
+    SHOW_COMMUNICATIONS &&
+    (can.value('communications', 'create') ||
+      can.value('communications', 'update') ||
+      can.value('communications', 'approve'))
   ) {
     items.push({
       label: 'Communications',
@@ -76,7 +84,7 @@ const navItems = computed(() => {
       active: route.path.startsWith('/media'),
     })
   }
-  if (can.value('communications', 'read')) {
+  if (SHOW_COMMUNICATIONS && can.value('communications', 'read')) {
     items.push({
       label: 'Insights Library',
       to: '/library',
