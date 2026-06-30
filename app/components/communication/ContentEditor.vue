@@ -225,8 +225,16 @@ function addTable() {
         <template v-else-if="saveState === 'error'">Save failed</template>
       </span>
     </div>
-    <!-- Editable: the live editor -->
-    <EditorContent v-if="editable" :editor="editor" class="flex-1 overflow-auto" />
+    <!-- Editable: the live editor. Guard on `editor` (not just `editable`) so the
+         component never renders EditorContent with an undefined editor during SSR
+         — that throws and blanks the whole editor. Editor is created onMounted. -->
+    <EditorContent v-if="editable && editor" :editor="editor" class="flex-1 overflow-auto" />
+    <div
+      v-else-if="editable"
+      class="flex-1 px-4 py-12 text-center text-sm text-muted"
+    >
+      Loading editor…
+    </div>
     <!-- Read-only with content: render saved HTML as clean prose.
          Trusted internal content authored in-app. -->
     <!-- eslint-disable vue/no-v-html -->
