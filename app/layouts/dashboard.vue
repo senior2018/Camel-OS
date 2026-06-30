@@ -11,8 +11,8 @@ const { data: perms, can } = await usePermissions()
 // Hide modules still under internal testing from the sidebar WITHOUT touching
 // their code or routes. Set back to `true` to restore them in the UI.
 // (UI-only: the pages/permissions are untouched and ship as soon as flipped.)
-const SHOW_COMMUNICATIONS: boolean = false
-const SHOW_PROJECTS: boolean = false
+const SHOW_COMMUNICATIONS: boolean = true
+const SHOW_PROJECTS: boolean = true
 
 const navItems = computed(() => {
   const items: Array<{ label: string; to: string; icon: string; active: boolean }> = [
