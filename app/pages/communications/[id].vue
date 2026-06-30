@@ -8,6 +8,14 @@ import {
   type ContentReviewDecision,
   type ContentStatus,
 } from '@@/shared/schemas/communication'
+// Explicit imports: these live in components/communication/ but are named
+// Content* (no dir-prefix match), so Nuxt auto-import registers them as
+// CommunicationContent* — the short <ContentEditor> refs below won't resolve
+// without importing them here.
+import ContentEditor from '~/components/communication/ContentEditor.vue'
+import ContentComments from '~/components/communication/ContentComments.vue'
+import ContentMetricsCard from '~/components/communication/ContentMetricsCard.vue'
+import ContentReviewModal from '~/components/communication/ContentReviewModal.vue'
 
 definePageMeta({ layout: 'dashboard' })
 
