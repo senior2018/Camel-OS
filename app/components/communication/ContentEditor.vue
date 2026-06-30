@@ -2,7 +2,6 @@
 import { Editor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
-import { TableKit } from '@tiptap/extension-table'
 
 /**
  * Communications content editor (CC-01). Rich text with headings, lists, links,
@@ -22,30 +21,36 @@ const editor = shallowRef<Editor>()
 let timer: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
-  editor.value = new Editor({
-    content: props.content ?? '',
-    editable: props.editable,
-    extensions: [
-      // StarterKit v3 already bundles `link` (and underline) — configure it here
-      // rather than adding a second Link extension, which throws a duplicate-name
-      // error and blanks the editor.
-      StarterKit.configure({
-        heading: { levels: [1, 2, 3] },
-        link: { openOnClick: false, autolink: true },
-      }),
-      Image,
-      TableKit.configure({ table: { resizable: true } }),
-    ],
-    editorProps: {
-      attributes: {
-        class:
-          'prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[24rem] px-4 py-3',
+  try {
+    editor.value = new Editor({
+      content: props.content ?? '',
+      editable: props.editable,
+      extensions: [
+        // StarterKit v3 already bundles `link` (and underline) — configure it
+        // here rather than adding a second Link extension, which throws a
+        // duplicate-name error and blanks the editor.
+        StarterKit.configure({
+          heading: { levels: [1, 2, 3] },
+          link: { openOnClick: false, autolink: true },
+        }),
+        Image,
+      ],
+      editorProps: {
+        attributes: {
+          class:
+            'prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[24rem] px-4 py-3',
+        },
       },
-    },
-    onUpdate: () => {
-      if (props.editable) saveState.value = 'dirty'
-    },
-  })
+      onUpdate: () => {
+        if (props.editable) saveState.value = 'dirty'
+      },
+    })
+  } catch (err) {
+    // Never let an editor-init error blank the surface silently — surface it.
+    console.error('[ContentEditor] init failed', err)
+    saveState.value = 'error'
+    toast.add({ title: 'Editor failed to load', description: String(err), color: 'error' })
+  }
   // CC-01 — autosave every 60 seconds when there are unsaved changes.
   if (props.editable) timer = setInterval(() => saveState.value === 'dirty' && save(), 60_000)
 })
@@ -174,9 +179,6 @@ function addImage() {
   const url = window.prompt('Image URL')
   if (url?.trim()) editor.value?.chain().focus().setImage({ src: url.trim() }).run()
 }
-function addTable() {
-  editor.value?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
-}
 </script>
 
 <template>
@@ -210,14 +212,6 @@ function addTable() {
         color="neutral"
         aria-label="Image"
         @click="addImage"
-      />
-      <UButton
-        icon="i-lucide-table"
-        size="xs"
-        variant="ghost"
-        color="neutral"
-        aria-label="Table"
-        @click="addTable"
       />
       <span
         class="ml-auto pr-1 text-xs"
