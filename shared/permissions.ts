@@ -169,7 +169,8 @@ export const DEFAULT_ROLES: readonly DefaultRoleDefinition[] = [
       // calendar (HR-04) — full personnel-file editing stays with HR Manager.
       hr: ['read', 'update'],
       timesheet: ['read', 'update'],
-      strategy: ['read', 'update'],
+      // ST-01/02 — directors & department heads define objectives and goals.
+      strategy: ['read', 'create', 'update'],
       finance: ['read'],
       procurement: ['read'],
       knowledge: ['read', 'create', 'update'],

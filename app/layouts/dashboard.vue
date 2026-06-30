@@ -134,6 +134,14 @@ const navItems = computed(() => {
     icon: 'i-lucide-id-card',
     active: route.path === '/experts/me',
   })
+  if (can.value('strategy', 'read')) {
+    items.push({
+      label: 'Strategy',
+      to: '/strategy',
+      icon: 'i-lucide-compass',
+      active: route.path.startsWith('/strategy'),
+    })
+  }
   if (can.value('crm', 'read')) {
     // Customer Management covers clients, prospects, donors, and partners —
     // the page itself has tab filters per type and surfaces the two reports
