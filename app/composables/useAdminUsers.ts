@@ -49,12 +49,25 @@ export function useAdminUsers() {
 
   async function inviteUser(payload: InviteUserPayload): Promise<boolean> {
     try {
-      await $fetch('/api/admin/users/invite', { method: 'POST', body: payload })
-      toast.add({
-        title: 'Invitation sent',
-        description: `${payload.email} will receive an email to set their password.`,
-        color: 'success',
-      })
+      const res = await $fetch<{ emailSent?: boolean; emailError?: string | null }>(
+        '/api/admin/users/invite',
+        { method: 'POST', body: payload }
+      )
+      if (res.emailSent === false) {
+        // The invitation exists, but the email didn't go out — warn honestly so
+        // the admin can resend or check Brevo rather than assume it arrived.
+        toast.add({
+          title: 'Invite created, but email failed',
+          description: `${payload.email} was not emailed: ${res.emailError ?? 'mail service error'}. Use Resend after fixing email settings.`,
+          color: 'warning',
+        })
+      } else {
+        toast.add({
+          title: 'Invitation sent',
+          description: `${payload.email} will receive an email to set their password.`,
+          color: 'success',
+        })
+      }
       await refresh()
       return true
     } catch (err) {
@@ -127,8 +140,19 @@ export function useAdminUsers() {
 
   async function resendInvitation(invite: PendingInvitation) {
     try {
-      await $fetch(`/api/admin/invitations/${invite.id}/resend`, { method: 'POST' })
-      toast.add({ title: 'Invitation resent', description: invite.email, color: 'success' })
+      const res = await $fetch<{ emailSent?: boolean; emailError?: string | null }>(
+        `/api/admin/invitations/${invite.id}/resend`,
+        { method: 'POST' }
+      )
+      if (res.emailSent === false) {
+        toast.add({
+          title: 'Resend failed',
+          description: `Email to ${invite.email} did not send: ${res.emailError ?? 'mail service error'}.`,
+          color: 'warning',
+        })
+      } else {
+        toast.add({ title: 'Invitation resent', description: invite.email, color: 'success' })
+      }
       await refresh()
     } catch (err) {
       toast.add({

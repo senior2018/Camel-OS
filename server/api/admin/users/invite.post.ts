@@ -105,7 +105,11 @@ export default defineEventHandler(async (event) => {
       meta: { email, invitedByEmail: admin.email },
     })
 
-    // Best-effort email — don't fail the request if the email service is unavailable.
+    // Best-effort email — don't fail the whole request if the email service is
+    // down, but report the outcome so the UI can warn instead of falsely
+    // claiming "sent". The invitation row exists either way (it's resendable).
+    let emailSent = false
+    let emailError: string | null = null
     try {
       const appUrl = (useRuntimeConfig().appUrl as string) || 'http://localhost:3000'
       await sendInvitationEmail(email, {
@@ -114,12 +118,16 @@ export default defineEventHandler(async (event) => {
         organizationName: org.name,
         acceptUrl: `${appUrl}/accept-invite?token=${rawToken}`,
       })
+      emailSent = true
     } catch (emailErr) {
+      emailError = (emailErr as Error).message
       consola.error('Failed to send invitation email', emailErr)
     }
 
     return {
       success: true,
+      emailSent,
+      emailError,
       invitation: {
         id: invitation.id,
         email,

@@ -66,6 +66,8 @@ export default defineEventHandler(async (event) => {
       meta: { email: invitation.email, by: admin.email },
     })
 
+    let emailSent = false
+    let emailError: string | null = null
     try {
       const appUrl = (useRuntimeConfig().appUrl as string) || 'http://localhost:3000'
       await sendInvitationEmail(invitation.email, {
@@ -74,11 +76,13 @@ export default defineEventHandler(async (event) => {
         organizationName: invitation.organizationName,
         acceptUrl: `${appUrl}/accept-invite?token=${rawToken}`,
       })
+      emailSent = true
     } catch (emailErr) {
+      emailError = (emailErr as Error).message
       consola.error('Failed to resend invitation email', emailErr)
     }
 
-    return { success: true }
+    return { success: true, emailSent, emailError }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
     consola.error('Error resending invitation', error)

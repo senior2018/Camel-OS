@@ -356,3 +356,21 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string): Prom
     throw new Error(`Failed to send email: ${(err as Error).message}`)
   }
 }
+
+/**
+ * Diagnostic — send a test email and return Brevo's messageId. Used by the
+ * admin "Send test email" tool to verify deliverability from the live app.
+ * Errors propagate (with the provider message) so the caller can surface them.
+ */
+export async function sendTestEmail(to: string): Promise<string> {
+  const res = await getClient().transactionalEmails.sendTransacEmail({
+    sender: { name: 'Camel OS', email: getFromEmail() },
+    to: [{ email: to }],
+    subject: 'Camel OS — test email',
+    htmlContent: `
+      <p>This is a test email from Camel OS confirming your Brevo configuration works.</p>
+      <p>If you received this, transactional email is delivering correctly.</p>
+    `,
+  })
+  return (res as { messageId?: string })?.messageId ?? 'sent'
+}
