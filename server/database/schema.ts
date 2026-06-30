@@ -2347,3 +2347,209 @@ export type NewOpportunityActivity = typeof opportunityActivities.$inferInsert
 
 export type DonorGrant = typeof donorGrants.$inferSelect
 export type NewDonorGrant = typeof donorGrants.$inferInsert
+
+// ─── HR & Expert Database (S17–S19) ──────────────────────────────────────────
+
+export const employmentTypeEnum = pgEnum('employment_type', [
+  'full_time',
+  'part_time',
+  'contract',
+  'consultant',
+  'intern',
+])
+export const employeeStatusEnum = pgEnum('employee_status', [
+  'active',
+  'on_leave',
+  'suspended',
+  'terminated',
+])
+export const leaveTypeEnum = pgEnum('leave_type', [
+  'annual',
+  'sick',
+  'unpaid',
+  'maternity',
+  'paternity',
+  'compassionate',
+  'study',
+])
+export const leaveStatusEnum = pgEnum('leave_status', [
+  'pending',
+  'approved',
+  'rejected',
+  'cancelled',
+])
+export const expertAvailabilityEnum = pgEnum('expert_availability', [
+  'available',
+  'partially_available',
+  'unavailable',
+])
+
+// HR-01 — one personnel file per employee.
+export const employeeProfiles = pgTable(
+  'employee_profiles',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    employeeNumber: text('employee_number'),
+    jobTitle: text('job_title'),
+    department: text(),
+    employmentType: employmentTypeEnum('employment_type').notNull().default('full_time'),
+    status: employeeStatusEnum().notNull().default('active'),
+    managerUserId: uuid('manager_user_id').references(() => users.id, { onDelete: 'set null' }),
+    startDate: date('start_date'),
+    endDate: date('end_date'),
+    dateOfBirth: date('date_of_birth'),
+    nationalId: text('national_id'),
+    phone: text(),
+    address: text(),
+    emergencyContactName: text('emergency_contact_name'),
+    emergencyContactPhone: text('emergency_contact_phone'),
+    // HR-03 — annual entitlement, in days; balance is this minus approved leave.
+    annualLeaveEntitlement: numeric('annual_leave_entitlement', { precision: 5, scale: 1 })
+      .notNull()
+      .default('21'),
+    baseSalary: numeric('base_salary', { precision: 14, scale: 2 }),
+    currency: varchar('currency', { length: 3 }).notNull().default('USD'),
+    notes: text(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    unique('employee_profiles_user_unique').on(table.userId),
+    index('employee_profiles_org_idx').on(table.organizationId),
+  ]
+)
+
+// HR-03 / HR-04 — leave requests; the team calendar is derived from approved rows.
+export const leaveRequests = pgTable(
+  'leave_requests',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: leaveTypeEnum().notNull().default('annual'),
+    startDate: date('start_date').notNull(),
+    endDate: date('end_date').notNull(),
+    days: numeric('days', { precision: 5, scale: 1 }).notNull(),
+    reason: text(),
+    status: leaveStatusEnum().notNull().default('pending'),
+    reviewedByUserId: uuid('reviewed_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    decisionNote: text('decision_note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('leave_requests_org_idx').on(table.organizationId),
+    index('leave_requests_user_idx').on(table.userId),
+  ]
+)
+
+// HR-07 — certifications & training with expiry tracking.
+export const certifications = pgTable(
+  'certifications',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text().notNull(),
+    issuer: text(),
+    // 'certification' | 'training' — drives the badge/filter, not a hard enum
+    // so orgs can add their own categories without a migration.
+    kind: text().notNull().default('certification'),
+    issuedDate: date('issued_date'),
+    expiryDate: date('expiry_date'),
+    credentialId: text('credential_id'),
+    notes: text(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('certifications_org_idx').on(table.organizationId),
+    index('certifications_user_idx').on(table.userId),
+  ]
+)
+
+// EX-01 / EX-02 / EX-03 — expert profile (one per consultant) with virtual CV
+// sections stored as JSONB and searchable skill/language/sector arrays.
+export const expertProfiles = pgTable(
+  'expert_profiles',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    headline: text(),
+    summary: text(),
+    yearsExperience: integer('years_experience'),
+    dailyRate: numeric('daily_rate', { precision: 12, scale: 2 }),
+    currency: varchar('currency', { length: 3 }).notNull().default('USD'),
+    availability: expertAvailabilityEnum().notNull().default('available'),
+    skills: jsonb().$type<string[]>().notNull().default([]),
+    languages: jsonb().$type<{ language: string; proficiency: string }[]>().notNull().default([]),
+    sectors: jsonb().$type<string[]>().notNull().default([]),
+    countries: jsonb().$type<string[]>().notNull().default([]),
+    // EX-02 — virtual CV sections.
+    education: jsonb()
+      .$type<{ institution: string; qualification: string; year?: string }[]>()
+      .notNull()
+      .default([]),
+    experience: jsonb()
+      .$type<
+        {
+          role: string
+          organization: string
+          startYear?: string
+          endYear?: string
+          description?: string
+        }[]
+      >()
+      .notNull()
+      .default([]),
+    // EX-05 (S18) — assignment history, appended when assigned to a project.
+    assignmentHistory: jsonb()
+      .$type<
+        {
+          projectId?: string
+          projectName: string
+          role?: string
+          startDate?: string
+          endDate?: string
+        }[]
+      >()
+      .notNull()
+      .default([]),
+    linkedinUrl: text('linkedin_url'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    unique('expert_profiles_user_unique').on(table.userId),
+    index('expert_profiles_org_idx').on(table.organizationId),
+  ]
+)
+
+export type EmployeeProfile = typeof employeeProfiles.$inferSelect
+export type NewEmployeeProfile = typeof employeeProfiles.$inferInsert
+export type LeaveRequest = typeof leaveRequests.$inferSelect
+export type NewLeaveRequest = typeof leaveRequests.$inferInsert
+export type Certification = typeof certifications.$inferSelect
+export type NewCertification = typeof certifications.$inferInsert
+export type ExpertProfile = typeof expertProfiles.$inferSelect
+export type NewExpertProfile = typeof expertProfiles.$inferInsert

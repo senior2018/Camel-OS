@@ -165,7 +165,9 @@ export const DEFAULT_ROLES: readonly DefaultRoleDefinition[] = [
       proposal: ['read', 'create', 'update', 'admin'],
       project: ['read', 'create', 'update'],
       mel: ['read', 'create', 'update'],
-      hr: ['read'],
+      // Line managers approve their team's leave (HR-03) and read the team
+      // calendar (HR-04) — full personnel-file editing stays with HR Manager.
+      hr: ['read', 'update'],
       timesheet: ['read', 'update'],
       strategy: ['read', 'update'],
       finance: ['read'],

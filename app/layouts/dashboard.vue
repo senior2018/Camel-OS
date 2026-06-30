@@ -98,6 +98,27 @@ const navItems = computed(() => {
       active: route.path.startsWith('/library'),
     })
   }
+  if (can.value('hr', 'read')) {
+    items.push({
+      label: 'People',
+      to: '/hr',
+      icon: 'i-lucide-users-round',
+      active: route.path === '/hr' || /^\/hr\//.test(route.path),
+    })
+    items.push({
+      label: 'Expert Database',
+      to: '/experts',
+      icon: 'i-lucide-graduation-cap',
+      active: route.path.startsWith('/experts'),
+    })
+  }
+  // Self-service: every authenticated user can request and track their own leave.
+  items.push({
+    label: 'My Leave',
+    to: '/leave',
+    icon: 'i-lucide-palmtree',
+    active: route.path.startsWith('/leave'),
+  })
   if (can.value('crm', 'read')) {
     // Customer Management covers clients, prospects, donors, and partners —
     // the page itself has tab filters per type and surfaces the two reports
