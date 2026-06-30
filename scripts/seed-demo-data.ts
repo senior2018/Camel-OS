@@ -1112,8 +1112,52 @@ async function run() {
       metrics: false,
     },
   ] as const
-  const BODY =
+  // Rich, distinct article bodies so the editor shows real-looking content.
+  const GENERIC_BODY =
     '<h2>Executive summary</h2><p>Key findings and what they mean for practitioners.</p><h2>Background</h2><p>Context and our approach.</p><h2>Recommendations</h2><ul><li>Invest in local capacity</li><li>Leverage data and evidence</li><li>Partner deliberately</li></ul>'
+  const BODIES: Record<string, string> = {
+    'Unlocking Climate-Smart Agriculture in Tanzania':
+      '<p><em>How smallholder farmers in the Southern Highlands are turning climate risk into resilience — and what funders should back next.</em></p>' +
+      '<h2>The challenge</h2><p>Erratic rainfall and prolonged dry spells have cut maize yields by up to 30% in parts of Mbeya and Iringa over the last five seasons. For households that depend on a single harvest, that volatility is the difference between school fees paid and a year lost.</p>' +
+      '<h2>What we found</h2><p>Across 12 farmer cooperatives we supported, three practices consistently outperformed:</p><ul><li><strong>Drought-tolerant seed</strong> paired with extension follow-up raised yields 18–24%.</li><li><strong>Conservation tillage</strong> cut input costs and protected soil moisture.</li><li><strong>Weather-indexed advisories</strong> by SMS shifted planting dates to match the real onset of rains.</li></ul>' +
+      '<blockquote>“We stopped guessing the rains. Now we plant when the message says plant.” — Cooperative chair, Mbeya</blockquote>' +
+      '<h2>Recommendations for funders</h2><ol><li>Fund the <strong>advisory layer</strong>, not just inputs — behaviour change is where the yield is.</li><li>Tie disbursement to <strong>cooperative-level outcomes</strong>, not activity counts.</li><li>Invest in <strong>local agro-dealers</strong> so improved seed is available within 5km.</li></ol>',
+    'Five Lessons from Our M&E Practice':
+      '<p><em>A decade of measuring what matters has taught us as much about humility as about methods.</em></p>' +
+      '<h2>1. Design the evaluation before the project</h2><p>Baselines collected after activities begin are the single most common — and most expensive — mistake we see.</p>' +
+      '<h2>2. Mixed methods beat clever statistics</h2><p>A well-run focus group often explains <em>why</em> an indicator moved better than another regression ever will.</p>' +
+      '<h2>3. Data that nobody uses is waste</h2><p>We now ship a one-page decision brief with every dataset. Dashboards are for analysts; decisions need narrative.</p>' +
+      '<h2>4. Counterfactuals are a discipline, not a luxury</h2><p>Even a light comparison group changes how confidently you can attribute results.</p>' +
+      '<h2>5. Build the client&rsquo;s capacity, not your dependency</h2><p>The best evaluation leaves the partner able to run the next one themselves.</p>',
+    'Digital Finance: A 2026 Outlook':
+      '<p><em>Mobile money matured a decade ago. The next frontier is credit, insurance, and interoperable rails.</em></p>' +
+      '<h2>Market signals</h2><p>Agent networks have saturated urban centres; growth is now rural and driven by merchant payments. Regulators across the region are converging on interoperability mandates.</p>' +
+      '<h2>Three shifts to watch</h2><ul><li><strong>Embedded credit</strong> — nano-loans underwritten on transaction history.</li><li><strong>Parametric insurance</strong> — pay-outs triggered by weather data, not claims.</li><li><strong>Open rails</strong> — wallet-to-bank interoperability lowering the cost of moving money.</li></ul>' +
+      '<h2>Risks</h2><p>Over-indebtedness and opaque pricing remain the sector&rsquo;s reputational exposure. Consumer-protection design is now a commercial necessity, not a compliance afterthought.</p>' +
+      '<h2>Our view</h2><p>Institutions that treat data governance as a product feature — not a back-office cost — will own the next cycle.</p>',
+    'Strengthening Health Systems — Field Notes':
+      '<p><em>Notes from six district health facilities on what actually moves service quality.</em></p>' +
+      '<h2>Supply is necessary, not sufficient</h2><p>Stocked pharmacies with absent staff still fail patients. The binding constraint was almost always <strong>health-worker time and morale</strong>, not commodities.</p>' +
+      '<h2>What worked</h2><ul><li>Supportive supervision visits (monthly, structured) lifted protocol adherence.</li><li>Simple performance dashboards posted in the facility created peer accountability.</li><li>Community health workers closed the referral loop that clinics could not.</li></ul>' +
+      '<h2>What we&rsquo;re still testing</h2><p>Results-based financing shows promise but risks gaming. We are watching data-quality audits closely before scaling.</p>',
+    'Youth Employment: What Works':
+      '<p><em>Skills training alone rarely creates jobs. The evidence points to bundles, not silver bullets.</em></p>' +
+      '<h2>The honest baseline</h2><p>Tracer studies show many standalone training programmes return graduates to the same labour market that had no demand for them.</p>' +
+      '<h2>What shifts outcomes</h2><ol><li><strong>Demand-led design</strong> — train for jobs employers are actively hiring for.</li><li><strong>Wage subsidies + mentorship</strong> to lower the cost of the first hire.</li><li><strong>Self-employment grants</strong> for those in markets without formal jobs.</li></ol>' +
+      '<h2>Measurement caution</h2><p>Six-month employment is a weak proxy. We recommend 18-month income tracking to capture what lasts.</p>',
+    'Governance Reform Brief':
+      '<p><em>Transparency tools deliver only when citizens can act on what they see.</em></p>' +
+      '<h2>Context</h2><p>Open-budget portals have multiplied, but use remains thin. Publishing data is the start of accountability, not the end of it.</p>' +
+      '<h2>Recommendations</h2><ul><li>Pair disclosure with <strong>civic intermediaries</strong> who translate data into local issues.</li><li>Create <strong>feedback channels</strong> with a duty to respond, not just to receive.</li><li>Protect the reformers inside government who carry political risk.</li></ul>',
+    'Water & Sanitation Trends':
+      '<p><em>A short briefing on where WASH investment is heading this year.</em></p>' +
+      '<h2>Headlines</h2><ul><li>Professionalised rural water management is replacing volunteer committees.</li><li>Faecal-sludge management is finally attracting blended finance.</li><li>Climate resilience is now a procurement requirement, not an add-on.</li></ul>' +
+      '<h2>Implication</h2><p>Funders are shifting from building infrastructure to financing the <strong>service</strong> that keeps it running.</p>',
+    'Legacy Tax Policy Review':
+      '<p><em>Archived for reference — superseded by the 2026 fiscal framework.</em></p>' +
+      '<h2>Summary</h2><p>This review assessed the prior administration&rsquo;s tax-incentive regime and its revenue trade-offs.</p>' +
+      '<h2>Key finding</h2><p>Discretionary exemptions eroded the base faster than they attracted investment, with limited transparency on cost.</p>',
+  }
   for (const c of CONTENT_PLAN) {
     const published = c.status === 'published'
     const [ci] = await db
@@ -1124,7 +1168,7 @@ async function run() {
         type: c.type,
         category: c.category,
         excerpt: `${c.title} — a concise, practical perspective from our consultants.`,
-        body: `<h1>${c.title}</h1>${BODY}`,
+        body: `<h1>${c.title}</h1>${BODIES[c.title] ?? GENERIC_BODY}`,
         tags: [c.category.toLowerCase()],
         status: c.status,
         authorUserId: commsAuthor,
