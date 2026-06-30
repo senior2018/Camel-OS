@@ -91,6 +91,13 @@ async function save() {
 }
 defineExpose({ saveNow: save, isDirty: () => saveState.value === 'dirty' })
 
+// Treat whitespace-only / empty-paragraph HTML as "no content" so read-only
+// viewers see a clear empty state instead of a blank box.
+const hasContent = computed(() => {
+  const text = (props.content ?? '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim()
+  return text.length > 0 || /<(img|table|hr|iframe)/i.test(props.content ?? '')
+})
+
 interface Tool {
   icon: string
   label: string
@@ -218,6 +225,28 @@ function addTable() {
         <template v-else-if="saveState === 'error'">Save failed</template>
       </span>
     </div>
-    <EditorContent :editor="editor" class="flex-1 overflow-auto" />
+    <!-- Editable: the live editor -->
+    <EditorContent v-if="editable" :editor="editor" class="flex-1 overflow-auto" />
+    <!-- Read-only with content: render saved HTML as clean prose.
+         Trusted internal content authored in-app. -->
+    <!-- eslint-disable vue/no-v-html -->
+    <div
+      v-else-if="hasContent"
+      class="prose prose-sm max-w-none flex-1 overflow-auto px-4 py-3"
+      v-html="content"
+    />
+    <!-- eslint-enable vue/no-v-html -->
+    <!-- Read-only, nothing written yet: explicit empty state -->
+    <div
+      v-else
+      class="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-16 text-center"
+    >
+      <UIcon name="i-lucide-file-text" class="size-8 text-muted" />
+      <p class="text-sm font-medium text-default">No content written yet</p>
+      <p class="max-w-xs text-xs text-muted">
+        This item was sent for review without a body. Recall it to Draft to add content.
+      </p>
+    </div>
   </div>
 </template>
+
