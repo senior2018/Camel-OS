@@ -6,6 +6,8 @@ import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import { logAuditEvent } from '@@/server/utils/audit'
 import { notifyContentDecision } from '@@/server/utils/content-notify'
+import { getContentReviewPolicy } from '@@/server/utils/content-review-policy'
+import { contentApprovalMet } from '@@/shared/schemas/communication-settings'
 import { reviewDecisionSchema } from '@@/shared/schemas/communication'
 
 /**
@@ -56,16 +58,18 @@ export default defineEventHandler(async (event) => {
       .set({ decision: body.decision, comment: body.comment ?? null, decidedAt: new Date() })
       .where(eq(contentReviews.id, mine.id))
 
-    // Recompute content status from all reviewer decisions.
+    // Recompute content status from all reviewer decisions, applying the org's
+    // approval rule (all / at least N / percentage).
     const all = await db
       .select({ decision: contentReviews.decision })
       .from(contentReviews)
       .where(eq(contentReviews.contentItemId, id))
+    const policy = await getContentReviewPolicy(ctx.organizationId)
     const anyBlocking = all.some(
       (r) => r.decision === 'rejected' || r.decision === 'changes_requested'
     )
-    const allApproved = all.length > 0 && all.every((r) => r.decision === 'approved')
-    const newStatus = anyBlocking ? 'changes_requested' : allApproved ? 'approved' : 'in_review'
+    const approvalMet = contentApprovalMet(all, policy)
+    const newStatus = anyBlocking ? 'changes_requested' : approvalMet ? 'approved' : 'in_review'
 
     if (newStatus !== item.status) {
       await db

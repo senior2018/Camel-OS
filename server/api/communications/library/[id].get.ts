@@ -38,7 +38,10 @@ export default defineEventHandler(async (event) => {
       .limit(1)
 
     if (!item) throw createError({ statusCode: 404, statusMessage: 'Not found' })
-    return { content: item }
+    // Fall back to the first inline image as the cover banner when none was set.
+    const coverImageUrl =
+      item.coverImageUrl ?? item.body?.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1] ?? null
+    return { content: { ...item, coverImageUrl } }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
     consola.error('Error loading library item', error)

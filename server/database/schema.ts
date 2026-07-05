@@ -936,6 +936,23 @@ export const contentReviewDecisionEnum = pgEnum('content_review_decision', [
   'rejected',
 ])
 
+// ─── Configurable communications review policy (CC — mirrors proposals P3.3) ──
+// One row per organization: how many reviewers a content item needs, how their
+// approvals are tallied (all / at least N / a percentage), and whether a final
+// approver (the Communications Lead) must sign off before publishing. Absent
+// row ⇒ fall back to DEFAULT_CONTENT_REVIEW_POLICY. `review_rule` is plain text
+// validated by the shared zod schema (values: all | count | percent).
+export const organizationCommunicationsSettings = pgTable('organization_communications_settings', {
+  organizationId: uuid('organization_id')
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  reviewMinReviewers: integer('review_min_reviewers').notNull().default(1),
+  reviewRule: text('review_rule').notNull().default('all'),
+  reviewThreshold: integer('review_threshold'),
+  requireFinalApprover: boolean('require_final_approver').notNull().default(true),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
 export const contentItems = pgTable(
   'content_items',
   {

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import { Hash } from '@adonisjs/hash'
 import { Scrypt } from '@adonisjs/hash/drivers/scrypt'
@@ -14,6 +14,7 @@ import {
   clientContacts,
   clientInteractions,
   clientReminders,
+  crmLookupValues,
   clients,
   contentComments,
   contentItems,
@@ -289,6 +290,14 @@ const ROSTER = [
     lastName: 'Knowledge',
     roleName: 'Knowledge Manager',
   },
+  // Extra writers + reviewers so proposals can be staffed with DIFFERENT casts —
+  // this is what makes the need-to-know visibility provable (each person ends up
+  // on a subset of proposals, not all of them).
+  { email: 'grace@camel-os.com', firstName: 'Grace', lastName: 'Author', roleName: 'Consultant' },
+  { email: 'james@camel-os.com', firstName: 'James', lastName: 'Author', roleName: 'Consultant' },
+  { email: 'nina@camel-os.com', firstName: 'Nina', lastName: 'Reviewer', roleName: 'Reviewer' },
+  { email: 'peter@camel-os.com', firstName: 'Peter', lastName: 'Reviewer', roleName: 'Reviewer' },
+  { email: 'sofia@camel-os.com', firstName: 'Sofia', lastName: 'Reviewer', roleName: 'Reviewer' },
 ] as const
 
 async function run() {
@@ -317,6 +326,16 @@ async function run() {
   await db.delete(campaigns).where(eq(campaigns.organizationId, orgId))
   await db.delete(stakeholders).where(eq(stakeholders.organizationId, orgId))
   await db.delete(mediaMentions).where(eq(mediaMentions.organizationId, orgId))
+  // Communications-managed vocabularies (content types + categories). Opportunity
+  // lookups are left untouched.
+  await db
+    .delete(crmLookupValues)
+    .where(
+      and(
+        eq(crmLookupValues.organizationId, orgId),
+        inArray(crmLookupValues.kind, ['content_type', 'content_category'])
+      )
+    )
   consola.success('Wiped clients, opportunities, proposals, communications, grants, agreements.')
 
   // ── 2) user roster across roles (idempotent) ──
@@ -646,15 +665,25 @@ async function run() {
   consola.success(`Opportunities: ${oppCount} | comments: ${commentCount}`)
 
   // ── 6) proposals from accepted opps, spread across workflow stages ──
-  const lead = userIdByEmail.get('linda@camel-os.com')!
-  // Writers (contributors) — the people who author the sections.
-  const writer1 = userIdByEmail.get('sam@camel-os.com')!
-  const writer2 = userIdByEmail.get('priya@camel-os.com')!
-  // Reviewers (≥3) — distinct from the writers (separation of duties).
-  const rev1 = userIdByEmail.get('rita@camel-os.com')!
-  const rev2 = userIdByEmail.get('nadia@camel-os.com')!
-  const rev3 = userIdByEmail.get('omar@camel-os.com')!
-  const approver = userIdByEmail.get('doris@camel-os.com')!
+  // Each proposal is staffed from these pools, ROTATED per proposal so different
+  // people are members of different proposals — this makes need-to-know provable
+  // (a person sees only the proposals they're on). Proposal #0 keeps the canonical
+  // demo cast (Linda + Sam/Priya + Rita/Nadia/Omar) for the workflow walkthrough.
+  const uid = (e: string) => userIdByEmail.get(`${e}@camel-os.com`)!
+  const leadsPool = [uid('linda'), uid('ben')]
+  const writersPool = [uid('sam'), uid('priya'), uid('grace'), uid('james')]
+  const reviewersPool = [
+    uid('rita'),
+    uid('nadia'),
+    uid('omar'),
+    uid('nina'),
+    uid('peter'),
+    uid('sofia'),
+  ]
+  const approver = uid('doris')
+  // Pick n distinct members from a pool, windowed by offset (deterministic).
+  const pickWindow = (pool: string[], n: number, off: number): string[] =>
+    Array.from({ length: n }, (_, k) => pool[(off + k) % pool.length]!)
 
   type PStatus = (typeof schema.proposalStatusEnum.enumValues)[number]
   // distribute the ~15 accepted across representative stages
@@ -683,6 +712,17 @@ async function run() {
     const beyondAssigned = pstatus !== 'assigned'
     const inReviewOrLater = !['assigned', 'drafting'].includes(pstatus)
 
+    // Per-proposal cast (rotated). The first 'drafting' proposal (i === 2) keeps
+    // the canonical demo cast so the workflow walkthrough still lines up.
+    const canonical = i === 2
+    const lead = canonical ? uid('linda') : leadsPool[i % leadsPool.length]!
+    const [writer1, writer2] = canonical
+      ? [uid('sam'), uid('priya')]
+      : pickWindow(writersPool, 2, i)
+    const [rev1, rev2, rev3] = canonical
+      ? [uid('rita'), uid('nadia'), uid('omar')]
+      : pickWindow(reviewersPool, 3, i)
+
     const [p] = await db
       .insert(proposals)
       .values({
@@ -692,7 +732,14 @@ async function run() {
         status: pstatus,
         deadline: isoDate(daysFromNow(rand(60) + 5)),
         contentDraft: beyondAssigned
-          ? 'Executive summary, technical approach, methodology, work-plan, team, and budget narrative…'
+          ? `<h1>${opp.title}</h1>` +
+            `<p>This proposal sets out <strong>Sahara Consult&rsquo;s</strong> approach to delivering <a href="#">${opp.title}</a>. Our goal is a rigorous, evidence-led engagement that meets the client&rsquo;s objectives on time and within budget.</p>` +
+            `<img src="https://picsum.photos/seed/camel-prop-${opp.id}/1200/520" alt="Engagement context" />` +
+            '<h2>Executive summary</h2><p>We bring a senior multidisciplinary team, a proven methodology, and deep regional experience. Our phased delivery de-risks the assignment while building the client&rsquo;s own capacity to sustain results.</p>' +
+            '<h2>Objectives</h2><ul><li>Establish a clear baseline and measurable indicators.</li><li>Deliver actionable findings, not just a report.</li><li>Transfer skills to the client team throughout.</li></ul>' +
+            '<h2>Technical approach</h2><p>A mixed-methods design combines quantitative survey data with qualitative depth. Quality assurance is embedded at every stage, with independent peer review of all deliverables.</p>' +
+            '<h2>Work-plan</h2><p>The assignment runs over three phases — <em>inception, fieldwork, and synthesis</em> — each closing with a client checkpoint.</p>' +
+            '<h2>Team &amp; budget</h2><p>The staffing matrix pairs sector specialists with local enumerators. The budget narrative offers clear value-for-money, with transparent day-rates and a contingency line.</p>'
           : null,
         decisionNote:
           pstatus === 'won'
@@ -852,18 +899,25 @@ async function run() {
         `Workspace is live. Let's aim to submit two days early on this one — no last-minute scrambles.`,
         `Priority bid for us. Rita, Nadia, Omar — I'll bring you in the moment the first full draft lands.`,
       ])
-      const reply = pick([
-        'On it — methodology and work-plan first, then past performance.',
-        "I'll own the budget and the staffing matrix. Already flagging a tight travel line.",
-        'Outline is up with inline notes where I need reviewer input.',
-      ])
       msgs.push(
         { kind: 'message', body: kickoff, eventType: null, authorUserId: lead },
         {
           kind: 'message',
-          body: reply,
+          body: 'On it — methodology and work-plan first, then past performance.',
           eventType: null,
-          authorUserId: chance(0.5) ? writer1 : writer2,
+          authorUserId: writer1,
+        },
+        {
+          kind: 'message',
+          body: "I'll own the budget and the staffing matrix. Already flagging a tight travel line.",
+          eventType: null,
+          authorUserId: writer2,
+        },
+        {
+          kind: 'message',
+          body: 'Great — first full draft by Thursday, then I bring the reviewers in.',
+          eventType: null,
+          authorUserId: lead,
         }
       )
     }
@@ -1158,6 +1212,38 @@ async function run() {
       '<h2>Summary</h2><p>This review assessed the prior administration&rsquo;s tax-incentive regime and its revenue trade-offs.</p>' +
       '<h2>Key finding</h2><p>Discretionary exemptions eroded the base faster than they attracted investment, with limited transparency on cost.</p>',
   }
+  // Seed the leader-managed communications vocabularies so the Settings page and
+  // the writing pickers show real options. Types include a custom "Case Study"
+  // to demonstrate that the vocabulary is extensible beyond the built-ins.
+  const contentTypeValues = [
+    { key: 'insight', label: 'Insight' },
+    { key: 'report', label: 'Report' },
+    { key: 'article', label: 'Article' },
+    { key: 'news', label: 'News' },
+    { key: 'blog', label: 'Blog' },
+    { key: 'case_study', label: 'Case Study' },
+  ]
+  const contentCategoryValues = [...new Set(CONTENT_PLAN.map((c) => c.category))].map((label) => ({
+    key: label.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+    label,
+  }))
+  await db.insert(crmLookupValues).values([
+    ...contentTypeValues.map((v, i) => ({
+      organizationId: orgId,
+      kind: 'content_type',
+      key: v.key,
+      label: v.label,
+      sortOrder: i,
+    })),
+    ...contentCategoryValues.map((v, i) => ({
+      organizationId: orgId,
+      kind: 'content_category',
+      key: v.key,
+      label: v.label,
+      sortOrder: i,
+    })),
+  ])
+
   for (const c of CONTENT_PLAN) {
     const published = c.status === 'published'
     const [ci] = await db
@@ -1168,7 +1254,10 @@ async function run() {
         type: c.type,
         category: c.category,
         excerpt: `${c.title} — a concise, practical perspective from our consultants.`,
-        body: `<h1>${c.title}</h1>${BODIES[c.title] ?? GENERIC_BODY}`,
+        body:
+          `<h1>${c.title}</h1>` +
+          `<img src="https://picsum.photos/seed/camel-${encodeURIComponent(c.category)}/1200/480" alt="${c.category}" />` +
+          `${BODIES[c.title] ?? GENERIC_BODY}`,
         tags: [c.category.toLowerCase()],
         status: c.status,
         authorUserId: commsAuthor,
@@ -1212,8 +1301,26 @@ async function run() {
         {
           contentItemId: id,
           organizationId: orgId,
+          authorUserId: commsAuthor,
+          body: 'Draft is ready for your eyes — I flagged two stats that still need a source.',
+        },
+        {
+          contentItemId: id,
+          organizationId: orgId,
           authorUserId: cm[0]!,
           body: 'Reviewing now — strong angle on this one.',
+        },
+        {
+          contentItemId: id,
+          organizationId: orgId,
+          authorUserId: cm[1]!,
+          body: 'Numbers check out. One figure needs the 2026 update before we publish.',
+        },
+        {
+          contentItemId: id,
+          organizationId: orgId,
+          authorUserId: cm[2]!,
+          body: 'Tone is on-brand and the structure reads well. Ready from my side.',
         },
       ])
     }

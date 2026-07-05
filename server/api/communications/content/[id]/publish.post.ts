@@ -4,6 +4,8 @@ import { and, eq } from 'drizzle-orm'
 import { contentComments, contentItems } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
+import { userHasPermission } from '@@/server/utils/role'
+import { getContentReviewPolicy } from '@@/server/utils/content-review-policy'
 import { logAuditEvent } from '@@/server/utils/audit'
 
 /** Publish an approved content item to the staff library (CC-07 source). */
@@ -25,6 +27,23 @@ export default defineEventHandler(async (event) => {
         statusCode: 409,
         statusMessage: 'Only approved content can be published.',
       })
+    }
+
+    // When the policy requires a final approver, publishing (the final sign-off)
+    // is reserved for the Communications Lead (communications:admin) or an org
+    // admin — not every reviewer who merely holds `approve`.
+    const policy = await getContentReviewPolicy(ctx.organizationId)
+    if (policy.requireFinalApprover) {
+      const isLead =
+        ctx.isSystemAdmin ||
+        (await userHasPermission(ctx.userId, 'communications', 'admin')) ||
+        (await userHasPermission(ctx.userId, 'admin', 'admin'))
+      if (!isLead) {
+        throw createError({
+          statusCode: 403,
+          statusMessage: 'Final approval is reserved for the Communications Lead.',
+        })
+      }
     }
 
     await db

@@ -37,8 +37,9 @@ onMounted(() => {
       ],
       editorProps: {
         attributes: {
+          // Document-page styling — a centred white sheet on a grey canvas.
           class:
-            'prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[24rem] px-4 py-3',
+            'prose prose-slate max-w-none min-h-[50vh] px-6 py-6 sm:px-10 sm:py-8 focus:outline-none prose-headings:font-semibold prose-h1:text-2xl sm:prose-h1:text-3xl prose-h1:tracking-tight prose-a:text-primary prose-img:rounded-xl prose-img:shadow-sm prose-img:ring-1 prose-img:ring-default',
         },
       },
       onUpdate: () => {
@@ -103,7 +104,10 @@ defineExpose({ saveNow: save, isDirty: () => saveState.value === 'dirty' })
 // Treat whitespace-only / empty-paragraph HTML as "no content" so read-only
 // viewers see a clear empty state instead of a blank box.
 const hasContent = computed(() => {
-  const text = (props.content ?? '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim()
+  const text = (props.content ?? '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .trim()
   return text.length > 0 || /<(img|table|hr|iframe)/i.test(props.content ?? '')
 })
 
@@ -182,10 +186,12 @@ function addImage() {
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-col rounded-lg border border-default">
+  <div
+    class="flex min-h-0 flex-col overflow-hidden rounded-xl bg-default shadow-sm ring-1 ring-default"
+  >
     <div
       v-if="editable"
-      class="flex flex-wrap items-center gap-0.5 border-b border-default bg-elevated/30 px-2 py-1.5"
+      class="flex flex-wrap items-center gap-0.5 border-b border-default bg-default px-3 py-2"
     >
       <UButton
         v-for="t in tools"
@@ -226,19 +232,18 @@ function addImage() {
     <!-- Editable: the live editor. Guard on `editor` (not just `editable`) so the
          component never renders EditorContent with an undefined editor during SSR
          — that throws and blanks the whole editor. Editor is created onMounted. -->
-    <EditorContent v-if="editable && editor" :editor="editor" class="flex-1 overflow-auto" />
-    <div
-      v-else-if="editable"
-      class="flex-1 px-4 py-12 text-center text-sm text-muted"
-    >
-      Loading editor…
-    </div>
-    <!-- Read-only with content: render saved HTML as clean prose.
+    <EditorContent
+      v-if="editable && editor"
+      :editor="editor"
+      class="flex-1 overflow-auto bg-default"
+    />
+    <div v-else-if="editable" class="flex-1 px-6 py-12 text-sm text-muted">Loading editor…</div>
+    <!-- Read-only with content: render saved HTML filling the white sheet.
          Trusted internal content authored in-app. -->
     <!-- eslint-disable vue/no-v-html -->
     <div
       v-else-if="hasContent"
-      class="prose prose-sm max-w-none flex-1 overflow-auto px-4 py-3"
+      class="prose prose-slate max-w-none flex-1 overflow-auto bg-default px-6 py-6 sm:px-10 sm:py-8 prose-headings:font-semibold prose-h1:text-2xl prose-h1:tracking-tight prose-a:text-primary prose-img:rounded-xl prose-img:shadow-sm prose-img:ring-1 prose-img:ring-default sm:prose-h1:text-3xl"
       v-html="content"
     />
     <!-- eslint-enable vue/no-v-html -->
@@ -255,4 +260,3 @@ function addImage() {
     </div>
   </div>
 </template>
-

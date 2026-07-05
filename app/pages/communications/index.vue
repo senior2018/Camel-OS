@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CommunicationsTabs from '~/components/communication/CommunicationsTabs.vue'
 import {
   CONTENT_STATUSES,
   CONTENT_STATUS_COLOR,
@@ -83,7 +84,15 @@ const toast = useToast()
 const createOpen = ref(false)
 const form = reactive({ title: '', type: 'insight' })
 const creating = ref(false)
-const typeItems = Object.entries(CONTENT_TYPE_LABEL).map(([value, label]) => ({ label, value }))
+// Content types come from settings (built-in defaults + org-defined values), so
+// a leader can extend the vocabulary without a code change.
+const { data: optionsData } = await useFetch<{ types: { key: string; label: string }[] }>(
+  '/api/communications/settings/options',
+  { key: 'comms-options', default: () => ({ types: [] }) }
+)
+const typeItems = computed(() =>
+  (optionsData.value?.types ?? []).map((t) => ({ label: t.label, value: t.key }))
+)
 
 async function create() {
   const parsed = createContentSchema.safeParse({ title: form.title, type: form.type, tags: [] })
@@ -112,6 +121,7 @@ async function create() {
 
 <template>
   <div class="space-y-6">
+    <CommunicationsTabs class="-mt-1" />
     <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div>
         <h1 class="text-2xl font-semibold tracking-tight text-default">Communications</h1>
@@ -132,7 +142,7 @@ async function create() {
       <button
         v-for="s in CONTENT_STATUSES"
         :key="s"
-        class="rounded-lg border border-default px-3 py-1.5 text-left transition-colors hover:bg-elevated/40"
+        class="rounded-lg border border-default bg-default px-3 py-1.5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow"
         :class="statusFilter.includes(s) ? 'ring-2 ring-primary' : ''"
         @click="
           statusFilter = statusFilter.includes(s)
@@ -185,9 +195,9 @@ async function create() {
       />
     </div>
 
-    <div v-else class="overflow-hidden rounded-xl border border-default">
+    <div v-else class="overflow-hidden rounded-xl border border-default bg-default shadow-sm">
       <table class="w-full text-sm">
-        <thead class="bg-elevated/40 text-left text-xs uppercase tracking-wide text-muted">
+        <thead class="bg-elevated text-left text-xs uppercase tracking-wide text-muted">
           <tr>
             <th class="px-4 py-2 font-medium">Title</th>
             <th class="hidden px-4 py-2 font-medium sm:table-cell">Type</th>

@@ -44,10 +44,18 @@ watch(searchInput, (v) => {
 })
 watch([category, author, from, to], () => (page.value = 1))
 
+// Nuxt UI v4 forbids an empty-string option value, so the "All" reset uses a
+// sentinel that the query treats as "no filter".
+const ALL = '__all__'
+const activeCategory = computed(() =>
+  category.value && category.value !== ALL ? category.value : ''
+)
+const activeAuthor = computed(() => (author.value && author.value !== ALL ? author.value : ''))
+
 const query = computed(() => ({
   q: q.value || undefined,
-  category: category.value || undefined,
-  author: author.value || undefined,
+  category: activeCategory.value || undefined,
+  author: activeAuthor.value || undefined,
   from: from.value || undefined,
   to: to.value || undefined,
   page: page.value,
@@ -66,15 +74,15 @@ const totalPages = computed(() =>
   Math.max(1, Math.ceil((data.value?.total ?? 0) / (data.value?.pageSize ?? 12)))
 )
 const categoryItems = computed(() => [
-  { label: 'All categories', value: '' },
+  { label: 'All categories', value: ALL },
   ...(data.value?.categories ?? []).map((c) => ({ label: c, value: c })),
 ])
 const authorItems = computed(() => [
-  { label: 'All authors', value: '' },
+  { label: 'All authors', value: ALL },
   ...(data.value?.authors ?? []).map((a) => ({ label: a.name, value: a.id })),
 ])
 const hasFilters = computed(
-  () => !!q.value || !!category.value || !!author.value || !!from.value || !!to.value
+  () => !!q.value || !!activeCategory.value || !!activeAuthor.value || !!from.value || !!to.value
 )
 function clearFilters() {
   searchInput.value = ''

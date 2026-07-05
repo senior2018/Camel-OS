@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CommunicationsTabs from '~/components/communication/CommunicationsTabs.vue'
 import { CONTENT_STATUS_LABEL, type ContentStatus } from '@@/shared/schemas/communication'
 
 definePageMeta({ layout: 'dashboard' })
@@ -113,6 +114,7 @@ function inMonth(d: Date) {
 
 <template>
   <div class="space-y-5">
+    <CommunicationsTabs class="-mt-1" />
     <header class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-2xl font-semibold tracking-tight text-default">Content Calendar</h1>
@@ -144,9 +146,9 @@ function inMonth(d: Date) {
       </div>
     </header>
 
-    <div class="overflow-hidden rounded-xl border border-default">
+    <div class="overflow-hidden rounded-xl border border-default bg-default shadow-sm">
       <div
-        class="grid grid-cols-7 border-b border-default bg-elevated/40 text-center text-xs font-medium uppercase tracking-wide text-muted"
+        class="grid grid-cols-7 border-b border-default bg-elevated text-center text-xs font-medium uppercase tracking-wide text-muted"
       >
         <div v-for="d in dow" :key="d" class="py-2">{{ d }}</div>
       </div>
@@ -155,7 +157,7 @@ function inMonth(d: Date) {
           v-for="day in weeks.flat()"
           :key="ymd(day)"
           class="min-h-28 border-b border-r border-default p-1.5 last:border-r-0"
-          :class="inMonth(day) ? '' : 'bg-elevated/20'"
+          :class="inMonth(day) ? '' : 'bg-elevated/60'"
           @dragover.prevent
           @drop="onDrop(ymd(day))"
         >

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CommunicationsTabs from '~/components/communication/CommunicationsTabs.vue'
 import {
   CAMPAIGN_STATUS_COLOR,
   CAMPAIGN_STATUS_LABEL,
@@ -103,6 +104,7 @@ void refresh
 
 <template>
   <div class="space-y-6">
+    <CommunicationsTabs class="-mt-1" />
     <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div>
         <h1 class="text-2xl font-semibold tracking-tight text-default">Campaigns</h1>

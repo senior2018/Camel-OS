@@ -6,6 +6,7 @@ import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import { logAuditEvent } from '@@/server/utils/audit'
 import { notifyContentReviewers } from '@@/server/utils/content-notify'
+import { getContentReviewPolicy } from '@@/server/utils/content-review-policy'
 import { assignReviewersSchema } from '@@/shared/schemas/communication'
 
 /**
@@ -42,6 +43,17 @@ export default defineEventHandler(async (event) => {
         throw createError({ statusCode: 400, statusMessage: 'A reviewer was listed twice.' })
       }
       seen.add(r.userId)
+    }
+
+    // Enforce the org's minimum-reviewers policy.
+    const policy = await getContentReviewPolicy(ctx.organizationId)
+    if (body.reviewers.length < policy.reviewMinReviewers) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: `This organization requires at least ${policy.reviewMinReviewers} reviewer${
+          policy.reviewMinReviewers === 1 ? '' : 's'
+        }.`,
+      })
     }
 
     await db.delete(contentReviews).where(eq(contentReviews.contentItemId, id))

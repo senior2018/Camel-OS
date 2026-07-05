@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CommunicationsTabs from '~/components/communication/CommunicationsTabs.vue'
 import {
   ENGAGEMENT_STRATEGIES,
   STAKEHOLDER_LEVELS,
@@ -109,6 +110,7 @@ const dot: Record<StakeholderLevel, string> = {
 
 <template>
   <div class="space-y-6">
+    <CommunicationsTabs class="-mt-1" />
     <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div>
         <h1 class="text-2xl font-semibold tracking-tight text-default">Stakeholders</h1>
@@ -139,7 +141,7 @@ const dot: Record<StakeholderLevel, string> = {
 
     <template v-else>
       <!-- Influence / interest matrix (CC-14) -->
-      <div class="rounded-xl border border-default p-4">
+      <div class="rounded-xl border border-default bg-default shadow-sm p-4">
         <div class="flex">
           <div class="flex w-6 items-center justify-center">
             <span
@@ -154,7 +156,7 @@ const dot: Record<StakeholderLevel, string> = {
                 <div
                   v-for="int in intCols"
                   :key="`${inf}-${int}`"
-                  class="min-h-28 rounded-lg border border-default bg-elevated/20 p-2"
+                  class="min-h-28 rounded-lg border border-default bg-elevated/60 p-2"
                 >
                   <p class="mb-1 text-[10px] font-medium uppercase tracking-wide text-dimmed">
                     {{ quadrantHint(inf, int) }}
@@ -181,9 +183,12 @@ const dot: Record<StakeholderLevel, string> = {
       </div>
 
       <!-- Register -->
-      <div v-if="data?.items.length" class="overflow-hidden rounded-xl border border-default">
+      <div
+        v-if="data?.items.length"
+        class="overflow-hidden rounded-xl border border-default bg-default shadow-sm"
+      >
         <table class="w-full text-sm">
-          <thead class="bg-elevated/40 text-left text-xs uppercase tracking-wide text-muted">
+          <thead class="bg-elevated text-left text-xs uppercase tracking-wide text-muted">
             <tr>
               <th class="px-4 py-2 font-medium">Name</th>
               <th class="hidden px-4 py-2 font-medium sm:table-cell">Type</th>

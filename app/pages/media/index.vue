@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CommunicationsTabs from '~/components/communication/CommunicationsTabs.vue'
 import {
   MEDIA_SENTIMENT_COLOR,
   MEDIA_SENTIMENT_LABEL,
@@ -174,6 +175,7 @@ function printPage() {
 
 <template>
   <div class="space-y-6">
+    <CommunicationsTabs class="-mt-1" />
     <header class="flex flex-wrap items-end justify-between gap-3">
       <div>
         <h1 class="text-2xl font-semibold tracking-tight text-default">Media Monitoring</h1>
@@ -199,23 +201,23 @@ function printPage() {
 
     <!-- Dashboard (CC-20) -->
     <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
-      <div class="rounded-xl border border-default p-4">
+      <div class="rounded-xl border border-default bg-default shadow-sm p-4">
         <p class="text-xs uppercase tracking-wide text-muted">Mentions</p>
         <p class="mt-1 text-2xl font-semibold text-default">{{ data?.summary.total ?? 0 }}</p>
       </div>
-      <div class="rounded-xl border border-default p-4">
+      <div class="rounded-xl border border-default bg-default shadow-sm p-4">
         <p class="text-xs uppercase tracking-wide text-muted">Positive</p>
         <p class="mt-1 text-2xl font-semibold text-success">
           {{ data?.summary.sentimentCounts.positive ?? 0 }}
         </p>
       </div>
-      <div class="rounded-xl border border-default p-4">
+      <div class="rounded-xl border border-default bg-default shadow-sm p-4">
         <p class="text-xs uppercase tracking-wide text-muted">Neutral</p>
         <p class="mt-1 text-2xl font-semibold text-default">
           {{ data?.summary.sentimentCounts.neutral ?? 0 }}
         </p>
       </div>
-      <div class="rounded-xl border border-default p-4">
+      <div class="rounded-xl border border-default bg-default shadow-sm p-4">
         <p class="text-xs uppercase tracking-wide text-muted">Negative</p>
         <p class="mt-1 text-2xl font-semibold text-error">
           {{ data?.summary.sentimentCounts.negative ?? 0 }}
@@ -282,9 +284,9 @@ function printPage() {
     </div>
 
     <!-- List -->
-    <div class="overflow-hidden rounded-xl border border-default">
+    <div class="overflow-hidden rounded-xl border border-default bg-default shadow-sm">
       <table class="w-full text-sm">
-        <thead class="bg-elevated/40 text-left text-xs uppercase tracking-wide text-muted">
+        <thead class="bg-elevated text-left text-xs uppercase tracking-wide text-muted">
           <tr>
             <th class="px-4 py-2 font-medium">Headline</th>
             <th class="hidden px-4 py-2 font-medium sm:table-cell">Source</th>

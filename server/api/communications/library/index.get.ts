@@ -50,6 +50,7 @@ export default defineEventHandler(async (event) => {
         excerpt: contentItems.excerpt,
         tags: contentItems.tags,
         coverImageUrl: contentItems.coverImageUrl,
+        body: contentItems.body,
         authorFirstName: users.firstName,
         authorLastName: users.lastName,
         publishedAt: contentItems.publishedAt,
@@ -80,8 +81,16 @@ export default defineEventHandler(async (event) => {
       .innerJoin(users, eq(users.id, contentItems.authorUserId))
       .where(publishedScope)
 
+    // Fall back to the first inline image in the body when no explicit cover
+    // was set, so library cards always have a visual.
+    const withCovers = items.map(({ body, ...rest }) => ({
+      ...rest,
+      coverImageUrl:
+        rest.coverImageUrl ?? body?.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1] ?? null,
+    }))
+
     return {
-      items,
+      items: withCovers,
       total: total ?? 0,
       page: q.page,
       pageSize: PAGE_SIZE,

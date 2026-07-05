@@ -189,24 +189,24 @@ async function closeCampaign() {
 
     <!-- Performance summary (CC-11) -->
     <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
-      <div class="rounded-xl border border-default p-4">
+      <div class="rounded-xl border border-default bg-default shadow-sm p-4">
         <p class="text-xs uppercase tracking-wide text-muted">Published / planned</p>
         <p class="mt-1 text-2xl font-semibold text-default">
           {{ data.summary.contentPublished
           }}<span class="text-base text-muted">/{{ data.summary.contentTotal }}</span>
         </p>
       </div>
-      <div class="rounded-xl border border-default p-4">
+      <div class="rounded-xl border border-default bg-default shadow-sm p-4">
         <p class="text-xs uppercase tracking-wide text-muted">Budget planned</p>
         <p class="mt-1 text-2xl font-semibold text-default">
           {{ money(data.summary.budgetPlanned) }}
         </p>
       </div>
-      <div class="rounded-xl border border-default p-4">
+      <div class="rounded-xl border border-default bg-default shadow-sm p-4">
         <p class="text-xs uppercase tracking-wide text-muted">Actual spend</p>
         <p class="mt-1 text-2xl font-semibold text-info">{{ money(data.summary.budgetActual) }}</p>
       </div>
-      <div class="rounded-xl border border-default p-4">
+      <div class="rounded-xl border border-default bg-default shadow-sm p-4">
         <p class="text-xs uppercase tracking-wide text-muted">Variance</p>
         <p
           class="mt-1 text-2xl font-semibold"
