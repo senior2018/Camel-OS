@@ -16,6 +16,7 @@ import {
 } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
+import { canOverseeProjects } from '@@/server/utils/project-settings'
 
 /** Full project workspace payload (PJ-01..11) + a computed health summary. */
 export default defineEventHandler(async (event) => {
@@ -41,8 +42,11 @@ export default defineEventHandler(async (event) => {
         clientName: clients.name,
         proposalId: projects.proposalId,
         projectManagerUserId: projects.projectManagerUserId,
+        createdByUserId: projects.createdByUserId,
         pmFirstName: users.firstName,
         pmLastName: users.lastName,
+        budgetRevisionStatus: projects.budgetRevisionStatus,
+        budgetRevisionNote: projects.budgetRevisionNote,
         closedAt: projects.closedAt,
         closeChecklist: projects.closeChecklist,
         createdAt: projects.createdAt,
@@ -53,6 +57,27 @@ export default defineEventHandler(async (event) => {
       .where(and(eq(projects.id, id), eq(projects.organizationId, ctx.organizationId)))
       .limit(1)
     if (!project) throw createError({ statusCode: 404, statusMessage: 'Project not found' })
+
+    // Need-to-know: only the PM, creator, a team member, or an oversight role
+    // (system admin / project:admin) may open a project.
+    const canViewAll = await canOverseeProjects(ctx.userId, ctx.isSystemAdmin)
+    if (!canViewAll) {
+      const isOwnerOrPm =
+        project.projectManagerUserId === ctx.userId || project.createdByUserId === ctx.userId
+      const [mine] = isOwnerOrPm
+        ? [true]
+        : await db
+            .select({ one: projectMembers.id })
+            .from(projectMembers)
+            .where(and(eq(projectMembers.projectId, id), eq(projectMembers.userId, ctx.userId)))
+            .limit(1)
+      if (!mine) {
+        throw createError({
+          statusCode: 403,
+          statusMessage: 'You do not have access to this project.',
+        })
+      }
+    }
 
     const memberUser = users
     const members = await db
@@ -134,6 +159,7 @@ export default defineEventHandler(async (event) => {
         firstName: users.firstName,
         lastName: users.lastName,
         hours: timesheetEntries.hours,
+        entryDate: timesheetEntries.entryDate,
       })
       .from(timesheetEntries)
       .leftJoin(users, eq(users.id, timesheetEntries.userId))
@@ -163,6 +189,35 @@ export default defineEventHandler(async (event) => {
     }
     const loggedHours = [...tsByUser.values()].reduce((s, u) => s + u.hours, 0)
 
+    // ── Weekly timesheet breakdown (PJ-06): hours per staff per ISO week. ──
+    const weekStart = (dateStr: string) => {
+      const d = new Date(`${dateStr}T00:00:00Z`)
+      const mondayOffset = (d.getUTCDay() + 6) % 7 // Mon=0 … Sun=6
+      d.setUTCDate(d.getUTCDate() - mondayOffset)
+      return d.toISOString().slice(0, 10)
+    }
+    const weekSet = new Set<string>()
+    const weeklyByUser = new Map<string, { name: string; byWeek: Record<string, number> }>()
+    for (const t of timesheet) {
+      if (!t.entryDate) continue
+      const wk = weekStart(t.entryDate)
+      weekSet.add(wk)
+      const name = [t.firstName, t.lastName].filter(Boolean).join(' ') || 'User'
+      const row = weeklyByUser.get(t.userId) ?? { name, byWeek: {} }
+      row.byWeek[wk] = (row.byWeek[wk] ?? 0) + Number(t.hours)
+      weeklyByUser.set(t.userId, row)
+    }
+    const weeks = [...weekSet].sort()
+    const timesheetWeekly = {
+      weeks,
+      rows: [...weeklyByUser.entries()].map(([userId, r]) => ({
+        userId,
+        name: r.name,
+        byWeek: r.byWeek,
+        total: weeks.reduce((s, w) => s + (r.byWeek[w] ?? 0), 0),
+      })),
+    }
+
     return {
       project,
       members,
@@ -173,6 +228,7 @@ export default defineEventHandler(async (event) => {
       vendors,
       reports,
       timesheetByUser: [...tsByUser.entries()].map(([userId, v]) => ({ userId, ...v })),
+      timesheetWeekly,
       summary: {
         budgetTotal: totalBudget,
         spent,

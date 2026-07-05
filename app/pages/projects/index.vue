@@ -14,6 +14,9 @@ if (!can.value('project', 'read')) {
   throw createError({ statusCode: 403, statusMessage: 'No access to Projects', fatal: true })
 }
 const canCreate = computed(() => can.value('project', 'create'))
+const canManageSettings = computed(
+  () => can.value('project', 'admin') || can.value('admin', 'admin')
+)
 
 interface ProjectRow {
   id: string
@@ -120,12 +123,22 @@ function progress(p: ProjectRow) {
           Deliver won work — teams, milestones, budgets, and reporting in one place.
         </p>
       </div>
-      <UButton
-        v-if="canCreate"
-        icon="i-lucide-plus"
-        label="New project"
-        @click="createOpen = true"
-      />
+      <div class="flex items-center gap-2">
+        <UButton
+          v-if="canManageSettings"
+          icon="i-lucide-settings"
+          color="neutral"
+          variant="outline"
+          label="Settings"
+          @click="navigateTo('/projects/settings')"
+        />
+        <UButton
+          v-if="canCreate"
+          icon="i-lucide-plus"
+          label="New project"
+          @click="createOpen = true"
+        />
+      </div>
     </header>
 
     <div class="flex flex-col gap-2 sm:flex-row sm:items-center">

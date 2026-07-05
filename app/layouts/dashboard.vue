@@ -14,6 +14,23 @@ const { data: perms, can } = await usePermissions()
 const SHOW_COMMUNICATIONS: boolean = true
 const SHOW_PROJECTS: boolean = true
 
+// Need-to-know: hide the Projects nav from users who have no project to see
+// (not a PM/member/creator and not an oversight role).
+const { data: projectVis } = useFetch<{ count: number; canViewAll: boolean }>(
+  '/api/projects/visible-count',
+  {
+    key: 'project-visible-count',
+    immediate: can.value('project', 'read'),
+    default: () => ({ count: 0, canViewAll: false }),
+  }
+)
+const showProjectsNav = computed(
+  () =>
+    SHOW_PROJECTS &&
+    can.value('project', 'read') &&
+    (projectVis.value?.canViewAll || (projectVis.value?.count ?? 0) > 0)
+)
+
 const navItems = computed(() => {
   const items: Array<{ label: string; to: string; icon: string; active: boolean }> = [
     {
@@ -39,7 +56,7 @@ const navItems = computed(() => {
       active: route.path.startsWith('/proposals'),
     })
   }
-  if (SHOW_PROJECTS && can.value('project', 'read')) {
+  if (showProjectsNav.value) {
     items.push({
       label: 'Projects',
       to: '/projects',

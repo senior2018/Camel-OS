@@ -34,6 +34,7 @@ export default defineEventHandler(async (event) => {
         currency: body.currency,
         scope: body.scope ?? null,
         paymentSchedule: body.paymentSchedule ?? null,
+        budgetCategory: body.budgetCategory ?? null,
       })
       .returning()
     return { success: true, vendor: created }

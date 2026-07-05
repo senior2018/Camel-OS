@@ -127,6 +127,20 @@
       "when": 1783276029045,
       "tag": "0017_aberrant_warlock",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1783282339504,
+      "tag": "0018_broken_toxin",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1783284661937,
+      "tag": "0019_noisy_hellfire_club",
+      "breakpoints": true
     }
   ]
 }

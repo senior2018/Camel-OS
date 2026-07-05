@@ -6,6 +6,7 @@ import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import { logAuditEvent } from '@@/server/utils/audit'
 import { createNotifications } from '@@/server/utils/notifications'
+import { canManageProjectTeam } from '@@/server/utils/project-settings'
 import { updateProjectSchema } from '@@/shared/schemas/project'
 
 /** Update a project — incl. assigning the Project Manager (PJ-01). */
@@ -29,11 +30,24 @@ export default defineEventHandler(async (event) => {
         id: projects.id,
         name: projects.name,
         projectManagerUserId: projects.projectManagerUserId,
+        createdByUserId: projects.createdByUserId,
       })
       .from(projects)
       .where(and(eq(projects.id, id), eq(projects.organizationId, ctx.organizationId)))
       .limit(1)
     if (!existing) throw createError({ statusCode: 404, statusMessage: 'Project not found' })
+
+    // Re-assigning the PM is a leadership action — restrict it even though
+    // general project edits are open to any project editor.
+    const changingPm =
+      data.projectManagerUserId !== undefined &&
+      (data.projectManagerUserId ?? null) !== existing.projectManagerUserId
+    if (changingPm && !(await canManageProjectTeam(ctx.userId, ctx.isSystemAdmin, existing))) {
+      throw createError({
+        statusCode: 403,
+        statusMessage: 'Only the project manager or a project leader can reassign the PM.',
+      })
+    }
 
     const updates: Record<string, unknown> = { updatedAt: new Date() }
     if (data.name !== undefined) updates.name = data.name

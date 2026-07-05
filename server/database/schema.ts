@@ -1710,6 +1710,11 @@ export const projects = pgTable(
       onDelete: 'set null',
     }),
     scope: text(),
+    // PJ-05 — budget revision approval workflow. A revised budget must be
+    // approved by a manager before it is considered the working baseline.
+    // none = no pending revision; pending = awaiting sign-off; approved = signed.
+    budgetRevisionStatus: text('budget_revision_status').notNull().default('none'),
+    budgetRevisionNote: text('budget_revision_note'),
     // PJ-11 — close + archive.
     closedAt: timestamp('closed_at', { withTimezone: true }),
     closeChecklist: jsonb('close_checklist').$type<Record<string, boolean>>(),
@@ -1724,6 +1729,26 @@ export const projects = pgTable(
     index('projects_status_idx').on(table.status),
   ]
 )
+
+// ─── Configurable project settings (S14/15 — mirrors proposal settings) ───────
+// One row per organization holding the customizable vocabularies the module
+// uses: report template sections, the close-out checklist, budget categories,
+// and team roles — plus whether budget revisions need manager sign-off. Absent
+// row ⇒ fall back to the shipped DEFAULT_PROJECT_SETTINGS. Editable by an admin
+// or a project leader (project:admin), never hard-coded.
+export const organizationProjectSettings = pgTable('organization_project_settings', {
+  organizationId: uuid('organization_id')
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  reportSections: jsonb('report_sections').$type<string[]>().notNull(),
+  closeChecklist: jsonb('close_checklist').$type<string[]>().notNull(),
+  budgetCategories: jsonb('budget_categories').$type<string[]>().notNull(),
+  teamRoles: jsonb('team_roles').$type<string[]>().notNull(),
+  requireBudgetRevisionApproval: boolean('require_budget_revision_approval')
+    .notNull()
+    .default(true),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+})
 
 // ─── Project Management (S14–S15, PJ-01..11) ─────────────────────────────────
 export const projectMilestoneStatusEnum = pgEnum('project_milestone_status', [
@@ -1881,6 +1906,9 @@ export const projectVendors = pgTable(
     currency: varchar({ length: 3 }).notNull().default('USD'),
     scope: text(),
     paymentSchedule: text('payment_schedule'),
+    // PJ-08 — link the vendor's contract to a budget line category so its spend
+    // rolls up under that budget line.
+    budgetCategory: text('budget_category'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [index('project_vendors_project_idx').on(table.projectId)]

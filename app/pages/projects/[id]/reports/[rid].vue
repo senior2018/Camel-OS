@@ -1,0 +1,339 @@
+<script setup lang="ts">
+import { Editor, EditorContent } from '@tiptap/vue-3'
+import StarterKit from '@tiptap/starter-kit'
+import Image from '@tiptap/extension-image'
+
+import {
+  PROJECT_REPORT_STATUS_COLOR,
+  PROJECT_REPORT_STATUS_LABEL,
+  type ProjectReportStatus,
+} from '@@/shared/schemas/project'
+import {
+  DEFAULT_PROJECT_SETTINGS,
+  reportMissingSections,
+  type ProjectSettings,
+} from '@@/shared/schemas/project-settings'
+
+definePageMeta({ layout: 'dashboard' })
+
+const route = useRoute()
+const projectId = route.params.id as string
+const rid = route.params.rid as string
+const { can } = await usePermissions()
+if (!can.value('project', 'read')) {
+  throw createError({ statusCode: 403, statusMessage: 'No access', fatal: true })
+}
+const toast = useToast()
+
+interface Report {
+  id: string
+  projectId: string
+  title: string
+  content: string | null
+  status: ProjectReportStatus
+  authorFirstName: string | null
+  authorLastName: string | null
+  updatedAt: string
+}
+const { data, refresh } = await useFetch<{ report: Report }>(
+  `/api/projects/${projectId}/reports/${rid}`,
+  { key: `report-${rid}` }
+)
+if (!data.value)
+  throw createError({ statusCode: 404, statusMessage: 'Report not found', fatal: true })
+useHead(() => ({ title: `${data.value?.report.title ?? 'Report'} — Camel OS` }))
+
+const { data: settingsData } = useFetch<{ settings: ProjectSettings }>('/api/projects/settings', {
+  key: 'project-settings',
+  default: () => ({ settings: { ...DEFAULT_PROJECT_SETTINGS } }),
+})
+const sections = computed(() => settingsData.value?.settings.reportSections ?? [])
+
+const status = computed(() => data.value?.report.status ?? 'draft')
+const isDraft = computed(() => status.value === 'draft')
+const canWrite = computed(() => can.value('project', 'update') && isDraft.value)
+const canApprove = computed(() => can.value('project', 'admin') || can.value('admin', 'admin'))
+
+const title = ref('')
+const currentHtml = ref('')
+watchEffect(() => {
+  if (data.value?.report) {
+    title.value = data.value.report.title
+    currentHtml.value = data.value.report.content ?? ''
+  }
+})
+
+// Live section coverage from the current editor HTML.
+const missing = computed(() => reportMissingSections(currentHtml.value, sections.value))
+const sectionState = computed(() =>
+  sections.value.map((s) => ({ label: s, done: !missing.value.includes(s) }))
+)
+
+// ── Tiptap editor (same config/look as the Communications document editor) ──
+const editor = shallowRef<Editor>()
+const saveState = ref<'idle' | 'dirty' | 'saving' | 'saved'>('idle')
+onMounted(() => {
+  editor.value = new Editor({
+    content: data.value?.report.content ?? '',
+    editable: canWrite.value,
+    extensions: [
+      StarterKit.configure({
+        heading: { levels: [1, 2, 3] },
+        link: { openOnClick: false, autolink: true },
+      }),
+      Image,
+    ],
+    editorProps: {
+      attributes: {
+        class:
+          'prose prose-slate max-w-none min-h-[50vh] px-6 py-6 sm:px-10 sm:py-8 focus:outline-none prose-headings:font-semibold prose-h2:text-xl prose-a:text-primary',
+      },
+    },
+    onUpdate: () => {
+      currentHtml.value = editor.value?.getHTML() ?? ''
+      if (canWrite.value) saveState.value = 'dirty'
+    },
+  })
+})
+onBeforeUnmount(() => {
+  if (saveState.value === 'dirty') void save()
+  editor.value?.destroy()
+})
+watch(canWrite, (v) => editor.value?.setEditable(v))
+
+async function save() {
+  if (!editor.value) return
+  saveState.value = 'saving'
+  try {
+    await $fetch(`/api/projects/${projectId}/reports/${rid}`, {
+      method: 'PATCH',
+      body: { title: title.value.trim() || 'Untitled report', content: editor.value.getHTML() },
+    })
+    saveState.value = 'saved'
+    await refresh()
+  } catch (err) {
+    saveState.value = 'dirty'
+    const msg = (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Save failed'
+    toast.add({ title: 'Could not save', description: msg, color: 'error' })
+  }
+}
+
+const acting = ref(false)
+async function setStatus(next: ProjectReportStatus, ok: string) {
+  acting.value = true
+  try {
+    // Persist edits first so the server validates the latest content.
+    if (editor.value)
+      await $fetch(`/api/projects/${projectId}/reports/${rid}`, {
+        method: 'PATCH',
+        body: { title: title.value.trim() || 'Untitled report', content: editor.value.getHTML() },
+      })
+    await $fetch(`/api/projects/${projectId}/reports/${rid}`, {
+      method: 'PATCH',
+      body: { status: next },
+    })
+    toast.add({ title: ok, color: 'success' })
+    await refresh()
+  } catch (err) {
+    const msg = (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Failed'
+    toast.add({ title: 'Action failed', description: msg, color: 'error' })
+  } finally {
+    acting.value = false
+  }
+}
+
+interface Tool {
+  icon: string
+  label: string
+  run: () => void
+  active?: () => boolean
+}
+const tools = computed<Tool[]>(() => {
+  const ed = editor.value
+  if (!ed) return []
+  const c = () => ed.chain().focus()
+  return [
+    {
+      icon: 'i-lucide-bold',
+      label: 'Bold',
+      run: () => c().toggleBold().run(),
+      active: () => ed.isActive('bold'),
+    },
+    {
+      icon: 'i-lucide-italic',
+      label: 'Italic',
+      run: () => c().toggleItalic().run(),
+      active: () => ed.isActive('italic'),
+    },
+    {
+      icon: 'i-lucide-heading-2',
+      label: 'Heading',
+      run: () => c().toggleHeading({ level: 2 }).run(),
+      active: () => ed.isActive('heading', { level: 2 }),
+    },
+    {
+      icon: 'i-lucide-list',
+      label: 'Bullet list',
+      run: () => c().toggleBulletList().run(),
+      active: () => ed.isActive('bulletList'),
+    },
+    {
+      icon: 'i-lucide-list-ordered',
+      label: 'Numbered',
+      run: () => c().toggleOrderedList().run(),
+      active: () => ed.isActive('orderedList'),
+    },
+    {
+      icon: 'i-lucide-quote',
+      label: 'Quote',
+      run: () => c().toggleBlockquote().run(),
+      active: () => ed.isActive('blockquote'),
+    },
+  ]
+})
+
+function authorName() {
+  const r = data.value?.report
+  return [r?.authorFirstName, r?.authorLastName].filter(Boolean).join(' ') || '—'
+}
+function when(iso: string | undefined) {
+  return iso
+    ? new Date(iso).toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : ''
+}
+</script>
+
+<template>
+  <div v-if="data" class="space-y-5">
+    <!-- Header (uniform with the proposal/content editors). -->
+    <div class="flex flex-wrap items-start justify-between gap-3 border-b border-default/70 pb-5">
+      <div class="min-w-0 flex-1">
+        <UButton
+          variant="link"
+          color="neutral"
+          icon="i-lucide-arrow-left"
+          label="Back to project"
+          class="-ml-2"
+          @click="navigateTo(`/projects/${projectId}`)"
+        />
+        <div class="mt-1 flex flex-wrap items-center gap-3">
+          <UInput
+            v-if="canWrite"
+            v-model="title"
+            size="lg"
+            placeholder="Report title"
+            class="max-w-md font-semibold"
+          />
+          <h1 v-else class="text-2xl font-semibold tracking-tight text-default">
+            {{ data.report.title }}
+          </h1>
+          <UBadge
+            :color="PROJECT_REPORT_STATUS_COLOR[data.report.status]"
+            variant="subtle"
+            :label="PROJECT_REPORT_STATUS_LABEL[data.report.status]"
+          />
+        </div>
+        <p class="mt-1 text-sm text-muted">
+          By {{ authorName() }} · updated {{ when(data.report.updatedAt) }}
+        </p>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <span v-if="canWrite" class="pr-1 text-xs text-muted">
+          <template v-if="saveState === 'saving'">Saving…</template>
+          <template v-else-if="saveState === 'saved'">Saved ✓</template>
+          <template v-else-if="saveState === 'dirty'">Unsaved…</template>
+        </span>
+        <UButton
+          v-if="canWrite"
+          variant="outline"
+          color="neutral"
+          icon="i-lucide-save"
+          label="Save"
+          :loading="saveState === 'saving'"
+          @click="save"
+        />
+        <UButton
+          v-if="isDraft && can('project', 'update')"
+          icon="i-lucide-send"
+          label="Send for review"
+          :loading="acting"
+          @click="setStatus('in_review', 'Sent for review')"
+        />
+        <UButton
+          v-if="status === 'in_review' && canApprove"
+          icon="i-lucide-check"
+          color="success"
+          label="Approve"
+          :loading="acting"
+          @click="setStatus('approved', 'Report approved')"
+        />
+        <UButton
+          v-if="status !== 'draft' && can('project', 'update')"
+          icon="i-lucide-undo-2"
+          variant="outline"
+          color="neutral"
+          label="Recall to draft"
+          :loading="acting"
+          @click="setStatus('draft', 'Recalled to draft')"
+        />
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-5 lg:grid-cols-3">
+      <!-- Document -->
+      <div class="lg:col-span-2">
+        <div class="overflow-hidden rounded-xl bg-default shadow-sm ring-1 ring-default">
+          <div
+            v-if="canWrite"
+            class="flex flex-wrap items-center gap-0.5 border-b border-default px-3 py-2"
+          >
+            <UButton
+              v-for="t in tools"
+              :key="t.label"
+              :icon="t.icon"
+              :color="t.active?.() ? 'primary' : 'neutral'"
+              :variant="t.active?.() ? 'soft' : 'ghost'"
+              size="xs"
+              :aria-label="t.label"
+              @click="t.run"
+            />
+          </div>
+          <EditorContent v-if="editor" :editor="editor" class="bg-default" />
+          <div v-else class="px-6 py-12 text-sm text-muted">Loading editor…</div>
+        </div>
+        <p v-if="!canWrite" class="mt-2 text-xs text-muted">
+          Read-only — a report can only be edited while it is a Draft.
+        </p>
+      </div>
+
+      <!-- Required sections checklist -->
+      <div class="space-y-4">
+        <UCard>
+          <template #header>
+            <h3 class="text-sm font-semibold text-default">Required sections</h3>
+          </template>
+          <ul class="space-y-2 text-sm">
+            <li v-for="s in sectionState" :key="s.label" class="flex items-center gap-2">
+              <UIcon
+                :name="s.done ? 'i-lucide-check-circle' : 'i-lucide-circle'"
+                class="size-4 shrink-0"
+                :class="s.done ? 'text-success' : 'text-muted'"
+              />
+              <span :class="s.done ? 'text-default' : 'text-muted'">{{ s.label }}</span>
+            </li>
+          </ul>
+          <p v-if="missing.length" class="mt-3 text-xs text-warning">
+            Fill every section before sending for review.
+          </p>
+          <p v-else class="mt-3 text-xs text-success">All sections complete.</p>
+        </UCard>
+      </div>
+    </div>
+  </div>
+</template>

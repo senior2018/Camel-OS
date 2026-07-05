@@ -3,13 +3,21 @@ import { and, eq } from 'drizzle-orm'
 
 import { projectExpenses, projects } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
-import { requirePermission } from '@@/server/utils/permission-guard'
+import { requireAnyPermission } from '@@/server/utils/permission-guard'
 import { expenseSchema } from '@@/shared/schemas/project'
 
-/** PJ-07 — record an expense against the project / a budget line. */
+/**
+ * PJ-07 — record an expense against the project / a budget line. Per the AC the
+ * Finance Officer owns expenditure, so finance:create/update qualifies as well
+ * as a PM's project:update.
+ */
 export default defineEventHandler(async (event) => {
   try {
-    const ctx = await requirePermission(event, 'project', 'update')
+    const ctx = await requireAnyPermission(event, [
+      ['project', 'update'],
+      ['finance', 'create'],
+      ['finance', 'update'],
+    ])
     const id = getRouterParam(event, 'id')
     if (!id) throw createError({ statusCode: 400, statusMessage: 'Project ID is required' })
     const body = await readValidatedBody(event, expenseSchema.parse)

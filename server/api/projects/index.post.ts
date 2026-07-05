@@ -4,6 +4,7 @@ import { projects } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requireAnyPermission } from '@@/server/utils/permission-guard'
 import { logAuditEvent } from '@@/server/utils/audit'
+import { createNotifications } from '@@/server/utils/notifications'
 import { createProjectSchema } from '@@/shared/schemas/project'
 
 /**
@@ -56,6 +57,20 @@ export default defineEventHandler(async (event) => {
       resourceId: created.id,
       meta: { name: created.name, status: created.status },
     })
+
+    // PJ-01 — the assigned Project Manager is notified of their new project.
+    if (created.projectManagerUserId && created.projectManagerUserId !== ctx.userId) {
+      await createNotifications([
+        {
+          organizationId: ctx.organizationId,
+          userId: created.projectManagerUserId,
+          type: 'project_assigned_pm',
+          title: `You're the PM for "${created.name}"`,
+          body: 'A new project has been assigned to you.',
+          linkUrl: `/projects/${created.id}`,
+        },
+      ])
+    }
 
     return { success: true, project: created }
   } catch (error) {

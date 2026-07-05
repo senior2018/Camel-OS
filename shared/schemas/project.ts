@@ -198,10 +198,13 @@ export const vendorSchema = z.object({
   currency: z.string().trim().length(3).default('USD'),
   scope: z.string().trim().max(2000).nullish(),
   paymentSchedule: z.string().trim().max(2000).nullish(),
+  // Links the vendor's contract to a budget-line category so its spend rolls up.
+  budgetCategory: z.string().trim().max(120).nullish(),
 })
 export type VendorPayload = z.infer<typeof vendorSchema>
 
-// PJ-09
+// PJ-09 — report sections + template now live in shared/schemas/project-settings
+// (org-configurable). See DEFAULT_PROJECT_REPORT_SECTIONS there.
 export const projectReportSchema = z.object({
   title: z.string().trim().min(1).max(200),
   content: z.string().max(20000).nullish(),

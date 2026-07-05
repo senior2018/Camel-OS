@@ -3,12 +3,16 @@ import { and, eq } from 'drizzle-orm'
 
 import { projectExpenses } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
-import { requirePermission } from '@@/server/utils/permission-guard'
+import { requireAnyPermission } from '@@/server/utils/permission-guard'
 
-/** PJ-07 — remove an expense. */
+/** PJ-07 — remove an expense (Finance Officer or PM). */
 export default defineEventHandler(async (event) => {
   try {
-    const ctx = await requirePermission(event, 'project', 'update')
+    const ctx = await requireAnyPermission(event, [
+      ['project', 'update'],
+      ['finance', 'create'],
+      ['finance', 'update'],
+    ])
     const eid = getRouterParam(event, 'eid')
     if (!eid) throw createError({ statusCode: 400, statusMessage: 'Expense ID is required' })
     await useDrizzle()

@@ -3,7 +3,6 @@ import {
   ACTIVITY_STATUS_COLOR,
   ACTIVITY_STATUS_LABEL,
   ACTIVITY_STATUSES,
-  CLOSE_CHECKLIST_ITEMS,
   MILESTONE_STATUS_COLOR,
   MILESTONE_STATUS_LABEL,
   MILESTONE_STATUSES,
@@ -16,11 +15,18 @@ import {
   type MilestoneStatus,
   type ProjectStatus,
 } from '@@/shared/schemas/project'
+import {
+  DEFAULT_PROJECT_SETTINGS,
+  reportTemplateFromSections,
+  type ProjectSettings,
+} from '@@/shared/schemas/project-settings'
 
 definePageMeta({ layout: 'dashboard' })
 const route = useRoute()
 const id = route.params.id as string
-const { can } = await usePermissions()
+const { can, isSystemAdmin } = await usePermissions()
+const { user } = useUserSession()
+const myId = computed(() => (user.value as { id?: string } | null)?.id ?? '')
 const toast = useToast()
 
 interface Member {
@@ -77,6 +83,7 @@ interface Vendor {
   currency: string
   scope: string | null
   paymentSchedule: string | null
+  budgetCategory: string | null
 }
 interface ReportRow {
   id: string
@@ -101,8 +108,11 @@ interface Project {
   clientName: string | null
   proposalId: string | null
   projectManagerUserId: string | null
+  createdByUserId: string | null
   pmFirstName: string | null
   pmLastName: string | null
+  budgetRevisionStatus: 'none' | 'pending' | 'approved'
+  budgetRevisionNote: string | null
   closedAt: string | null
   closeChecklist: Record<string, boolean> | null
 }
@@ -128,6 +138,10 @@ interface Detail {
   vendors: Vendor[]
   reports: ReportRow[]
   timesheetByUser: { userId: string; name: string; hours: number }[]
+  timesheetWeekly: {
+    weeks: string[]
+    rows: { userId: string; name: string; byWeek: Record<string, number>; total: number }[]
+  }
   summary: Summary
 }
 
@@ -145,6 +159,13 @@ const userItems = computed(() =>
     value: u.id,
   }))
 )
+// Org-configurable project settings (report sections, close checklist, budget
+// categories, team roles) — nothing in the pickers is hard-coded.
+const { data: settingsData } = useFetch<{ settings: ProjectSettings }>('/api/projects/settings', {
+  key: 'project-settings',
+  default: () => ({ settings: { ...DEFAULT_PROJECT_SETTINGS } }),
+})
+const projectSettings = computed(() => settingsData.value?.settings ?? DEFAULT_PROJECT_SETTINGS)
 const userName = (uid: string | null) => {
   if (!uid) return 'Unassigned'
   const u = usersData.value?.users.find((x) => x.id === uid)
@@ -153,6 +174,16 @@ const userName = (uid: string | null) => {
 
 const closed = computed(() => !!data.value?.project.closedAt)
 const canEdit = computed(() => can.value('project', 'update') && !closed.value)
+// Team + ownership are leadership actions: the PM, the creator, or a project
+// leader/admin — not every editor.
+const isProjectLead = computed(
+  () =>
+    isSystemAdmin.value ||
+    can.value('project', 'admin') ||
+    data.value?.project.projectManagerUserId === myId.value ||
+    data.value?.project.createdByUserId === myId.value
+)
+const canManageTeam = computed(() => !closed.value && isProjectLead.value)
 const cur = computed(() => data.value?.project.currency ?? 'USD')
 function money(v: number | string | null) {
   if (v == null) return '—'
@@ -167,6 +198,9 @@ function fdate(s: string | null) {
     ? new Date(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
     : '—'
 }
+// PJ-06 — short "week of" label for the weekly timesheet columns.
+const weekLabel = (w: string) =>
+  new Date(`${w}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 
 const tab = ref<'overview' | 'plan' | 'budget' | 'team' | 'reports'>('overview')
 const tabs = [
@@ -199,16 +233,24 @@ const ragClass = (r: string) =>
     neutral: 'text-muted',
   })[r] ?? 'text-muted'
 
+// Every mutating action goes through here: a shared `busy` flag disables the
+// buttons and swallows rapid repeat clicks, and success/error always toasts so
+// nothing happens silently.
+const busy = ref(false)
 async function call(method: string, path: string, body?: Record<string, unknown>, ok?: string) {
+  if (busy.value) return false
+  busy.value = true
   try {
     await $fetch(`/api/projects/${id}${path}` as string, { method: method as 'POST', body })
-    if (ok) toast.add({ title: ok, color: 'success' })
+    toast.add({ title: ok ?? 'Saved', color: 'success' })
     await refresh()
     return true
   } catch (err) {
     const msg = (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Failed'
     toast.add({ title: 'Action failed', description: msg, color: 'error' })
     return false
+  } finally {
+    busy.value = false
   }
 }
 
@@ -242,10 +284,17 @@ watchEffect(() => {
   }))
 })
 const addMemberId = ref<string | undefined>(undefined)
+const addMemberRole = ref<string>('')
+// Configured team roles for the picker (falls back to a sensible default).
+const teamRoleItems = computed(() =>
+  projectSettings.value.teamRoles.map((r) => ({ label: r, value: r }))
+)
 function addMember() {
   if (!addMemberId.value || team.value.some((t) => t.userId === addMemberId.value)) return
-  team.value.push({ userId: addMemberId.value, role: 'Team Member', allocationPct: 100 })
+  const role = addMemberRole.value || projectSettings.value.teamRoles[1] || 'Team Member'
+  team.value.push({ userId: addMemberId.value, role, allocationPct: 100 })
   addMemberId.value = undefined
+  addMemberRole.value = ''
 }
 async function saveTeam() {
   await call('PUT', '/members', { members: team.value }, 'Team saved')
@@ -279,21 +328,34 @@ async function setMilestoneStatus(m: Milestone, status: string) {
 
 // ── Activities (PJ-04) ──
 const actOpen = ref(false)
+// Nuxt UI v4 forbids an empty-string option value, so "none" choices in the
+// pickers use a sentinel that the submit handlers map back to null.
+const NONE_OPT = '__none__'
 const actForm = reactive({
   name: '',
-  milestoneId: '',
-  assignedUserId: '',
+  milestoneId: NONE_OPT,
+  assignedUserId: NONE_OPT,
+  dependsOnActivityId: NONE_OPT,
   startDate: '',
   endDate: '',
   plannedHours: null as number | null,
 })
+// PJ-04 — existing activities to pick as a dependency ("depends on").
+const activityItems = computed(() => [
+  { label: 'No dependency', value: NONE_OPT },
+  ...(data.value?.activities ?? []).map((a) => ({ label: a.name, value: a.id })),
+])
+const activityName = (aid: string | null) =>
+  data.value?.activities.find((a) => a.id === aid)?.name ?? null
 async function addActivity() {
   if (!actForm.name.trim()) return
   if (
     await call('POST', '/activities', {
       name: actForm.name,
-      milestoneId: actForm.milestoneId || null,
-      assignedUserId: actForm.assignedUserId || null,
+      milestoneId: actForm.milestoneId === NONE_OPT ? null : actForm.milestoneId || null,
+      assignedUserId: actForm.assignedUserId === NONE_OPT ? null : actForm.assignedUserId || null,
+      dependsOnActivityId:
+        actForm.dependsOnActivityId === NONE_OPT ? null : actForm.dependsOnActivityId || null,
       startDate: actForm.startDate || null,
       endDate: actForm.endDate || null,
       plannedHours: actForm.plannedHours,
@@ -301,12 +363,26 @@ async function addActivity() {
   ) {
     actOpen.value = false
     actForm.name = ''
-    actForm.milestoneId = ''
-    actForm.assignedUserId = ''
+    actForm.milestoneId = NONE_OPT
+    actForm.assignedUserId = NONE_OPT
+    actForm.dependsOnActivityId = NONE_OPT
     actForm.startDate = ''
     actForm.endDate = ''
     actForm.plannedHours = null
   }
+}
+
+// ── Budget revision approval (PJ-05) ──
+const canApproveRevision = computed(
+  () => can.value('project', 'admin') || can.value('admin', 'admin')
+)
+async function approveRevision(approve: boolean) {
+  await call(
+    'POST',
+    '/budget/approve-revision',
+    { approve },
+    approve ? 'Budget revision approved' : 'Budget revision rejected'
+  )
 }
 const actStatusItems = ACTIVITY_STATUSES.map((s) => ({
   label: ACTIVITY_STATUS_LABEL[s],
@@ -355,7 +431,15 @@ async function saveBudget() {
   )
 }
 
-// ── Expenses (PJ-07) ──
+// ── Expenses (PJ-07) ── recording is owned by the Finance Officer (finance
+// perms) as well as the PM (project:update).
+const canRecordExpense = computed(
+  () =>
+    !closed.value &&
+    (can.value('project', 'update') ||
+      can.value('finance', 'create') ||
+      can.value('finance', 'update'))
+)
 const expOpen = ref(false)
 const expForm = reactive({
   amount: null as number | null,
@@ -383,7 +467,7 @@ async function addExpense() {
   }
 }
 
-// ── Vendors (PJ-08) ──
+// ── Vendors (PJ-08) — a vendor's contract can be linked to a budget line. ──
 const venOpen = ref(false)
 const venForm = reactive({
   name: '',
@@ -393,6 +477,23 @@ const venForm = reactive({
   currency: 'USD',
   scope: '',
   paymentSchedule: '',
+  budgetCategory: NONE_OPT,
+})
+// Budget categories to link a vendor against: the configured vocabulary plus
+// any categories already used on this project's budget lines.
+const budgetCategoryItems = computed(() => {
+  const seen = new Set<string>()
+  const items = [{ label: 'No budget line', value: NONE_OPT }]
+  for (const c of [
+    ...projectSettings.value.budgetCategories,
+    ...(data.value?.budgetLines ?? []).map((l) => l.category),
+  ]) {
+    if (c && !seen.has(c)) {
+      seen.add(c)
+      items.push({ label: c, value: c })
+    }
+  }
+  return items
 })
 async function addVendor() {
   if (!venForm.name.trim()) return
@@ -405,6 +506,7 @@ async function addVendor() {
       currency: venForm.currency || 'USD',
       scope: venForm.scope || null,
       paymentSchedule: venForm.paymentSchedule || null,
+      budgetCategory: venForm.budgetCategory === NONE_OPT ? null : venForm.budgetCategory,
     })
   ) {
     venOpen.value = false
@@ -414,30 +516,36 @@ async function addVendor() {
     venForm.contractAmount = null
     venForm.scope = ''
     venForm.paymentSchedule = ''
+    venForm.budgetCategory = NONE_OPT
   }
 }
 
-// ── Reports (PJ-09) ──
-const REPORT_TEMPLATE =
-  '## Summary\n\n## Progress this period\n\n## Issues & risks\n\n## Next steps\n'
-const repOpen = ref(false)
-const repForm = reactive({ title: '', content: REPORT_TEMPLATE })
-async function addReport() {
-  if (!repForm.title.trim()) return
-  if (await call('POST', '/reports', { title: repForm.title, content: repForm.content })) {
-    repOpen.value = false
-    repForm.title = ''
-    repForm.content = REPORT_TEMPLATE
+// ── Reports (PJ-09) — a new report opens in its own full-page editor. ──
+const creatingReport = ref(false)
+async function newReport() {
+  if (creatingReport.value) return
+  creatingReport.value = true
+  try {
+    const res = await $fetch<{ report: { id: string } }>(`/api/projects/${id}/reports`, {
+      method: 'POST',
+      body: {
+        title: 'New report',
+        content: reportTemplateFromSections(projectSettings.value.reportSections),
+      },
+    })
+    await navigateTo(`/projects/${id}/reports/${res.report.id}`)
+  } catch (err) {
+    const msg = (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Failed'
+    toast.add({ title: 'Could not create report', description: msg, color: 'error' })
+  } finally {
+    creatingReport.value = false
   }
-}
-async function setReportStatus(r: ReportRow, status: string) {
-  await call('PATCH', `/reports/${r.id}`, { status })
 }
 
 // ── Timesheet (PJ-06) ──
 const tsOpen = ref(false)
 const tsForm = reactive({
-  activityId: '',
+  activityId: NONE_OPT,
   entryDate: new Date().toISOString().slice(0, 10),
   hours: null as number | null,
   note: '',
@@ -449,7 +557,7 @@ async function logTime() {
       'POST',
       '/timesheet',
       {
-        activityId: tsForm.activityId || null,
+        activityId: tsForm.activityId === NONE_OPT ? null : tsForm.activityId || null,
         entryDate: tsForm.entryDate,
         hours: tsForm.hours,
         note: tsForm.note || null,
@@ -458,26 +566,29 @@ async function logTime() {
     )
   ) {
     tsOpen.value = false
+    tsForm.activityId = NONE_OPT
     tsForm.hours = null
     tsForm.note = ''
   }
 }
 
-// ── Close (PJ-11) ──
+// ── Close (PJ-11) — checklist items come from settings. ──
 const closeOpen = ref(false)
-const checklist = reactive<Record<string, boolean>>(
-  Object.fromEntries(CLOSE_CHECKLIST_ITEMS.map((i) => [i, false]))
-)
+const checklist = ref<Record<string, boolean>>({})
+function openClose() {
+  checklist.value = Object.fromEntries(projectSettings.value.closeChecklist.map((i) => [i, false]))
+  closeOpen.value = true
+}
 const closing = ref(false)
 async function closeProject() {
   closing.value = true
-  if (await call('POST', '/close', { checklist: { ...checklist } }, 'Project closed'))
+  if (await call('POST', '/close', { checklist: { ...checklist.value } }, 'Project closed'))
     closeOpen.value = false
   closing.value = false
 }
 
 const milestoneItems = computed(() => [
-  { label: 'No milestone', value: '' },
+  { label: 'No milestone', value: NONE_OPT },
   ...(data.value?.milestones ?? []).map((m) => ({ label: m.name, value: m.id })),
 ])
 </script>
@@ -485,7 +596,7 @@ const milestoneItems = computed(() => [
 <template>
   <div v-if="data" class="space-y-5">
     <!-- Header -->
-    <div class="flex flex-wrap items-start justify-between gap-3">
+    <div class="flex flex-wrap items-start justify-between gap-3 border-b border-default/70 pb-5">
       <div>
         <UButton
           variant="link"
@@ -523,7 +634,7 @@ const milestoneItems = computed(() => [
         color="neutral"
         variant="outline"
         label="Close project"
-        @click="closeOpen = true"
+        @click="openClose()"
       />
     </div>
 
@@ -555,14 +666,14 @@ const milestoneItems = computed(() => [
     <!-- OVERVIEW (PJ-10) -->
     <div v-show="tab === 'overview'" class="space-y-5">
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <div class="rounded-xl border border-default p-4">
+        <div class="rounded-xl border border-default bg-default p-4 shadow-sm">
           <p class="text-xs uppercase tracking-wide text-muted">Schedule</p>
           <p class="mt-1 text-2xl font-semibold" :class="ragClass(scheduleRag)">
             {{ data.summary.milestonesDone }}/{{ data.summary.milestonesTotal }}
           </p>
           <p class="text-xs text-muted">{{ data.summary.overdueMilestones }} overdue</p>
         </div>
-        <div class="rounded-xl border border-default p-4">
+        <div class="rounded-xl border border-default bg-default p-4 shadow-sm">
           <p class="text-xs uppercase tracking-wide text-muted">Budget burn</p>
           <p class="mt-1 text-2xl font-semibold" :class="ragClass(budgetRag)">
             {{ data.summary.burnRate }}%
@@ -571,14 +682,14 @@ const milestoneItems = computed(() => [
             {{ money(data.summary.spent) }} / {{ money(data.summary.budgetTotal) }}
           </p>
         </div>
-        <div class="rounded-xl border border-default p-4">
+        <div class="rounded-xl border border-default bg-default p-4 shadow-sm">
           <p class="text-xs uppercase tracking-wide text-muted">Delivery</p>
           <p class="mt-1 text-2xl font-semibold text-default">
             {{ data.summary.activitiesDone }}/{{ data.summary.activitiesTotal }}
           </p>
           <p class="text-xs text-muted">activities done</p>
         </div>
-        <div class="rounded-xl border border-default p-4">
+        <div class="rounded-xl border border-default bg-default p-4 shadow-sm">
           <p class="text-xs uppercase tracking-wide text-muted">Effort</p>
           <p class="mt-1 text-2xl font-semibold text-default">{{ data.summary.loggedHours }}h</p>
           <p class="text-xs text-muted">{{ data.summary.memberCount }} team members</p>
@@ -679,6 +790,10 @@ const milestoneItems = computed(() => [
               <p class="text-xs text-muted">
                 {{ userName(a.assignedUserId) }} · {{ fdate(a.startDate) }}–{{ fdate(a.endDate) }}
               </p>
+              <p v-if="a.dependsOnActivityId" class="text-xs text-muted">
+                <UIcon name="i-lucide-link" class="inline size-3" /> after
+                {{ activityName(a.dependsOnActivityId) }}
+              </p>
             </div>
             <div class="flex items-center gap-2">
               <div class="h-1.5 w-20 overflow-hidden rounded-full bg-elevated">
@@ -751,6 +866,38 @@ const milestoneItems = computed(() => [
 
     <!-- BUDGET (PJ-05/07/08) -->
     <div v-show="tab === 'budget'" class="space-y-4">
+      <!-- PJ-05 — a revised budget must be signed off by a manager. -->
+      <div
+        v-if="data.project.budgetRevisionStatus === 'pending'"
+        class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-sm"
+      >
+        <span class="flex items-center gap-2 text-warning">
+          <UIcon name="i-lucide-clock" class="size-4 shrink-0" />
+          Budget revision awaiting manager approval.
+        </span>
+        <div v-if="canApproveRevision" class="flex gap-2">
+          <UButton
+            size="xs"
+            color="success"
+            label="Approve revision"
+            @click="approveRevision(true)"
+          />
+          <UButton
+            size="xs"
+            variant="outline"
+            color="neutral"
+            label="Reject"
+            @click="approveRevision(false)"
+          />
+        </div>
+      </div>
+      <div
+        v-else-if="data.project.budgetRevisionStatus === 'approved'"
+        class="flex items-center gap-2 rounded-lg border border-success/40 bg-success/5 px-3 py-2 text-sm text-success"
+      >
+        <UIcon name="i-lucide-shield-check" class="size-4 shrink-0" /> Revised budget approved.
+      </div>
+
       <UCard>
         <template #header>
           <div class="flex items-center justify-between">
@@ -781,40 +928,48 @@ const milestoneItems = computed(() => [
             </thead>
             <tbody class="divide-y divide-default">
               <tr v-for="(l, i) in lines" :key="i">
+                <!-- Editable rows for a PM; a clean read view otherwise (no
+                     greyed-out disabled inputs). -->
                 <td class="py-1.5 pr-2">
                   <UInput
+                    v-if="canEdit"
                     v-model="l.category"
                     size="sm"
-                    :disabled="!canEdit"
                     placeholder="e.g. Personnel"
                   />
+                  <span v-else class="font-medium text-default">{{ l.category || '—' }}</span>
                 </td>
                 <td class="py-1.5 px-2">
                   <UInput
+                    v-if="canEdit"
                     v-model="l.phase"
                     size="sm"
-                    :disabled="!canEdit"
                     placeholder="Phase 1"
                     class="w-28"
                   />
+                  <span v-else class="text-muted">{{ l.phase || '—' }}</span>
                 </td>
-                <td class="py-1.5 px-2">
+                <td class="py-1.5 px-2" :class="canEdit ? '' : 'text-right'">
                   <UInputNumber
+                    v-if="canEdit"
                     v-model="l.originalAmount"
                     :min="0"
                     size="sm"
-                    :disabled="!canEdit"
                     class="w-28"
                   />
+                  <span v-else class="text-default">{{ money(l.originalAmount ?? 0) }}</span>
                 </td>
-                <td class="py-1.5 px-2">
+                <td class="py-1.5 px-2" :class="canEdit ? '' : 'text-right'">
                   <UInputNumber
+                    v-if="canEdit"
                     v-model="l.revisedAmount as number"
                     :min="0"
                     size="sm"
-                    :disabled="!canEdit"
                     class="w-28"
                   />
+                  <span v-else class="text-default">{{
+                    l.revisedAmount != null ? money(l.revisedAmount) : '—'
+                  }}</span>
                 </td>
                 <td class="py-1.5 px-2 text-right text-muted">
                   {{ money(spentByLine[l.category] ?? 0) }}
@@ -837,7 +992,7 @@ const milestoneItems = computed(() => [
           </table>
         </div>
         <div v-if="canEdit" class="mt-3 flex justify-end">
-          <UButton size="sm" label="Save budget" @click="saveBudget" />
+          <UButton size="sm" label="Save budget" :loading="busy" @click="saveBudget" />
         </div>
       </UCard>
 
@@ -849,7 +1004,7 @@ const milestoneItems = computed(() => [
                 Expenses · {{ money(data.summary.spent) }}
               </h3>
               <UButton
-                v-if="canEdit"
+                v-if="canRecordExpense"
                 size="xs"
                 variant="soft"
                 icon="i-lucide-plus"
@@ -873,7 +1028,7 @@ const milestoneItems = computed(() => [
               <div class="flex items-center gap-2">
                 <span class="font-medium text-default">{{ money(e.amount) }}</span
                 ><UButton
-                  v-if="canEdit"
+                  v-if="canRecordExpense"
                   size="xs"
                   variant="ghost"
                   color="error"
@@ -910,6 +1065,14 @@ const milestoneItems = computed(() => [
               <div class="min-w-0">
                 <p class="truncate text-default">{{ v.name }}</p>
                 <p class="truncate text-xs text-muted">{{ v.scope || v.contactName || '—' }}</p>
+                <UBadge
+                  v-if="v.budgetCategory"
+                  class="mt-0.5"
+                  variant="subtle"
+                  color="neutral"
+                  size="xs"
+                  :label="`Budget: ${v.budgetCategory}`"
+                />
               </div>
               <div class="flex items-center gap-2">
                 <span class="text-muted">{{
@@ -936,27 +1099,37 @@ const milestoneItems = computed(() => [
     <div v-show="tab === 'team'" class="space-y-4">
       <UCard>
         <template #header><h3 class="text-sm font-semibold text-default">Ownership</h3></template>
-        <div class="flex flex-wrap items-end gap-3">
+        <div v-if="canManageTeam" class="flex flex-wrap items-end gap-3">
           <UFormField label="Project Manager" class="min-w-56">
             <USelect
               v-model="pmId"
               :items="userItems"
               value-key="value"
-              :disabled="!canEdit"
               placeholder="Assign a PM"
               class="w-full"
             />
           </UFormField>
           <UFormField label="Status">
-            <USelect
-              v-model="projStatus"
-              :items="statusItems"
-              value-key="value"
-              :disabled="!canEdit"
-              class="w-44"
-            />
+            <USelect v-model="projStatus" :items="statusItems" value-key="value" class="w-44" />
           </UFormField>
-          <UButton v-if="canEdit" size="sm" label="Save" @click="saveHeader" />
+          <UButton size="sm" label="Save" :loading="busy" @click="saveHeader" />
+        </div>
+        <!-- Clean read view: plain values, no disabled inputs. -->
+        <div v-else class="flex flex-wrap gap-8 text-sm">
+          <div>
+            <p class="text-xs uppercase tracking-wide text-muted">Project Manager</p>
+            <p class="mt-0.5 font-medium text-default">{{ userName(pmId ?? null) }}</p>
+          </div>
+          <div>
+            <p class="text-xs uppercase tracking-wide text-muted">Status</p>
+            <UBadge
+              class="mt-0.5"
+              :color="PROJECT_STATUS_COLOR[data.project.status]"
+              variant="subtle"
+              size="sm"
+              :label="PROJECT_STATUS_LABEL[data.project.status]"
+            />
+          </div>
         </div>
       </UCard>
 
@@ -972,21 +1145,23 @@ const milestoneItems = computed(() => [
               userName(m.userId)
             }}</span>
             <UInput
+              v-if="canManageTeam"
               v-model="m.role"
               size="sm"
-              :disabled="!canEdit"
               placeholder="Role"
               class="w-40"
             />
+            <span v-else class="w-40 text-sm text-muted">{{ m.role || 'Member' }}</span>
             <div class="flex items-center gap-1">
               <UInputNumber
+                v-if="canManageTeam"
                 v-model="m.allocationPct"
                 :min="0"
                 :max="100"
                 size="sm"
-                :disabled="!canEdit"
                 class="w-24"
               />
+              <span v-else class="text-sm text-default">{{ m.allocationPct }}</span>
               <span class="text-xs text-muted">%</span>
               <UIcon
                 v-if="m.allocationPct > 100"
@@ -996,7 +1171,7 @@ const milestoneItems = computed(() => [
               />
             </div>
             <UButton
-              v-if="canEdit"
+              v-if="canManageTeam"
               size="xs"
               variant="ghost"
               color="error"
@@ -1007,13 +1182,20 @@ const milestoneItems = computed(() => [
           </li>
           <li v-if="!team.length" class="text-sm text-muted">No team members yet.</li>
         </ul>
-        <div v-if="canEdit" class="mt-3 flex flex-wrap items-center gap-2">
+        <div v-if="canManageTeam" class="mt-3 flex flex-wrap items-center gap-2">
           <USelect
             v-model="addMemberId"
             :items="userItems"
             value-key="value"
             placeholder="Add member…"
             class="w-56"
+          />
+          <USelect
+            v-model="addMemberRole"
+            :items="teamRoleItems"
+            value-key="value"
+            placeholder="Role"
+            class="w-44"
           />
           <UButton
             size="sm"
@@ -1022,8 +1204,46 @@ const milestoneItems = computed(() => [
             label="Add"
             @click="addMember"
           />
-          <UButton size="sm" label="Save team" class="ml-auto" @click="saveTeam" />
+          <UButton size="sm" label="Save team" class="ml-auto" :loading="busy" @click="saveTeam" />
         </div>
+      </UCard>
+
+      <!-- PJ-06 — weekly timesheet: hours per staff per week. -->
+      <UCard>
+        <template #header>
+          <h3 class="text-sm font-semibold text-default">Weekly timesheet — hours per staff</h3>
+        </template>
+        <div v-if="data.timesheetWeekly.rows.length" class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="text-left text-xs uppercase tracking-wide text-muted">
+              <tr>
+                <th class="py-1.5 pr-3 font-medium">Staff</th>
+                <th
+                  v-for="w in data.timesheetWeekly.weeks"
+                  :key="w"
+                  class="px-2 py-1.5 text-right font-medium"
+                >
+                  {{ weekLabel(w) }}
+                </th>
+                <th class="px-2 py-1.5 text-right font-medium">Total</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-default">
+              <tr v-for="r in data.timesheetWeekly.rows" :key="r.userId">
+                <td class="py-1.5 pr-3 text-default">{{ r.name }}</td>
+                <td
+                  v-for="w in data.timesheetWeekly.weeks"
+                  :key="w"
+                  class="px-2 py-1.5 text-right text-muted"
+                >
+                  {{ r.byWeek[w] ? `${r.byWeek[w]}h` : '—' }}
+                </td>
+                <td class="px-2 py-1.5 text-right font-medium text-default">{{ r.total }}h</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-else class="text-sm text-muted">No time logged yet.</p>
       </UCard>
     </div>
 
@@ -1040,7 +1260,8 @@ const milestoneItems = computed(() => [
                 variant="soft"
                 icon="i-lucide-plus"
                 label="New report"
-                @click="repOpen = true"
+                :loading="creatingReport"
+                @click="newReport()"
               />
             </div>
           </template>
@@ -1048,7 +1269,8 @@ const milestoneItems = computed(() => [
             <li
               v-for="r in data.reports"
               :key="r.id"
-              class="flex flex-wrap items-center justify-between gap-2 py-2"
+              class="flex cursor-pointer flex-wrap items-center justify-between gap-2 py-2 transition-colors hover:bg-elevated/40"
+              @click="navigateTo(`/projects/${id}/reports/${r.id}`)"
             >
               <div class="min-w-0">
                 <p class="truncate text-sm font-medium text-default">{{ r.title }}</p>
@@ -1064,21 +1286,7 @@ const milestoneItems = computed(() => [
                   size="xs"
                   :label="PROJECT_REPORT_STATUS_LABEL[r.status]"
                 />
-                <UButton
-                  v-if="canEdit && r.status === 'draft'"
-                  size="xs"
-                  variant="ghost"
-                  label="Submit"
-                  @click="setReportStatus(r, 'in_review')"
-                />
-                <UButton
-                  v-if="canEdit && r.status === 'in_review'"
-                  size="xs"
-                  variant="ghost"
-                  color="success"
-                  label="Approve"
-                  @click="setReportStatus(r, 'approved')"
-                />
+                <UIcon name="i-lucide-chevron-right" class="size-4 text-muted" />
               </div>
             </li>
           </ul>
@@ -1115,6 +1323,7 @@ const milestoneItems = computed(() => [
         ><div class="flex w-full justify-end gap-2">
           <UButton variant="ghost" color="neutral" label="Cancel" @click="msOpen = false" /><UButton
             label="Add"
+            :loading="busy"
             @click="addMilestone"
           /></div
       ></template>
@@ -1134,7 +1343,7 @@ const milestoneItems = computed(() => [
           <UFormField label="Assignee"
             ><USelect
               v-model="actForm.assignedUserId"
-              :items="[{ label: 'Unassigned', value: '' }, ...userItems]"
+              :items="[{ label: 'Unassigned', value: NONE_OPT }, ...userItems]"
               value-key="value"
               class="w-full"
           /></UFormField>
@@ -1147,6 +1356,14 @@ const milestoneItems = computed(() => [
           <UFormField label="Planned hours"
             ><UInputNumber v-model="actForm.plannedHours" :min="0" class="w-full"
           /></UFormField>
+          <UFormField label="Depends on" hint="This activity starts after the one you pick">
+            <USelect
+              v-model="actForm.dependsOnActivityId"
+              :items="activityItems"
+              value-key="value"
+              class="w-full"
+            />
+          </UFormField>
         </div>
       </template>
       <template #footer
@@ -1156,7 +1373,7 @@ const milestoneItems = computed(() => [
             color="neutral"
             label="Cancel"
             @click="actOpen = false"
-          /><UButton label="Add" @click="addActivity" /></div
+          /><UButton label="Add" :loading="busy" @click="addActivity" /></div
       ></template>
     </UModal>
 
@@ -1187,7 +1404,7 @@ const milestoneItems = computed(() => [
             color="neutral"
             label="Cancel"
             @click="expOpen = false"
-          /><UButton label="Record" @click="addExpense" /></div
+          /><UButton label="Record" :loading="busy" @click="addExpense" /></div
       ></template>
     </UModal>
 
@@ -1215,6 +1432,14 @@ const milestoneItems = computed(() => [
               v-model="venForm.paymentSchedule"
               placeholder="e.g. 50% on signing, 50% on delivery"
           /></UFormField>
+          <UFormField label="Budget line" hint="Roll this vendor's spend under a budget category">
+            <USelect
+              v-model="venForm.budgetCategory"
+              :items="budgetCategoryItems"
+              value-key="value"
+              class="w-full"
+            />
+          </UFormField>
         </div>
       </template>
       <template #footer
@@ -1224,32 +1449,7 @@ const milestoneItems = computed(() => [
             color="neutral"
             label="Cancel"
             @click="venOpen = false"
-          /><UButton label="Add" @click="addVendor" /></div
-      ></template>
-    </UModal>
-
-    <UModal v-model:open="repOpen" title="New report">
-      <template #body>
-        <div class="space-y-3">
-          <UFormField label="Title" required
-            ><UInput
-              v-model="repForm.title"
-              placeholder="e.g. Monthly Progress Report — June"
-              autofocus
-          /></UFormField>
-          <UFormField label="Content" hint="Template enforces the standard sections."
-            ><UTextarea v-model="repForm.content" :rows="8" class="w-full font-mono text-xs"
-          /></UFormField>
-        </div>
-      </template>
-      <template #footer
-        ><div class="flex w-full justify-end gap-2">
-          <UButton
-            variant="ghost"
-            color="neutral"
-            label="Cancel"
-            @click="repOpen = false"
-          /><UButton label="Create draft" @click="addReport" /></div
+          /><UButton label="Add" :loading="busy" @click="addVendor" /></div
       ></template>
     </UModal>
 
@@ -1260,7 +1460,7 @@ const milestoneItems = computed(() => [
             ><USelect
               v-model="tsForm.activityId"
               :items="[
-                { label: 'General', value: '' },
+                { label: 'General', value: NONE_OPT },
                 ...data.activities.map((a) => ({ label: a.name, value: a.id })),
               ]"
               value-key="value"
@@ -1279,6 +1479,7 @@ const milestoneItems = computed(() => [
         ><div class="flex w-full justify-end gap-2">
           <UButton variant="ghost" color="neutral" label="Cancel" @click="tsOpen = false" /><UButton
             label="Log"
+            :loading="busy"
             @click="logTime"
           /></div
       ></template>
@@ -1291,7 +1492,7 @@ const milestoneItems = computed(() => [
             Complete the sign-off checklist to close and archive this project.
           </p>
           <label
-            v-for="item in CLOSE_CHECKLIST_ITEMS"
+            v-for="item in projectSettings.closeChecklist"
             :key="item"
             class="flex items-center gap-2 rounded-lg border border-default p-2 text-sm"
           >

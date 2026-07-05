@@ -4,8 +4,9 @@ import { and, eq } from 'drizzle-orm'
 import { projects } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
+import { resolveOrgProjectSettings } from '@@/server/utils/project-settings'
 import { logAuditEvent } from '@@/server/utils/audit'
-import { CLOSE_CHECKLIST_ITEMS, closeProjectSchema } from '@@/shared/schemas/project'
+import { closeProjectSchema } from '@@/shared/schemas/project'
 
 /** PJ-11 — close + archive a project once the sign-off checklist is complete. */
 export default defineEventHandler(async (event) => {
@@ -16,7 +17,8 @@ export default defineEventHandler(async (event) => {
     const body = await readValidatedBody(event, closeProjectSchema.parse)
     const db = useDrizzle()
 
-    const incomplete = CLOSE_CHECKLIST_ITEMS.filter((item) => !body.checklist[item])
+    const settings = await resolveOrgProjectSettings(ctx.organizationId)
+    const incomplete = settings.closeChecklist.filter((item) => !body.checklist[item])
     if (incomplete.length) {
       throw createError({
         statusCode: 400,

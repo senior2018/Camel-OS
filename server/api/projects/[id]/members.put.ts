@@ -6,25 +6,40 @@ import { projectMembers, projects } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
 import { createNotifications } from '@@/server/utils/notifications'
+import { canManageProjectTeam } from '@@/server/utils/project-settings'
 import { projectMemberSchema } from '@@/shared/schemas/project'
 
 const bodySchema = z.object({ members: z.array(projectMemberSchema).max(50) })
 
-/** PJ-02 — set the project team (roles + allocation). Notifies new members. */
+/**
+ * PJ-02 — set the project team (roles + allocation). Notifies new members.
+ * Restricted to the PM / creator / project leader — not every editor.
+ */
 export default defineEventHandler(async (event) => {
   try {
-    const ctx = await requirePermission(event, 'project', 'update')
+    const ctx = await requirePermission(event, 'project', 'read')
     const id = getRouterParam(event, 'id')
     if (!id) throw createError({ statusCode: 400, statusMessage: 'Project ID is required' })
     const body = await readValidatedBody(event, bodySchema.parse)
     const db = useDrizzle()
 
     const [project] = await db
-      .select({ id: projects.id, name: projects.name })
+      .select({
+        id: projects.id,
+        name: projects.name,
+        projectManagerUserId: projects.projectManagerUserId,
+        createdByUserId: projects.createdByUserId,
+      })
       .from(projects)
       .where(and(eq(projects.id, id), eq(projects.organizationId, ctx.organizationId)))
       .limit(1)
     if (!project) throw createError({ statusCode: 404, statusMessage: 'Project not found' })
+    if (!(await canManageProjectTeam(ctx.userId, ctx.isSystemAdmin, project))) {
+      throw createError({
+        statusCode: 403,
+        statusMessage: 'Only the project manager or a project leader can change the team.',
+      })
+    }
 
     const seen = new Set<string>()
     for (const m of body.members) {

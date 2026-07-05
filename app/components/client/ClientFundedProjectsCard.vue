@@ -42,7 +42,11 @@ const { data: projectsData, refresh: refreshProjects } = await useFetch<{
     startDate: string | null
     endDate: string | null
   }>
-}>('/api/projects', { key: 'projects-list', default: () => ({ items: [] }) })
+}>('/api/projects', {
+  key: 'projects-list-all',
+  query: { all: '1' },
+  default: () => ({ items: [] }),
+})
 
 const availableProjects = computed<ProjectOption[]>(() => {
   const linkedIds = new Set(props.fundedProjects.map((p) => p.projectId))

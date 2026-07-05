@@ -5,7 +5,9 @@ import { z } from 'zod'
 import { projectReports } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
+import { resolveOrgProjectSettings } from '@@/server/utils/project-settings'
 import { PROJECT_REPORT_STATUSES, projectReportSchema } from '@@/shared/schemas/project'
+import { reportMissingSections } from '@@/shared/schemas/project-settings'
 
 const patchSchema = projectReportSchema
   .partial()
@@ -21,11 +23,25 @@ export default defineEventHandler(async (event) => {
     const db = useDrizzle()
 
     const [existing] = await db
-      .select({ id: projectReports.id })
+      .select({ id: projectReports.id, content: projectReports.content })
       .from(projectReports)
       .where(and(eq(projectReports.id, rid), eq(projectReports.organizationId, ctx.organizationId)))
       .limit(1)
     if (!existing) throw createError({ statusCode: 404, statusMessage: 'Report not found' })
+
+    // PJ-09 — the template's required sections must be filled before a report
+    // can leave Draft (advance to review/approved).
+    if (data.status && data.status !== 'draft') {
+      const content = data.content !== undefined ? data.content : existing.content
+      const settings = await resolveOrgProjectSettings(ctx.organizationId)
+      const missing = reportMissingSections(content, settings.reportSections)
+      if (missing.length) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: `Complete these required sections first: ${missing.join(', ')}.`,
+        })
+      }
+    }
 
     const updates: Record<string, unknown> = { updatedAt: new Date() }
     if (data.title !== undefined) updates.title = data.title
