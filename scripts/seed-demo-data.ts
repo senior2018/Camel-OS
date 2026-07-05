@@ -1681,6 +1681,259 @@ async function run() {
     `Projects: enriched ${enriched.length} with full PM data (team, milestones, budget, reports).`
   )
 
+  // ── Deterministic DEMO projects — fully populated, every corner exercised, so
+  // the same presentation flow works after each reseed. Added on top of the
+  // existing stubs (nothing is removed). ──────────────────────────────────────
+  const demoPaul = userIdByEmail.get('paul@camel-os.com')!
+  const demoPriya = userIdByEmail.get('priya@camel-os.com')!
+  const demoTeam = [
+    userIdByEmail.get('sam@camel-os.com')!,
+    userIdByEmail.get('grace@camel-os.com')!,
+    userIdByEmail.get('james@camel-os.com')!,
+  ].filter(Boolean)
+  const demoRoles = ['Lead Consultant', 'Analyst', 'M&E Specialist']
+  const fullReportBody = (lead: string) =>
+    `<h2>Summary</h2><p>${lead}</p>` +
+    `<h2>Progress this period</h2><p>Milestones on track; fieldwork 60% complete.</p>` +
+    `<h2>Issues &amp; risks</h2><p>Seasonal access delays in two districts; mitigations agreed.</p>` +
+    `<h2>Next steps</h2><p>Complete analysis and circulate the draft report for review.</p>`
+
+  async function seedDemoProject(cfg: {
+    name: string
+    code: string
+    pm: string
+    status: 'active' | 'completed'
+    revision: 'none' | 'pending' | 'approved'
+    closed: boolean
+  }) {
+    const [p] = await db
+      .insert(projects)
+      .values({
+        organizationId: orgId,
+        name: cfg.name,
+        code: cfg.code,
+        status: cfg.status,
+        startDate: isoDate(daysFromNow(-120)),
+        endDate: isoDate(daysFromNow(180)),
+        totalBudget: '500000.00',
+        currency: 'USD',
+        scope: 'End-to-end delivery with quarterly client reporting, M&E, and financial oversight.',
+        projectManagerUserId: cfg.pm,
+        budgetRevisionStatus: cfg.revision,
+        closedAt: cfg.closed ? daysFromNow(-2) : null,
+        closeChecklist: cfg.closed
+          ? {
+              'All milestones complete': true,
+              'Final report approved': true,
+              'Budget reconciled': true,
+              'Client sign-off received': true,
+              'Documents archived': true,
+            }
+          : null,
+        createdByUserId: demoPaul,
+      })
+      .returning({ id: projects.id })
+    const pid = p!.id
+
+    // Team (one deliberately over-allocated to show the capacity warning).
+    await db.insert(projectMembers).values(
+      demoTeam.map((u, i) => ({
+        projectId: pid,
+        organizationId: orgId,
+        userId: u,
+        role: demoRoles[i % demoRoles.length]!,
+        allocationPct: i === 0 ? 120 : 80,
+      }))
+    )
+
+    // Milestones + activities with a real dependency chain.
+    const msDefs: {
+      name: string
+      status: 'completed' | 'in_progress' | 'not_started'
+      due: number
+    }[] = [
+      { name: 'Inception & work-plan', status: 'completed', due: -90 },
+      {
+        name: 'Fieldwork & data collection',
+        status: cfg.closed ? 'completed' : 'in_progress',
+        due: 20,
+      },
+      { name: 'Analysis & reporting', status: cfg.closed ? 'completed' : 'not_started', due: 90 },
+    ]
+    let prevActivity: string | null = null
+    for (let i = 0; i < msDefs.length; i++) {
+      const m = msDefs[i]!
+      const [ms] = await db
+        .insert(projectMilestones)
+        .values({
+          projectId: pid,
+          organizationId: orgId,
+          name: m.name,
+          status: m.status,
+          dueDate: isoDate(daysFromNow(m.due)),
+          orderIndex: i,
+          completionCriteria: 'Deliverable accepted by the client.',
+          completedAt: m.status === 'completed' ? daysFromNow(m.due) : null,
+        })
+        .returning({ id: projectMilestones.id })
+      for (let a = 0; a < 2; a++) {
+        const done = m.status === 'completed'
+        const [act] = await db
+          .insert(projectActivities)
+          .values({
+            projectId: pid,
+            organizationId: orgId,
+            milestoneId: ms!.id,
+            name: `${m.name.split(' ')[0]} — task ${a + 1}`,
+            assignedUserId: demoTeam[(i + a) % demoTeam.length] ?? demoTeam[0]!,
+            startDate: isoDate(daysFromNow(m.due - 20)),
+            endDate: isoDate(daysFromNow(m.due)),
+            plannedHours: String(24 + a * 8),
+            percentComplete: done ? 100 : a === 0 ? 60 : 20,
+            status: done ? 'done' : a === 0 ? 'in_progress' : 'todo',
+            dependsOnActivityId: prevActivity,
+          })
+          .returning({ id: projectActivities.id })
+        prevActivity = act!.id
+      }
+    }
+
+    // Budget: original vs revised (revised on the first line drives PJ-05).
+    await db.insert(projectBudgetLines).values([
+      {
+        projectId: pid,
+        organizationId: orgId,
+        category: 'Personnel',
+        phase: 'All phases',
+        originalAmount: '300000.00',
+        revisedAmount: cfg.revision === 'none' ? null : '320000.00',
+      },
+      {
+        projectId: pid,
+        organizationId: orgId,
+        category: 'Travel & subsistence',
+        phase: 'Phase 2',
+        originalAmount: '90000.00',
+        revisedAmount: null,
+      },
+      {
+        projectId: pid,
+        organizationId: orgId,
+        category: 'Equipment',
+        phase: 'Phase 1',
+        originalAmount: '60000.00',
+        revisedAmount: null,
+      },
+      {
+        projectId: pid,
+        organizationId: orgId,
+        category: 'Subcontractors',
+        phase: 'Phase 2',
+        originalAmount: '50000.00',
+        revisedAmount: null,
+      },
+    ])
+    await db.insert(projectExpenses).values([
+      {
+        projectId: pid,
+        organizationId: orgId,
+        amount: '145000.00',
+        category: 'Personnel',
+        expenseDate: isoDate(daysFromNow(-70)),
+        description: 'Consultant fees — Q1',
+        createdByUserId: cfg.pm,
+      },
+      {
+        projectId: pid,
+        organizationId: orgId,
+        amount: '38000.00',
+        category: 'Travel & subsistence',
+        expenseDate: isoDate(daysFromNow(-25)),
+        description: 'Field mission — coastal districts',
+        createdByUserId: cfg.pm,
+      },
+    ])
+    // Vendor linked to a budget category (PJ-08).
+    await db.insert(projectVendors).values({
+      projectId: pid,
+      organizationId: orgId,
+      name: 'Savannah Data Co',
+      contactName: 'A. Mwangi',
+      contractAmount: '45000.00',
+      currency: 'USD',
+      scope: 'Enumerator hire, data entry, and quality assurance',
+      paymentSchedule: '50% on signing, 50% on delivery',
+      budgetCategory: 'Subcontractors',
+    })
+    // Reports across the full workflow, each with all required sections filled.
+    await db.insert(projectReports).values([
+      {
+        projectId: pid,
+        organizationId: orgId,
+        title: 'Inception Report',
+        status: 'approved',
+        content: fullReportBody('Inception complete; work-plan agreed with the client.'),
+        authorUserId: cfg.pm,
+      },
+      {
+        projectId: pid,
+        organizationId: orgId,
+        title: 'Q1 Progress Report',
+        status: 'in_review',
+        content: fullReportBody('Quarter one progress against the work-plan.'),
+        authorUserId: demoTeam[0] ?? cfg.pm,
+      },
+      {
+        projectId: pid,
+        organizationId: orgId,
+        title: 'Q2 Progress Report (draft)',
+        status: 'draft',
+        content: fullReportBody('Draft in preparation.'),
+        authorUserId: demoTeam[1] ?? cfg.pm,
+      },
+    ])
+    // Weekly timesheet: each member across the last 5 weeks.
+    for (const u of demoTeam) {
+      await db.insert(timesheetEntries).values(
+        Array.from({ length: 5 }, (_, w) => ({
+          organizationId: orgId,
+          projectId: pid,
+          userId: u,
+          entryDate: isoDate(daysFromNow(-(w + 1) * 7 + 1)),
+          hours: String(18 + rand(16)),
+          note: 'Weekly delivery work',
+        }))
+      )
+    }
+    return pid
+  }
+
+  await seedDemoProject({
+    name: 'DEMO — Coastal Resilience Programme',
+    code: 'DEMO-001',
+    pm: demoPaul,
+    status: 'active',
+    revision: 'pending',
+    closed: false,
+  })
+  await seedDemoProject({
+    name: 'DEMO — Youth Skills Initiative',
+    code: 'DEMO-002',
+    pm: demoPriya,
+    status: 'active',
+    revision: 'none',
+    closed: false,
+  })
+  await seedDemoProject({
+    name: 'DEMO — Health Systems Review',
+    code: 'DEMO-003',
+    pm: demoPaul,
+    status: 'completed',
+    revision: 'approved',
+    closed: true,
+  })
+  consola.success('Projects: 3 deterministic DEMO projects seeded (full coverage).')
+
   consola.box(
     [
       'Demo data seeded ✔',
