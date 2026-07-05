@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Editor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
+import Image from '@tiptap/extension-image'
 
 /**
  * Proposal document editor (redesign v2, P2).
@@ -30,11 +31,14 @@ onMounted(() => {
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
       }),
+      Image,
     ],
     editorProps: {
       attributes: {
+        // Render as a real "document page": a centred white sheet floating on a
+        // soft grey canvas, with generous margins and book-quality typography.
         class:
-          'prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[18rem] px-4 py-3',
+          'prose prose-slate max-w-none min-h-[55vh] px-6 py-6 sm:px-10 sm:py-8 focus:outline-none prose-headings:font-semibold prose-h1:text-2xl sm:prose-h1:text-3xl prose-h1:tracking-tight prose-a:text-primary prose-img:rounded-xl prose-img:shadow-sm prose-img:ring-1 prose-img:ring-default',
       },
     },
     onUpdate: () => {
@@ -197,11 +201,13 @@ const tools = computed<ToolAction[]>(() => {
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-col rounded-lg border border-default">
+  <div
+    class="flex min-h-0 flex-col overflow-hidden rounded-xl bg-default shadow-sm ring-1 ring-default"
+  >
     <!-- Toolbar (writers only) -->
     <div
       v-if="editable"
-      class="flex flex-wrap items-center gap-0.5 border-b border-default bg-elevated/30 px-2 py-1.5"
+      class="flex flex-wrap items-center gap-0.5 border-b border-default bg-default px-3 py-2"
     >
       <UButton
         v-for="t in tools"
@@ -258,12 +264,12 @@ const tools = computed<ToolAction[]>(() => {
       </template>
     </UModal>
 
-    <!-- Document — fills available height, internal scroll -->
-    <div class="min-h-0 flex-1 overflow-y-auto">
+    <!-- Document — the white sheet fills the card; internal scroll. -->
+    <div class="relative min-h-0 flex-1 overflow-y-auto bg-default">
       <EditorContent v-if="editor" :editor="editor" />
       <p
         v-if="editor && editable && editor.isEmpty"
-        class="pointer-events-none -mt-10 px-4 text-sm text-muted"
+        class="pointer-events-none absolute left-6 top-6 text-sm text-muted sm:left-10 sm:top-8"
       >
         Start writing the proposal…
       </p>

@@ -208,7 +208,7 @@ const {
 
 <template>
   <div class="space-y-6">
-    <header class="space-y-4">
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div>
         <h1 class="text-2xl font-semibold tracking-tight text-default">Opportunities</h1>
         <p class="mt-1 text-sm text-muted">
@@ -216,59 +216,38 @@ const {
           in the Proposals module.
         </p>
       </div>
-      <div class="flex flex-wrap items-center gap-2">
+      <div class="flex items-center gap-2">
         <UFieldGroup>
           <UButton
             :color="view === 'board' ? 'primary' : 'neutral'"
             :variant="view === 'board' ? 'solid' : 'outline'"
             icon="i-lucide-columns-3"
-            aria-label="Board view"
+            label="Board"
             @click="view = 'board'"
-          >
-            <span class="hidden sm:inline">Board</span>
-          </UButton>
+          />
           <UButton
             :color="view === 'list' ? 'primary' : 'neutral'"
             :variant="view === 'list' ? 'solid' : 'outline'"
             icon="i-lucide-list"
-            aria-label="List view"
+            label="List"
             @click="view = 'list'"
-          >
-            <span class="hidden sm:inline">List</span>
-          </UButton>
+          />
           <UButton
             :color="view === 'dashboard' ? 'primary' : 'neutral'"
             :variant="view === 'dashboard' ? 'solid' : 'outline'"
             icon="i-lucide-bar-chart-3"
-            aria-label="Dashboard view"
+            label="Dashboard"
             @click="view = 'dashboard'"
-          >
-            <span class="hidden sm:inline">Dashboard</span>
-          </UButton>
+          />
         </UFieldGroup>
-        <UButton
-          variant="ghost"
-          color="neutral"
-          :icon="showFilters ? 'i-lucide-chevron-up' : 'i-lucide-sliders-horizontal'"
-          :aria-label="showFilters ? 'Hide advanced filters' : 'Show advanced filters'"
-          @click="showFilters = !showFilters"
-        >
-          <span class="hidden sm:inline">{{ showFilters ? 'Less' : 'More filters' }}</span>
-        </UButton>
-        <UButton
-          v-if="canCreate"
-          size="md"
-          icon="i-lucide-plus"
-          class="ml-auto"
-          @click="openCreate"
-        >
+        <UButton v-if="canCreate" icon="i-lucide-plus" @click="openCreate">
           <span class="hidden sm:inline">New opportunity</span>
           <span class="sm:hidden">New</span>
         </UButton>
       </div>
     </header>
 
-    <!-- Basics always visible (search + status); the rest behind "More filters". -->
+    <!-- Filter bar — search + status, with advanced filters behind "More filters". -->
     <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
       <UInput
         v-model="filters.search"
@@ -286,6 +265,15 @@ const {
         size="md"
         class="w-full sm:w-56"
       />
+      <UButton
+        variant="ghost"
+        color="neutral"
+        :icon="showFilters ? 'i-lucide-chevron-up' : 'i-lucide-sliders-horizontal'"
+        :aria-label="showFilters ? 'Hide advanced filters' : 'Show advanced filters'"
+        @click="showFilters = !showFilters"
+      >
+        <span class="hidden sm:inline">{{ showFilters ? 'Less' : 'More filters' }}</span>
+      </UButton>
     </div>
 
     <OpportunityFilters v-if="showFilters" v-model="filters" />

@@ -73,12 +73,26 @@ function statusBorder(s: OpportunityStatus): string {
       ? 'border-success/40'
       : 'border-error/40'
 }
+
+// Only show columns that actually hold opportunities — a lane stuck at "0"
+// (e.g. after filtering to one status) reads as clutter. During an active drag
+// every lane reappears so you can still drop into an empty one; an entirely
+// empty pipeline falls back to all columns so the board is never blank.
+const visibleStatuses = computed<OpportunityStatus[]>(() => {
+  if (props.canDrag && dragging.value) return [...OPPORTUNITY_STATUSES]
+  const withItems = OPPORTUNITY_STATUSES.filter((s) => (props.grouped[s]?.length ?? 0) > 0)
+  return withItems.length ? withItems : [...OPPORTUNITY_STATUSES]
+})
+const gridCols = computed(() => {
+  const n = visibleStatuses.value.length
+  return n <= 1 ? 'lg:grid-cols-1' : n === 2 ? 'lg:grid-cols-2' : 'lg:grid-cols-3'
+})
 </script>
 
 <template>
-  <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+  <div class="grid grid-cols-1 gap-4" :class="gridCols">
     <section
-      v-for="s in OPPORTUNITY_STATUSES"
+      v-for="s in visibleStatuses"
       :key="s"
       :class="[
         'flex max-h-[calc(100dvh-16rem)] flex-col overflow-hidden rounded-xl border bg-default/40 transition-colors',

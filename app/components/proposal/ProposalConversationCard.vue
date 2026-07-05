@@ -48,11 +48,47 @@ const NAME_COLORS = [
   'text-error',
   'text-secondary',
 ]
-function nameColor(id: string | null): string {
-  if (!id) return 'text-muted'
+// Matching soft avatar tints (same hash → same person colour everywhere).
+const AVATAR_COLORS = [
+  'bg-primary/15 text-primary',
+  'bg-info/15 text-info',
+  'bg-success/15 text-success',
+  'bg-warning/15 text-warning',
+  'bg-error/15 text-error',
+  'bg-secondary/15 text-secondary',
+]
+function authorHash(id: string | null): number {
+  if (!id) return 0
   let h = 0
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
-  return NAME_COLORS[h % NAME_COLORS.length]!
+  return h
+}
+function nameColor(id: string | null): string {
+  if (!id) return 'text-muted'
+  return NAME_COLORS[authorHash(id) % NAME_COLORS.length]!
+}
+function avatarColor(id: string | null): string {
+  if (!id) return 'bg-elevated text-muted'
+  return AVATAR_COLORS[authorHash(id) % AVATAR_COLORS.length]!
+}
+// Tinted bubble per person (matches their name/avatar colour) so in a 6-way
+// chat you can tell who said what at a glance — not just by the name.
+const BUBBLE_COLORS = [
+  'bg-primary/10 ring-primary/25',
+  'bg-info/10 ring-info/25',
+  'bg-success/10 ring-success/25',
+  'bg-warning/10 ring-warning/25',
+  'bg-error/10 ring-error/25',
+  'bg-secondary/10 ring-secondary/25',
+]
+function bubbleColor(id: string | null): string {
+  if (!id) return 'bg-default ring-default'
+  return BUBBLE_COLORS[authorHash(id) % BUBBLE_COLORS.length]!
+}
+function initials(m: Message): string {
+  const a = (m.authorFirstName ?? '').charAt(0)
+  const b = (m.authorLastName ?? '').charAt(0)
+  return (a + b).toUpperCase() || authorName(m).charAt(0).toUpperCase() || '?'
 }
 function time(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
@@ -114,7 +150,7 @@ async function send() {
     <!-- Message stream -->
     <div
       ref="listEl"
-      class="max-h-96 min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3 lg:max-h-none"
+      class="max-h-96 min-h-0 flex-1 space-y-3 overflow-y-auto bg-muted px-4 py-3 lg:max-h-none"
     >
       <p v-if="!messages.length" class="py-8 text-center text-sm text-muted">
         {{
@@ -123,23 +159,39 @@ async function send() {
       </p>
 
       <template v-for="m in messages" :key="m.id">
-        <!-- System / workflow event -->
-        <div v-if="m.kind === 'system'" class="flex justify-center">
-          <span class="rounded-full bg-elevated/60 px-3 py-1 text-center text-xs text-muted">
-            <UIcon name="i-lucide-zap" class="mr-1 inline size-3" />{{ m.body }} ·
-            {{ time(m.createdAt) }}
+        <!-- System / workflow event — deliberately quiet: a small centred line,
+             muted text, tiny amber icon for identity. Never competes with people. -->
+        <div v-if="m.kind === 'system'" class="flex justify-center py-0.5">
+          <span
+            class="inline-flex max-w-[88%] items-center gap-1.5 rounded-full bg-default/70 px-2.5 py-1 text-center text-[11px] text-muted ring-1 ring-default/80"
+          >
+            <UIcon name="i-lucide-zap" class="size-3 shrink-0 text-warning" />
+            <span>{{ m.body }} · {{ time(m.createdAt) }}</span>
           </span>
         </div>
 
-        <!-- Chat message -->
-        <div v-else class="flex" :class="isMine(m) ? 'justify-end' : 'justify-start'">
-          <div class="max-w-[80%]">
+        <!-- Chat message — WhatsApp-group style: mine right (solid primary),
+             others left with a coloured avatar + named bubble. -->
+        <div
+          v-else
+          class="flex items-end gap-2"
+          :class="isMine(m) ? 'justify-end' : 'justify-start'"
+        >
+          <!-- avatar for others -->
+          <div
+            v-if="!isMine(m)"
+            class="flex size-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold"
+            :class="avatarColor(m.authorUserId)"
+          >
+            {{ initials(m) }}
+          </div>
+          <div class="max-w-[78%]">
             <div
-              class="rounded-2xl px-3 py-2 text-sm"
+              class="rounded-2xl px-3 py-2 text-sm shadow-sm"
               :class="
                 isMine(m)
-                  ? 'rounded-br-sm bg-primary/10 text-default'
-                  : 'rounded-bl-sm bg-elevated/60 text-default'
+                  ? 'rounded-br-sm bg-primary text-inverted'
+                  : ['rounded-bl-sm text-default ring-1', bubbleColor(m.authorUserId)]
               "
             >
               <p

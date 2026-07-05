@@ -308,52 +308,71 @@ const workspaceTabs = [
     </div>
 
     <template v-else>
-      <header class="space-y-3">
-        <UButton
-          variant="ghost"
-          color="neutral"
-          icon="i-lucide-arrow-left"
-          label="All proposals"
-          size="xs"
-          @click="navigateTo('/proposals')"
-        />
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div class="flex flex-wrap items-center gap-3">
-              <h1 class="text-2xl font-semibold tracking-tight text-default">
-                {{ data.proposal.title }}
-              </h1>
-              <UBadge
-                :color="PROPOSAL_STATUS_COLOR[data.proposal.status]"
-                variant="subtle"
-                size="sm"
-                :label="PROPOSAL_STATUS_LABEL[data.proposal.status]"
-              />
-            </div>
-            <p class="mt-1 text-sm text-muted">
-              <UIcon name="i-lucide-target" class="mr-1 inline size-3.5" />
-              {{ data.proposal.opportunityTitle }} ·
-              {{ PROPOSAL_STATUS_DESCRIPTION[data.proposal.status] }}
-            </p>
-          </div>
-          <div class="flex items-center gap-2">
-            <UButton
-              variant="outline"
-              color="neutral"
-              icon="i-lucide-file-down"
-              label="Export PDF"
+      <header
+        class="flex flex-col gap-3 border-b border-default/70 pb-5 sm:flex-row sm:items-start sm:justify-between"
+      >
+        <!-- Left: back link, title + status, one-line context. -->
+        <div class="min-w-0">
+          <UButton
+            variant="link"
+            color="neutral"
+            icon="i-lucide-arrow-left"
+            label="All proposals"
+            size="xs"
+            class="-ml-1"
+            @click="navigateTo('/proposals')"
+          />
+          <div class="mt-1 flex flex-wrap items-center gap-2.5">
+            <h1 class="text-2xl font-semibold tracking-tight text-default">
+              {{ data.proposal.title }}
+            </h1>
+            <UBadge
+              :color="PROPOSAL_STATUS_COLOR[data.proposal.status]"
+              variant="subtle"
               size="sm"
-              @click="navigateTo(`/print/proposal/${proposalId}`, { open: { target: '_blank' } })"
-            />
-            <UButton
-              v-if="canEdit && !editing"
-              variant="outline"
-              icon="i-lucide-pencil"
-              label="Edit"
-              size="sm"
-              @click="editing = true"
+              :label="PROPOSAL_STATUS_LABEL[data.proposal.status]"
             />
           </div>
+          <p class="mt-1 text-sm text-muted">
+            {{ PROPOSAL_STATUS_DESCRIPTION[data.proposal.status] }}
+          </p>
+        </div>
+        <!-- Right: primary workflow action + secondary document actions, pinned
+             to the far edge so the header uses the full width. -->
+        <div class="flex shrink-0 flex-wrap items-center gap-2">
+          <UButton
+            v-if="canSendForReview"
+            :loading="sendingForReview"
+            icon="i-lucide-send"
+            label="Send for review"
+            size="sm"
+            @click="sendForReview"
+          />
+          <UButton
+            v-else-if="showSubmit"
+            :loading="settingStatus"
+            icon="i-lucide-upload"
+            label="Mark submitted"
+            size="sm"
+            @click="setStatus('submitted')"
+          />
+          <UButton
+            variant="outline"
+            color="neutral"
+            icon="i-lucide-file-down"
+            label="Export PDF"
+            size="sm"
+            @click="navigateTo(`/print/proposal/${proposalId}`, { open: { target: '_blank' } })"
+          />
+          <UButton
+            v-if="canEdit && !editing"
+            variant="outline"
+            color="neutral"
+            icon="i-lucide-pencil"
+            label="Edit"
+            size="sm"
+            @click="editing = true"
+          />
         </div>
       </header>
 
@@ -395,48 +414,26 @@ const workspaceTabs = [
                   </template>
                 </ClientOnly>
 
-                <!-- Next step — workflow actions, below the composer -->
+                <!-- Next step — richer workflow actions (the simple primary
+                     actions Send-for-review / Mark-submitted live in the header). -->
                 <UCard
                   v-if="
-                    canSendForReview ||
                     showFinalApproval ||
-                    showSubmit ||
                     showBdTracking ||
                     isClosed ||
-                    (isDecided && canOverride)
+                    (isDecided && canOverride) ||
+                    proposalStatus === 'contract_signed'
                   "
                   :ui="{ body: 'p-3' }"
                 >
                   <div class="space-y-3">
                     <p class="text-xs font-medium uppercase tracking-wide text-muted">Next step</p>
 
-                    <div v-if="canSendForReview" class="flex flex-wrap items-center gap-3">
-                      <p class="text-sm text-default">
-                        Drafting done? Send to the assigned reviewers for their decision.
-                      </p>
-                      <UButton
-                        :loading="sendingForReview"
-                        icon="i-lucide-send"
-                        label="Send for review"
-                        @click="sendForReview"
-                      />
-                    </div>
-
                     <ProposalFinalApprovalCard
                       v-if="showFinalApproval"
                       :proposal-id="proposalId"
                       @changed="onAfterChange"
                     />
-
-                    <div v-if="showSubmit" class="flex flex-wrap items-center gap-3">
-                      <p class="text-sm text-default">Cleared for submission.</p>
-                      <UButton
-                        :loading="settingStatus"
-                        icon="i-lucide-upload"
-                        label="Mark submitted"
-                        @click="setStatus('submitted')"
-                      />
-                    </div>
 
                     <ProposalOutcomeCard
                       v-if="showBdTracking || (isDecided && canOverride)"
@@ -549,58 +546,60 @@ const workspaceTabs = [
                   <template #header>
                     <h3 class="text-sm font-semibold text-default">Proposal details</h3>
                   </template>
-                  <div class="space-y-3 text-sm">
-                    <div v-if="editing">
-                      <UFormField label="Title">
-                        <UInput v-model="form.title" class="w-full" />
-                      </UFormField>
-                    </div>
-                    <div>
-                      <p class="text-xs uppercase tracking-wide text-muted">Deadline</p>
+                  <!-- EDIT — editable fields -->
+                  <div v-if="editing" class="space-y-3 text-sm">
+                    <UFormField label="Title">
+                      <UInput v-model="form.title" class="w-full" />
+                    </UFormField>
+                    <UFormField label="Deadline">
+                      <UInput v-model="form.deadline" type="date" size="sm" class="w-full" />
+                    </UFormField>
+                    <UFormField label="Submission reference">
                       <UInput
-                        v-if="editing"
-                        v-model="form.deadline"
-                        type="date"
-                        size="sm"
-                        class="mt-1 w-full"
-                      />
-                      <p v-else class="text-default">{{ data.proposal.deadline ?? '—' }}</p>
-                    </div>
-                    <div>
-                      <p class="text-xs uppercase tracking-wide text-muted">Submitted at</p>
-                      <p class="text-default">{{ data.proposal.submittedAt ?? '—' }}</p>
-                    </div>
-                    <div>
-                      <p class="text-xs uppercase tracking-wide text-muted">Submission reference</p>
-                      <UInput
-                        v-if="editing"
                         v-model="form.submissionReference"
                         size="sm"
                         placeholder="Portal ref / tender no."
-                        class="mt-1 w-full"
+                        class="w-full"
                       />
-                      <p v-else class="text-default">
-                        {{ data.proposal.submissionReference ?? '—' }}
-                      </p>
-                    </div>
-                    <div>
-                      <p class="text-xs uppercase tracking-wide text-muted">Submission channel</p>
+                    </UFormField>
+                    <UFormField label="Submission channel">
                       <UInput
-                        v-if="editing"
                         v-model="form.submissionChannel"
                         size="sm"
                         placeholder="Email / portal / physical"
-                        class="mt-1 w-full"
+                        class="w-full"
                       />
-                      <p v-else class="text-default">
-                        {{ data.proposal.submissionChannel ?? '—' }}
-                      </p>
-                    </div>
-                    <div>
-                      <p class="text-xs uppercase tracking-wide text-muted">Decided at</p>
-                      <p class="text-default">{{ data.proposal.decidedAt ?? '—' }}</p>
-                    </div>
+                    </UFormField>
                   </div>
+                  <!-- READ — clean label/value rows -->
+                  <dl v-else class="space-y-2 text-sm">
+                    <div class="flex justify-between gap-2">
+                      <dt class="text-muted">Deadline</dt>
+                      <dd class="font-medium text-default">{{ data.proposal.deadline ?? '—' }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                      <dt class="text-muted">Submitted at</dt>
+                      <dd class="font-medium text-default">
+                        {{ data.proposal.submittedAt ?? '—' }}
+                      </dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                      <dt class="text-muted">Submission reference</dt>
+                      <dd class="font-medium text-default">
+                        {{ data.proposal.submissionReference ?? '—' }}
+                      </dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                      <dt class="text-muted">Submission channel</dt>
+                      <dd class="font-medium text-default">
+                        {{ data.proposal.submissionChannel ?? '—' }}
+                      </dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                      <dt class="text-muted">Decided at</dt>
+                      <dd class="font-medium text-default">{{ data.proposal.decidedAt ?? '—' }}</dd>
+                    </div>
+                  </dl>
                 </UCard>
 
                 <UCard>
@@ -633,45 +632,56 @@ const workspaceTabs = [
                   <template #header>
                     <h3 class="text-sm font-semibold text-default">Opportunity context</h3>
                   </template>
-                  <div class="space-y-3 text-sm">
-                    <div>
-                      <p class="text-xs uppercase tracking-wide text-muted">Estimated value</p>
-                      <p class="text-default">
-                        {{
-                          formatMoney(
-                            data.proposal.opportunityValue,
-                            data.proposal.opportunityCurrency
-                          )
-                        }}
-                      </p>
-                    </div>
-                    <div v-if="data.proposal.opportunityWinProbability !== null">
-                      <p class="text-xs uppercase tracking-wide text-muted">Win probability</p>
-                      <p class="text-default">{{ data.proposal.opportunityWinProbability }}%</p>
-                    </div>
-                    <div>
-                      <p class="text-xs uppercase tracking-wide text-muted">Opportunity deadline</p>
-                      <p class="text-default">{{ data.proposal.opportunityDeadline ?? '—' }}</p>
-                    </div>
-                    <div v-if="data.proposal.opportunityTags?.length">
-                      <p class="text-xs uppercase tracking-wide text-muted">Tags</p>
-                      <div class="mt-1 flex flex-wrap gap-1">
-                        <UBadge
-                          v-for="t in data.proposal.opportunityTags"
-                          :key="t"
-                          variant="soft"
-                          color="neutral"
-                          size="xs"
-                          :label="`#${t}`"
-                        />
+                  <div class="space-y-4">
+                    <div class="grid grid-cols-2 gap-3">
+                      <div class="rounded-lg bg-muted p-3">
+                        <p class="text-xs text-muted">Estimated value</p>
+                        <p class="mt-0.5 text-sm font-semibold text-default">
+                          {{
+                            formatMoney(
+                              data.proposal.opportunityValue,
+                              data.proposal.opportunityCurrency
+                            )
+                          }}
+                        </p>
+                      </div>
+                      <div
+                        v-if="data.proposal.opportunityWinProbability !== null"
+                        class="rounded-lg bg-muted p-3"
+                      >
+                        <p class="text-xs text-muted">Win probability</p>
+                        <p class="mt-0.5 text-sm font-semibold text-default">
+                          {{ data.proposal.opportunityWinProbability }}%
+                        </p>
+                      </div>
+                      <div
+                        class="rounded-lg bg-muted p-3"
+                        :class="
+                          data.proposal.opportunityWinProbability !== null ? 'col-span-2' : ''
+                        "
+                      >
+                        <p class="text-xs text-muted">Opportunity deadline</p>
+                        <p class="mt-0.5 text-sm font-semibold text-default">
+                          {{ data.proposal.opportunityDeadline ?? '—' }}
+                        </p>
                       </div>
                     </div>
-                    <div v-if="data.proposal.opportunityDescription">
-                      <p class="text-xs uppercase tracking-wide text-muted">Description</p>
-                      <p class="whitespace-pre-wrap text-default">
-                        {{ data.proposal.opportunityDescription }}
-                      </p>
+                    <div v-if="data.proposal.opportunityTags?.length" class="flex flex-wrap gap-1">
+                      <UBadge
+                        v-for="t in data.proposal.opportunityTags"
+                        :key="t"
+                        variant="subtle"
+                        color="primary"
+                        size="xs"
+                        :label="`#${t}`"
+                      />
                     </div>
+                    <p
+                      v-if="data.proposal.opportunityDescription"
+                      class="whitespace-pre-wrap text-sm leading-relaxed text-toned"
+                    >
+                      {{ data.proposal.opportunityDescription }}
+                    </p>
                   </div>
                 </UCard>
 

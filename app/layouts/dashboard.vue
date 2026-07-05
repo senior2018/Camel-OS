@@ -53,35 +53,17 @@ const navItems = computed(() => {
       can.value('communications', 'update') ||
       can.value('communications', 'approve'))
   ) {
+    // One Communications entry — Calendar, Campaigns, Stakeholders and Media are
+    // tabs INSIDE the module (CommunicationsTabs), not separate sidebar items.
     items.push({
       label: 'Communications',
       to: '/communications',
       icon: 'i-lucide-megaphone',
-      active: route.path === '/communications' || /^\/communications\/[^/]+$/.test(route.path),
-    })
-    items.push({
-      label: 'Content Calendar',
-      to: '/communications/calendar',
-      icon: 'i-lucide-calendar-days',
-      active: route.path === '/communications/calendar',
-    })
-    items.push({
-      label: 'Campaigns',
-      to: '/campaigns',
-      icon: 'i-lucide-rocket',
-      active: route.path.startsWith('/campaigns'),
-    })
-    items.push({
-      label: 'Stakeholders',
-      to: '/stakeholders',
-      icon: 'i-lucide-network',
-      active: route.path.startsWith('/stakeholders'),
-    })
-    items.push({
-      label: 'Media Monitoring',
-      to: '/media',
-      icon: 'i-lucide-radio',
-      active: route.path.startsWith('/media'),
+      active:
+        route.path.startsWith('/communications') ||
+        route.path.startsWith('/campaigns') ||
+        route.path.startsWith('/stakeholders') ||
+        route.path.startsWith('/media'),
     })
   }
   if (SHOW_COMMUNICATIONS && can.value('communications', 'read')) {
@@ -186,7 +168,7 @@ const userMenu = [
 </script>
 
 <template>
-  <div class="flex min-h-screen bg-elevated/30">
+  <div class="flex min-h-screen bg-muted">
     <!-- Sidebar (desktop) -->
     <aside
       class="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-default bg-default lg:flex"
@@ -275,7 +257,7 @@ const userMenu = [
     </aside>
 
     <!-- Main column -->
-    <div class="flex flex-1 flex-col lg:pl-64">
+    <div class="flex min-w-0 flex-1 flex-col lg:pl-64">
       <!-- Topbar -->
       <header
         class="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-default bg-default/80 px-4 backdrop-blur sm:px-6 lg:px-8"
@@ -310,7 +292,7 @@ const userMenu = [
         </div>
       </header>
 
-      <main class="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <main class="min-w-0 flex-1 px-4 pb-8 pt-4 sm:px-6 lg:px-8 lg:pt-5">
         <slot />
       </main>
     </div>

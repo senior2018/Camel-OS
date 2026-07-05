@@ -257,17 +257,16 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
     @update:open="emit('update:open', $event)"
   >
     <template #body>
+      <!-- Only surface the banner when it carries actionable context (the viewer
+           can change status). A pure read-only notice is redundant — the clean
+           reading layout already makes it obvious nothing is editable. -->
       <UAlert
-        v-if="initial && !canEdit"
+        v-if="initial && !canEdit && canChangeStatus"
         color="neutral"
         variant="subtle"
         icon="i-lucide-eye"
-        :title="canChangeStatus ? 'Review access' : 'Read-only view'"
-        :description="
-          canChangeStatus
-            ? `You can change the status and post a comment, but only the owner, creator, or an admin can edit the details.`
-            : `You can review the details and post a comment. You can't edit fields or change the status — contact your administrator if you need wider access.`
-        "
+        title="Review access"
+        description="You can change the status and post a comment, but only the owner, creator, or an admin can edit the details."
         class="mb-4"
       />
 
@@ -302,6 +301,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
       </div>
 
       <UForm
+        v-if="editMode"
         id="opportunity-form"
         :schema="createOpportunitySchema"
         :state="state"
@@ -449,6 +449,76 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
           />
         </UFormField>
       </UForm>
+
+      <!-- READ MODE — a smart reading layout, not a stack of form labels:
+           a real heading, meta chips, a description paragraph, then the key
+           facts as compact tiles. -->
+      <div v-else class="space-y-5">
+        <div>
+          <h3 class="text-xl font-semibold tracking-tight text-default">{{ state.title }}</h3>
+          <div class="mt-2 flex flex-wrap items-center gap-1.5">
+            <UBadge
+              variant="subtle"
+              color="neutral"
+              size="sm"
+              :label="sourceOptions.find((o) => o.value === state.source)?.label ?? state.source"
+            />
+            <UBadge
+              variant="subtle"
+              color="info"
+              size="sm"
+              :label="typeOptions.find((o) => o.value === state.type)?.label ?? state.type"
+            />
+            <UBadge
+              v-for="t in parsedTags"
+              :key="t"
+              variant="subtle"
+              color="primary"
+              size="xs"
+              :label="t"
+            />
+          </div>
+        </div>
+
+        <p v-if="state.description" class="text-sm leading-relaxed text-toned">
+          {{ state.description }}
+        </p>
+
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div class="rounded-lg bg-muted p-3">
+            <p class="text-xs text-muted">Estimated value</p>
+            <p class="mt-0.5 text-sm font-semibold text-default">
+              {{
+                state.estimatedValue
+                  ? `${state.currency} ${Number(state.estimatedValue).toLocaleString()}`
+                  : '—'
+              }}
+            </p>
+          </div>
+          <div class="rounded-lg bg-muted p-3">
+            <p class="text-xs text-muted">Deadline</p>
+            <p class="mt-0.5 text-sm font-semibold text-default">{{ state.deadline || '—' }}</p>
+          </div>
+          <div class="rounded-lg bg-muted p-3">
+            <p class="text-xs text-muted">Win probability</p>
+            <p class="mt-0.5 text-sm font-semibold text-default">
+              {{ state.winProbability != null ? `${state.winProbability}%` : '—' }}
+            </p>
+          </div>
+          <div class="rounded-lg bg-muted p-3">
+            <p class="text-xs text-muted">Assigned to</p>
+            <p class="mt-0.5 text-sm font-semibold text-default">
+              {{ ownerOptions.find((o) => o.value === state.ownerUserId)?.label ?? 'Unassigned' }}
+            </p>
+          </div>
+          <div class="rounded-lg bg-muted p-3 sm:col-span-2">
+            <p class="text-xs text-muted">Primary client</p>
+            <p class="mt-0.5 text-sm font-semibold text-default">
+              {{ clientOptions.find((o) => o.value === state.primaryClientId)?.label ?? '—' }}
+            </p>
+          </div>
+        </div>
+      </div>
 
       <!-- Existing opp: comments timeline + attachments. -->
       <div v-if="initial" class="mt-6 space-y-6 border-t border-default pt-6">

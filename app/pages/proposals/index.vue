@@ -334,23 +334,23 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
         />
       </div>
       <div class="grid grid-cols-2 gap-4 sm:grid-cols-5">
-        <div class="rounded-xl border border-default p-4">
+        <div class="rounded-xl border border-default bg-default shadow-sm p-4">
           <p class="text-xs uppercase tracking-wide text-muted">Open</p>
           <p class="mt-1 text-2xl font-semibold text-default">{{ dash.open }}</p>
         </div>
-        <div class="rounded-xl border border-default p-4">
+        <div class="rounded-xl border border-default bg-default shadow-sm p-4">
           <p class="text-xs uppercase tracking-wide text-muted">Submitted</p>
           <p class="mt-1 text-2xl font-semibold text-info">{{ dash.submitted }}</p>
         </div>
-        <div class="rounded-xl border border-default p-4">
+        <div class="rounded-xl border border-default bg-default shadow-sm p-4">
           <p class="text-xs uppercase tracking-wide text-muted">Won</p>
           <p class="mt-1 text-2xl font-semibold text-success">{{ dash.won }}</p>
         </div>
-        <div class="rounded-xl border border-default p-4">
+        <div class="rounded-xl border border-default bg-default shadow-sm p-4">
           <p class="text-xs uppercase tracking-wide text-muted">Lost</p>
           <p class="mt-1 text-2xl font-semibold text-error">{{ dash.lost }}</p>
         </div>
-        <div class="rounded-xl border border-default p-4">
+        <div class="rounded-xl border border-default bg-default shadow-sm p-4">
           <p class="text-xs uppercase tracking-wide text-muted">Win rate</p>
           <p class="mt-1 text-2xl font-semibold text-default">
             {{ dash.winRate === null ? '—' : `${dash.winRate}%` }}
@@ -450,7 +450,10 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
       </div>
 
       <!-- List view -->
-      <div v-else-if="view === 'list'" class="overflow-hidden rounded-xl border border-default">
+      <div
+        v-else-if="view === 'list'"
+        class="overflow-hidden rounded-xl border border-default bg-default shadow-sm"
+      >
         <table class="w-full text-sm">
           <thead class="bg-elevated/40 text-left text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -508,14 +511,18 @@ const totalCount = computed(() => data.value?.items.length ?? 0)
         </table>
       </div>
 
-      <!-- Board view — horizontal Kanban: one pipeline left→right, columns
-           scroll independently, the row scrolls when there are many lanes. -->
-      <div class="flex gap-4 overflow-x-auto pb-3">
+      <!-- Board view — horizontal Kanban. Fixed-width columns with scroll-snap:
+           one full column per screen on mobile, several side-by-side on desktop;
+           predictable on every screen size (Trello-style). -->
+      <div
+        v-else-if="view === 'board'"
+        class="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-3"
+      >
         <section
           v-for="lane in visibleLanes"
           :key="lane.key"
           :class="[
-            'flex max-h-[calc(100dvh-15rem)] min-w-76 max-w-md flex-1 flex-col overflow-hidden rounded-xl border bg-default/40',
+            'flex h-[calc(100dvh-13rem)] w-[82vw] max-w-[20rem] shrink-0 snap-start flex-col overflow-hidden rounded-xl border bg-default/40 sm:w-80',
             laneAccent(lane),
           ]"
         >

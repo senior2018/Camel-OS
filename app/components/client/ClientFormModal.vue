@@ -140,6 +140,17 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
     props.initial?.id ?? null
   )
 }
+
+// Type-specific metadata rendered as clean read rows (humanised keys) for the
+// read-only view — no disabled inputs.
+const metadataRows = computed(() =>
+  Object.entries(state.metadata ?? {})
+    .filter(([, v]) => v != null && (Array.isArray(v) ? v.length : String(v).trim()))
+    .map(([k, v]) => ({
+      label: k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase()),
+      value: Array.isArray(v) ? v.join(', ') : String(v),
+    }))
+)
 </script>
 
 <template>
@@ -151,16 +162,6 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
     @update:open="emit('update:open', $event)"
   >
     <template #body>
-      <UAlert
-        v-if="readOnly"
-        color="neutral"
-        variant="subtle"
-        icon="i-lucide-eye"
-        title="View only"
-        description="You don't have permission to edit clients. Contact your administrator to request access."
-        class="mb-4"
-      />
-
       <UAlert
         v-if="duplicates && duplicates.length"
         color="warning"
@@ -185,6 +186,7 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
       </UAlert>
 
       <UForm
+        v-if="!readOnly"
         id="client-form"
         :schema="createClientSchema"
         :state="state"
@@ -298,6 +300,71 @@ function onSubmit(_e: FormSubmitEvent<unknown>) {
           />
         </UFormField>
       </UForm>
+
+      <!-- READ MODE — a smart client profile, not disabled form fields. -->
+      <div v-else class="space-y-5">
+        <div>
+          <h3 class="text-xl font-semibold tracking-tight text-default">
+            {{ [state.firstName, state.lastName].filter(Boolean).join(' ') || '—' }}
+          </h3>
+          <p v-if="state.organization" class="mt-0.5 text-sm text-muted">
+            {{ state.organization }}
+          </p>
+          <div class="mt-2 flex flex-wrap items-center gap-1.5">
+            <UBadge
+              variant="subtle"
+              color="info"
+              size="sm"
+              :label="typeOptions.find((o) => o.value === state.type)?.label ?? state.type"
+            />
+            <UBadge
+              v-if="state.industry"
+              variant="subtle"
+              color="neutral"
+              size="sm"
+              :label="state.industry"
+            />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div v-if="state.email" class="rounded-lg bg-muted p-3">
+            <p class="text-xs text-muted">Email</p>
+            <p class="mt-0.5 truncate text-sm font-medium text-default">{{ state.email }}</p>
+          </div>
+          <div v-if="state.phone" class="rounded-lg bg-muted p-3">
+            <p class="text-xs text-muted">Phone</p>
+            <p class="mt-0.5 text-sm font-medium text-default">{{ state.phone }}</p>
+          </div>
+          <div v-if="state.country" class="rounded-lg bg-muted p-3">
+            <p class="text-xs text-muted">Country</p>
+            <p class="mt-0.5 text-sm font-medium text-default">{{ state.country }}</p>
+          </div>
+          <div v-if="state.website" class="rounded-lg bg-muted p-3">
+            <p class="text-xs text-muted">Website</p>
+            <a
+              :href="state.website"
+              target="_blank"
+              class="mt-0.5 block truncate text-sm font-medium text-primary hover:underline"
+            >
+              {{ state.website }}
+            </a>
+          </div>
+          <div class="rounded-lg bg-muted p-3 sm:col-span-2">
+            <p class="text-xs text-muted">Assigned to</p>
+            <p class="mt-0.5 text-sm font-medium text-default">
+              {{ ownerOptions.find((o) => o.value === state.ownerUserId)?.label ?? 'Unassigned' }}
+            </p>
+          </div>
+        </div>
+
+        <dl v-if="metadataRows.length" class="space-y-2 border-t border-default pt-3 text-sm">
+          <div v-for="row in metadataRows" :key="row.label" class="flex justify-between gap-2">
+            <dt class="text-muted">{{ row.label }}</dt>
+            <dd class="text-right font-medium text-default">{{ row.value }}</dd>
+          </div>
+        </dl>
+      </div>
     </template>
 
     <template #footer>

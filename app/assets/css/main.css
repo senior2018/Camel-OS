@@ -44,13 +44,18 @@
   --ui-text-inverse: #f8fafc;  /* slate-50  — light text on dark assets */
  
   /* Surfaces & layout — Slate */
-  --ui-surface:      #f8fafc;  /* slate-50  — main cards */
+  --ui-surface:      #ffffff;  /* white — main cards */
   --ui-surface-2:    #f1f5f9;  /* slate-100 — secondary structural rows */
   --ui-border:       #e2e8f0;  /* slate-200 — standard container outlines */
   --ui-border-muted: #cbd5e1;  /* slate-300 — deep input borders */
- 
-  /* Backgrounds */
-  --ui-bg:           #f8fafc;  /* slate-50  — app backdrop */
+
+  /* Backgrounds — cards/pages are WHITE; the canvas behind them is a FAINT WARM
+     ORANGE (on-brand), so white sheets lift off it with a premium, warm feel
+     (was cold slate-grey). White cards on a warm canvas = the reference look. */
+  --ui-bg:           #ffffff;  /* white     — cards, sidebar, document pages */
+  --ui-bg-muted:     #fdf6ef;  /* faint orange — app canvas, editor + chat backdrop */
+  --ui-bg-elevated:  #f4e7d6;  /* deeper warm — table/section headers, hover rows */
+  --ui-bg-accented:  #f7e2cd;  /* warm      — accented fills */
   --ui-bg-dark:      #1e293b;  /* slate-800 — sidebars and footer wrappers */
   --ui-ink:          #0f172a;  /* slate-900 — absolute dark regions */
 }

@@ -74,6 +74,28 @@ const behaviorAccent: Record<ProposalBehavior, string> = {
   commenter: 'text-muted',
   viewer: 'text-dimmed',
 }
+// Static colour maps (literal classes so Tailwind keeps them) for the read-only
+// roster's role dots + person avatars.
+const behaviorDot: Record<ProposalBehavior, string> = {
+  lead: 'bg-primary',
+  writer: 'bg-info',
+  reviewer: 'bg-warning',
+  approver: 'bg-success',
+  commenter: 'bg-elevated',
+  viewer: 'bg-elevated',
+}
+const behaviorAvatar: Record<ProposalBehavior, string> = {
+  lead: 'bg-primary/15 text-primary',
+  writer: 'bg-info/15 text-info',
+  reviewer: 'bg-warning/15 text-warning',
+  approver: 'bg-success/15 text-success',
+  commenter: 'bg-elevated text-muted',
+  viewer: 'bg-elevated text-dimmed',
+}
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/)
+  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?'
+}
 
 // Editable draft: one role per person.
 interface DraftRow {
@@ -222,15 +244,30 @@ const grouped = computed(() => {
       </div>
     </div>
 
-    <!-- Everyone else: read-only roster -->
-    <div v-else class="space-y-3">
+    <!-- Everyone else: a clean roster — each person as an avatar chip under
+         their role, laid out in two columns so it fills the width. -->
+    <div v-else class="grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2">
       <div v-for="g in grouped" :key="g.label">
         <div class="flex items-center gap-1.5">
-          <UIcon name="i-lucide-circle" class="size-2" :class="behaviorAccent[g.behavior]" />
-          <p class="text-xs font-semibold uppercase tracking-wide text-muted">{{ g.label }}</p>
-          <span class="text-[10px] text-dimmed">· {{ PROPOSAL_BEHAVIOR_LABEL[g.behavior] }}</span>
+          <span class="size-1.5 rounded-full" :class="behaviorDot[g.behavior]" />
+          <p class="text-xs font-semibold text-default">{{ g.label }}</p>
+          <span class="text-xs text-muted">· {{ PROPOSAL_BEHAVIOR_LABEL[g.behavior] }}</span>
         </div>
-        <p class="mt-0.5 text-sm text-default">{{ g.people.join(', ') }}</p>
+        <div class="mt-2 flex flex-wrap gap-1.5">
+          <div
+            v-for="p in g.people"
+            :key="p"
+            class="flex items-center gap-1.5 rounded-full bg-muted py-1 pl-1 pr-3"
+          >
+            <span
+              class="flex size-6 items-center justify-center rounded-full text-[10px] font-semibold"
+              :class="behaviorAvatar[g.behavior]"
+            >
+              {{ initials(p) }}
+            </span>
+            <span class="text-sm text-default">{{ p }}</span>
+          </div>
+        </div>
       </div>
       <p v-if="!grouped.length" class="text-sm text-muted">No members yet.</p>
     </div>

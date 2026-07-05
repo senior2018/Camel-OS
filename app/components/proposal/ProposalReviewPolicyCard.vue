@@ -102,10 +102,27 @@ async function save() {
       <UButton size="sm" label="Save policy" :loading="saving" @click="save" />
     </div>
 
-    <div v-else class="space-y-1 text-sm text-muted">
-      <p>{{ summary }}</p>
-      <p>Minimum reviewers: {{ minReviewers }}.</p>
-      <p>Final approver: {{ requireFinalApprover ? 'required' : 'not required' }}.</p>
+    <div v-else class="space-y-2.5 text-sm">
+      <div class="flex items-center gap-2">
+        <UIcon name="i-lucide-users" class="size-4 shrink-0 text-muted" />
+        <span class="text-default">{{ summary }}</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <UIcon name="i-lucide-user-check" class="size-4 shrink-0 text-muted" />
+        <span class="text-default">
+          Minimum <span class="font-semibold">{{ minReviewers }}</span> reviewer(s)
+        </span>
+      </div>
+      <div class="flex items-center gap-2">
+        <UIcon
+          :name="requireFinalApprover ? 'i-lucide-shield-check' : 'i-lucide-shield-off'"
+          class="size-4 shrink-0"
+          :class="requireFinalApprover ? 'text-success' : 'text-muted'"
+        />
+        <span class="text-default">
+          Final approver {{ requireFinalApprover ? 'required' : 'not required' }}
+        </span>
+      </div>
     </div>
   </UCard>
 </template>

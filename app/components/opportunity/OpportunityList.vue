@@ -51,7 +51,7 @@ function statusColor(s: OpportunityStatus): 'warning' | 'success' | 'error' {
 </script>
 
 <template>
-  <div class="overflow-x-auto rounded-lg border border-default">
+  <div class="overflow-x-auto rounded-lg border border-default bg-default shadow-sm">
     <table class="w-full text-sm">
       <thead class="bg-elevated/50 text-left">
         <tr>
