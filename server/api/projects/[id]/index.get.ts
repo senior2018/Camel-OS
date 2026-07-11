@@ -47,6 +47,7 @@ export default defineEventHandler(async (event) => {
         pmLastName: users.lastName,
         budgetRevisionStatus: projects.budgetRevisionStatus,
         budgetRevisionNote: projects.budgetRevisionNote,
+        portalToken: projects.portalToken,
         closedAt: projects.closedAt,
         closeChecklist: projects.closeChecklist,
         createdAt: projects.createdAt,

@@ -64,6 +64,20 @@ const navItems = computed(() => {
       active: route.path.startsWith('/projects'),
     })
   }
+  if (can.value('mel', 'read')) {
+    items.push({
+      label: 'Evaluations',
+      to: '/evaluations',
+      icon: 'i-lucide-clipboard-list',
+      active: route.path.startsWith('/evaluations'),
+    })
+    items.push({
+      label: 'Lessons Learned',
+      to: '/lessons',
+      icon: 'i-lucide-lightbulb',
+      active: route.path.startsWith('/lessons'),
+    })
+  }
   if (
     SHOW_COMMUNICATIONS &&
     (can.value('communications', 'create') ||
