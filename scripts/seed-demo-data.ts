@@ -11,10 +11,35 @@ import {
   authAccounts,
   campaignBudgetLines,
   campaigns,
+  certifications,
   clientContacts,
   clientInteractions,
   clientReminders,
   crmLookupValues,
+  departmentalGoals,
+  employeeProfiles,
+  expenseClaims,
+  expertProfiles,
+  individualObjectives,
+  jobApplicants,
+  jobVacancies,
+  leaveRequests,
+  melDataPoints,
+  melEvaluations,
+  melIndicators,
+  melLessons,
+  orgBudgetLines,
+  orgBudgets,
+  performanceReviews,
+  procurementContracts,
+  procurementVendors,
+  purchaseOrderLines,
+  purchaseOrders,
+  rfqs,
+  strategicObjectives,
+  strategyCheckins,
+  strategyKpis,
+  vendorInvoices,
   clients,
   contentComments,
   contentItems,
@@ -318,6 +343,29 @@ async function run() {
   const orgId = org.id
 
   // ── 1) wipe business data (cascades clear children); keep users/roles/lookups ──
+  // S16–S23 modules first (some reference projects / carry unique keys).
+  for (const t of [
+    melDataPoints,
+    melIndicators,
+    melEvaluations,
+    melLessons,
+    orgBudgets,
+    expenseClaims,
+    vendorInvoices,
+    purchaseOrders,
+    procurementVendors,
+    rfqs,
+    procurementContracts,
+    leaveRequests,
+    certifications,
+    jobVacancies,
+    performanceReviews,
+    expertProfiles,
+    employeeProfiles,
+    strategicObjectives,
+  ]) {
+    await db.delete(t).where(eq(t.organizationId, orgId))
+  }
   await db.delete(opportunities).where(eq(opportunities.organizationId, orgId))
   await db.delete(clients).where(eq(clients.organizationId, orgId))
   await db.delete(projects).where(eq(projects.organizationId, orgId))
@@ -1908,7 +1956,7 @@ async function run() {
     return pid
   }
 
-  await seedDemoProject({
+  const demoP1 = await seedDemoProject({
     name: 'DEMO — Coastal Resilience Programme',
     code: 'DEMO-001',
     pm: demoPaul,
@@ -1916,7 +1964,7 @@ async function run() {
     revision: 'pending',
     closed: false,
   })
-  await seedDemoProject({
+  const demoP2 = await seedDemoProject({
     name: 'DEMO — Youth Skills Initiative',
     code: 'DEMO-002',
     pm: demoPriya,
@@ -1933,6 +1981,546 @@ async function run() {
     closed: true,
   })
   consola.success('Projects: 3 deterministic DEMO projects seeded (full coverage).')
+
+  // ── Demo data for S16–S23 modules (MEL, HR, Strategy, Finance, Procurement) ──
+  const frank = userIdByEmail.get('frank@camel-os.com')!
+  const hannah = userIdByEmail.get('hannah@camel-os.com')!
+  const david = userIdByEmail.get('david@camel-os.com')!
+  const sam = userIdByEmail.get('sam@camel-os.com')!
+  const grace = userIdByEmail.get('grace@camel-os.com')!
+  const james = userIdByEmail.get('james@camel-os.com')!
+  const year = new Date().getFullYear()
+
+  // ── S16 MEL — results framework + data + evaluation + lessons (on DEMO-001) ──
+  const melDefs = [
+    {
+      level: 'goal' as const,
+      name: 'Coastal communities more resilient to climate shocks',
+      unit: 'index',
+      baseline: '42',
+      target: '70',
+    },
+    {
+      level: 'outcome' as const,
+      name: 'Households adopting climate-smart practices',
+      unit: '%',
+      baseline: '15',
+      target: '60',
+    },
+    {
+      level: 'output' as const,
+      name: 'Farmers trained on climate-smart agriculture',
+      unit: 'people',
+      baseline: '0',
+      target: '1200',
+    },
+  ]
+  for (let i = 0; i < melDefs.length; i++) {
+    const d = melDefs[i]!
+    const [ind] = await db
+      .insert(melIndicators)
+      .values({
+        organizationId: orgId,
+        projectId: demoP1,
+        level: d.level,
+        name: d.name,
+        unit: d.unit,
+        baseline: d.baseline,
+        target: d.target,
+        frequency: 'Quarterly',
+        dataSource: 'Field survey',
+        orderIndex: i,
+      })
+      .returning({ id: melIndicators.id })
+    for (let q = 0; q < 3; q++) {
+      await db.insert(melDataPoints).values({
+        organizationId: orgId,
+        projectId: demoP1,
+        indicatorId: ind!.id,
+        periodDate: isoDate(daysFromNow(-90 + q * 30)),
+        value: String(Number(d.baseline) + ((Number(d.target) - Number(d.baseline)) * (q + 1)) / 5),
+        note: `Q${q + 1} measurement`,
+        enteredByUserId: demoPaul,
+      })
+    }
+  }
+  await db.insert(melEvaluations).values({
+    organizationId: orgId,
+    projectId: demoP1,
+    title: 'Mid-term Evaluation — Coastal Resilience',
+    description: 'Independent mid-term review of programme outcomes.',
+    status: 'open',
+    createdByUserId: demoPaul,
+  })
+  await db.insert(melLessons).values([
+    {
+      organizationId: orgId,
+      projectId: demoP1,
+      title: 'Community radio boosted training turnout',
+      description: 'Partnering with local radio raised attendance by 40%.',
+      sector: 'Agriculture',
+      tags: ['communications', 'engagement'],
+      createdByUserId: demoPaul,
+    },
+    {
+      organizationId: orgId,
+      projectId: demoP2,
+      title: 'Digital stipends reduced dropout',
+      description: 'Mobile-money stipends cut youth dropout materially.',
+      sector: 'Employment',
+      tags: ['fintech', 'retention'],
+      createdByUserId: demoPriya,
+    },
+  ])
+
+  // ── S21 Finance — active budget + expense claims + vendor invoices ──
+  const [budget] = await db
+    .insert(orgBudgets)
+    .values({
+      organizationId: orgId,
+      fiscalYear: year,
+      name: `Annual Operating Budget ${year}`,
+      status: 'active',
+      currency: 'USD',
+      createdByUserId: frank,
+    })
+    .returning({ id: orgBudgets.id })
+  await db.insert(orgBudgetLines).values(
+    [
+      { category: 'Personnel', allocatedAmount: '1200000' },
+      { category: 'Travel & subsistence', allocatedAmount: '300000' },
+      { category: 'Equipment', allocatedAmount: '180000' },
+      { category: 'Subcontractors', allocatedAmount: '250000' },
+      { category: 'Operations', allocatedAmount: '150000' },
+    ].map((l) => ({
+      budgetId: budget!.id,
+      organizationId: orgId,
+      category: l.category,
+      allocatedAmount: l.allocatedAmount,
+    }))
+  )
+  await db.insert(expenseClaims).values([
+    {
+      organizationId: orgId,
+      claimantUserId: sam,
+      title: 'Client workshop travel — Mwanza',
+      category: 'Travel & subsistence',
+      amount: '1250',
+      currency: 'USD',
+      incurredDate: isoDate(daysFromNow(-20)),
+      status: 'paid',
+      projectId: demoP1,
+      reviewedByUserId: frank,
+      submittedAt: daysFromNow(-18),
+      reviewedAt: daysFromNow(-15),
+      paidAt: daysFromNow(-10),
+    },
+    {
+      organizationId: orgId,
+      claimantUserId: grace,
+      title: 'Field data bundles',
+      category: 'Operations',
+      amount: '340',
+      currency: 'USD',
+      incurredDate: isoDate(daysFromNow(-8)),
+      status: 'submitted',
+      projectId: demoP1,
+      submittedAt: daysFromNow(-7),
+    },
+    {
+      organizationId: orgId,
+      claimantUserId: james,
+      title: 'Conference registration',
+      category: 'Travel & subsistence',
+      amount: '600',
+      currency: 'USD',
+      incurredDate: isoDate(daysFromNow(-5)),
+      status: 'draft',
+    },
+  ])
+  await db.insert(vendorInvoices).values([
+    {
+      organizationId: orgId,
+      vendorName: 'Savannah Data Co',
+      invoiceNumber: 'INV-2045',
+      amount: '18000',
+      currency: 'USD',
+      invoiceDate: isoDate(daysFromNow(-25)),
+      dueDate: isoDate(daysFromNow(5)),
+      poReference: 'PO-2026-001',
+      budgetCategory: 'Subcontractors',
+      projectId: demoP1,
+      status: 'approved',
+      createdByUserId: frank,
+    },
+    {
+      organizationId: orgId,
+      vendorName: 'Rift Logistics',
+      invoiceNumber: 'RL-8890',
+      amount: '4200',
+      currency: 'USD',
+      invoiceDate: isoDate(daysFromNow(-12)),
+      budgetCategory: 'Operations',
+      status: 'paid',
+      createdByUserId: frank,
+      paidAt: daysFromNow(-3),
+    },
+  ])
+
+  // ── S23 Procurement — vendors, POs (+lines), RFQ, contracts ──
+  const vendorRows = await db
+    .insert(procurementVendors)
+    .values([
+      {
+        organizationId: orgId,
+        name: 'Savannah Data Co',
+        category: 'Data & research',
+        contactName: 'A. Mwangi',
+        contactEmail: 'sales@savannahdata.co',
+        status: 'active',
+        complianceDocUrl: 'https://example.com/compliance/savannah.pdf',
+      },
+      {
+        organizationId: orgId,
+        name: 'Rift Logistics',
+        category: 'Logistics',
+        contactName: 'B. Otieno',
+        contactEmail: 'ops@riftlogistics.co',
+        status: 'active',
+      },
+      {
+        organizationId: orgId,
+        name: 'Coastal Translators',
+        category: 'Translation',
+        contactName: 'C. Juma',
+        status: 'inactive',
+      },
+    ])
+    .returning({ id: procurementVendors.id, name: procurementVendors.name })
+  const poDefs = [
+    {
+      poNumber: 'PO-2026-001',
+      vendor: vendorRows[0]!,
+      title: 'Enumerator hire & data entry',
+      status: 'committed' as const,
+      cat: 'Subcontractors',
+      proj: demoP1,
+      lines: [
+        { d: 'Enumerators (20 × 10 days)', q: '200', u: '80' },
+        { d: 'Data entry', q: '1', u: '2000' },
+      ],
+    },
+    {
+      poNumber: 'PO-2026-002',
+      vendor: vendorRows[1]!,
+      title: 'Field transport — Q2',
+      status: 'approved' as const,
+      cat: 'Operations',
+      proj: demoP2,
+      lines: [{ d: 'Vehicle hire (30 days)', q: '30', u: '120' }],
+    },
+  ]
+  for (const p of poDefs) {
+    const total = p.lines.reduce((s, l) => s + Number(l.q) * Number(l.u), 0)
+    const [po] = await db
+      .insert(purchaseOrders)
+      .values({
+        organizationId: orgId,
+        poNumber: p.poNumber,
+        vendorId: p.vendor.id,
+        title: p.title,
+        amount: String(total),
+        currency: 'USD',
+        budgetCategory: p.cat,
+        projectId: p.proj,
+        status: p.status,
+        orderedDate: isoDate(daysFromNow(-30)),
+        createdByUserId: frank,
+        approvedByUserId: david,
+      })
+      .returning({ id: purchaseOrders.id })
+    await db.insert(purchaseOrderLines).values(
+      p.lines.map((l) => ({
+        poId: po!.id,
+        description: l.d,
+        quantity: l.q,
+        unitPrice: l.u,
+        amount: String(Number(l.q) * Number(l.u)),
+      }))
+    )
+  }
+  await db.insert(rfqs).values({
+    organizationId: orgId,
+    title: 'RFQ — Printing of training manuals',
+    description: '5,000 copies, full colour.',
+    dueDate: isoDate(daysFromNow(7)),
+    status: 'open',
+    invitedVendors: ['Savannah Data Co', 'Coastal Translators', 'PrintRight Ltd'],
+    responses: [{ vendor: 'PrintRight Ltd', amount: 8200, note: 'incl. delivery' }],
+    createdByUserId: frank,
+  })
+  await db.insert(procurementContracts).values([
+    {
+      organizationId: orgId,
+      vendorId: vendorRows[0]!.id,
+      vendorName: vendorRows[0]!.name,
+      title: 'Master Data Services Agreement',
+      value: '120000',
+      currency: 'USD',
+      startDate: isoDate(daysFromNow(-200)),
+      endDate: isoDate(daysFromNow(160)),
+      status: 'active',
+      documentUrl: 'https://example.com/contracts/savannah-msa.pdf',
+    },
+    {
+      organizationId: orgId,
+      vendorId: vendorRows[1]!.id,
+      vendorName: vendorRows[1]!.name,
+      title: 'Logistics Framework Contract',
+      value: '60000',
+      currency: 'USD',
+      startDate: isoDate(daysFromNow(-100)),
+      endDate: isoDate(daysFromNow(20)),
+      status: 'expiring',
+    },
+  ])
+
+  // ── S17–S19 HR — employee profiles, leave, certs, vacancy, applicants, review, experts ──
+  const staffHr = [
+    { id: sam, title: 'Senior Consultant', dept: 'Delivery', mgr: demoPaul, salary: '52000' },
+    { id: grace, title: 'M&E Specialist', dept: 'Delivery', mgr: demoPaul, salary: '46000' },
+    { id: james, title: 'Analyst', dept: 'Delivery', mgr: demoPriya, salary: '38000' },
+    { id: demoPriya, title: 'Consultant', dept: 'Delivery', mgr: david, salary: '50000' },
+  ]
+  for (const s of staffHr) {
+    await db.insert(employeeProfiles).values({
+      organizationId: orgId,
+      userId: s.id,
+      jobTitle: s.title,
+      department: s.dept,
+      employmentType: 'full_time',
+      status: 'active',
+      managerUserId: s.mgr,
+      startDate: isoDate(daysFromNow(-400 - rand(300))),
+      annualLeaveEntitlement: '25.0',
+      baseSalary: s.salary,
+      currency: 'USD',
+    })
+  }
+  await db.insert(leaveRequests).values([
+    {
+      organizationId: orgId,
+      userId: sam,
+      type: 'annual',
+      startDate: isoDate(daysFromNow(14)),
+      endDate: isoDate(daysFromNow(18)),
+      days: '5.0',
+      reason: 'Family holiday',
+      status: 'pending',
+    },
+    {
+      organizationId: orgId,
+      userId: grace,
+      type: 'sick',
+      startDate: isoDate(daysFromNow(-10)),
+      endDate: isoDate(daysFromNow(-9)),
+      days: '2.0',
+      reason: 'Flu',
+      status: 'approved',
+      reviewedByUserId: hannah,
+      reviewedAt: daysFromNow(-11),
+    },
+  ])
+  await db.insert(certifications).values([
+    {
+      organizationId: orgId,
+      userId: sam,
+      name: 'PRINCE2 Practitioner',
+      issuer: 'Axelos',
+      kind: 'certification',
+      issuedDate: isoDate(daysFromNow(-500)),
+      expiryDate: isoDate(daysFromNow(200)),
+    },
+    {
+      organizationId: orgId,
+      userId: grace,
+      name: 'Data Protection (GDPR)',
+      issuer: 'IAPP',
+      kind: 'certification',
+      issuedDate: isoDate(daysFromNow(-300)),
+      expiryDate: isoDate(daysFromNow(60)),
+    },
+  ])
+  const [vacancy] = await db
+    .insert(jobVacancies)
+    .values({
+      organizationId: orgId,
+      title: 'Monitoring & Evaluation Officer',
+      department: 'Delivery',
+      description: 'Lead M&E across coastal programmes.',
+      employmentType: 'full_time',
+      location: 'Dar es Salaam',
+      openings: 2,
+      status: 'open',
+      closingDate: isoDate(daysFromNow(21)),
+      postedByUserId: hannah,
+    })
+    .returning({ id: jobVacancies.id })
+  await db.insert(jobApplicants).values([
+    {
+      organizationId: orgId,
+      vacancyId: vacancy!.id,
+      name: 'Amina Hassan',
+      email: 'amina@example.com',
+      stage: 'interview',
+      rating: 4,
+    },
+    {
+      organizationId: orgId,
+      vacancyId: vacancy!.id,
+      name: 'John Baraka',
+      email: 'john@example.com',
+      stage: 'screening',
+      rating: 3,
+    },
+  ])
+  await db.insert(performanceReviews).values({
+    organizationId: orgId,
+    subjectUserId: sam,
+    periodLabel: `${year} Mid-year`,
+    status: 'collecting',
+    overallRating: 4,
+    summary: 'Strong delivery; grow client-facing leadership.',
+    createdByUserId: hannah,
+  })
+  await db.insert(expertProfiles).values([
+    {
+      organizationId: orgId,
+      userId: sam,
+      headline: 'Climate resilience & M&E specialist',
+      summary: '10+ years in climate-adaptation programming across East Africa.',
+      yearsExperience: 11,
+      dailyRate: '650',
+      currency: 'USD',
+      availability: 'available',
+      skills: ['M&E', 'Climate adaptation', 'Survey design'],
+      sectors: ['Agriculture', 'Environment'],
+    },
+    {
+      organizationId: orgId,
+      userId: grace,
+      headline: 'Data & evaluation analyst',
+      summary: 'Mixed-methods evaluation and data systems.',
+      yearsExperience: 6,
+      dailyRate: '480',
+      currency: 'USD',
+      availability: 'partially_available',
+      skills: ['Statistics', 'Power BI', 'Qualitative analysis'],
+      sectors: ['Health', 'Employment'],
+    },
+  ])
+
+  // ── S20 Strategy — objectives, KPIs, goals, individual objectives, check-ins ──
+  const objDefs = [
+    {
+      title: 'Grow programme portfolio sustainably',
+      theme: 'Growth',
+      owner: david,
+      status: 'on_track' as const,
+      kpis: [
+        {
+          name: 'Annual revenue',
+          unit: 'USD',
+          b: '4200000',
+          t: '6000000',
+          c: '4800000',
+          dir: 'increase' as const,
+        },
+        {
+          name: 'Active projects',
+          unit: 'count',
+          b: '12',
+          t: '20',
+          c: '15',
+          dir: 'increase' as const,
+        },
+      ],
+    },
+    {
+      title: 'Be an employer of choice',
+      theme: 'People',
+      owner: hannah,
+      status: 'at_risk' as const,
+      kpis: [
+        { name: 'Staff retention', unit: '%', b: '78', t: '90', c: '82', dir: 'increase' as const },
+        {
+          name: 'Avg. time-to-hire',
+          unit: 'days',
+          b: '55',
+          t: '35',
+          c: '48',
+          dir: 'decrease' as const,
+        },
+      ],
+    },
+  ]
+  for (const o of objDefs) {
+    const [obj] = await db
+      .insert(strategicObjectives)
+      .values({
+        organizationId: orgId,
+        year,
+        title: o.title,
+        theme: o.theme,
+        ownerUserId: o.owner,
+        manualStatus: o.status,
+        createdByUserId: david,
+      })
+      .returning({ id: strategicObjectives.id })
+    await db.insert(strategyKpis).values(
+      o.kpis.map((k) => ({
+        organizationId: orgId,
+        objectiveId: obj!.id,
+        name: k.name,
+        unit: k.unit,
+        baseline: k.b,
+        target: k.t,
+        current: k.c,
+        direction: k.dir,
+      }))
+    )
+    const [goal] = await db
+      .insert(departmentalGoals)
+      .values({
+        organizationId: orgId,
+        objectiveId: obj!.id,
+        title: `${o.theme} — departmental plan`,
+        department: 'Delivery',
+        ownerUserId: o.owner,
+        progressPct: 45,
+        status: o.status,
+        dueDate: isoDate(daysFromNow(120)),
+        createdByUserId: david,
+      })
+      .returning({ id: departmentalGoals.id })
+    await db.insert(individualObjectives).values({
+      organizationId: orgId,
+      goalId: goal!.id,
+      userId: sam,
+      title: `Deliver ${o.theme.toLowerCase()} initiatives`,
+      progressPct: 50,
+      status: 'on_track',
+      dueDate: isoDate(daysFromNow(90)),
+    })
+    await db.insert(strategyCheckins).values({
+      organizationId: orgId,
+      objectiveId: obj!.id,
+      summary: 'On track against most KPIs; monitoring the at-risk metric.',
+      ragStatus: o.status,
+      createdByUserId: o.owner,
+    })
+  }
+  consola.success('Modules: MEL, HR, Strategy, Finance & Procurement demo data seeded.')
 
   consola.box(
     [
