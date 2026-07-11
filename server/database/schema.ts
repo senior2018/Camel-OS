@@ -1939,6 +1939,13 @@ export const projectReports = pgTable(
 )
 
 // PJ-06 — lightweight timesheet entries (the full TS module, S18–S19, extends this).
+export const timesheetStatusEnum = pgEnum('timesheet_status', [
+  'draft',
+  'submitted',
+  'approved',
+  'rejected',
+])
+
 export const timesheetEntries = pgTable(
   'timesheet_entries',
   {
@@ -1946,21 +1953,33 @@ export const timesheetEntries = pgTable(
     organizationId: uuid('organization_id')
       .notNull()
       .references(() => organizations.id, { onDelete: 'cascade' }),
-    projectId: uuid('project_id')
-      .notNull()
-      .references(() => projects.id, { onDelete: 'cascade' }),
+    // Nullable: internal (non-project) tasks carry a free-text taskLabel instead.
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
     activityId: uuid('activity_id').references(() => projectActivities.id, {
       onDelete: 'set null',
     }),
+    taskLabel: text('task_label'),
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     entryDate: date('entry_date').notNull(),
+    // Monday of entryDate's week — groups entries into a submittable timesheet.
+    weekStartDate: date('week_start_date'),
     hours: numeric({ precision: 5, scale: 2 }).notNull(),
     note: text(),
+    status: timesheetStatusEnum().notNull().default('draft'),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    reviewedByUserId: uuid('reviewed_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    decisionNote: text('decision_note'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [index('timesheet_entries_project_idx').on(table.projectId)]
+  (table) => [
+    index('timesheet_entries_project_idx').on(table.projectId),
+    index('timesheet_entries_user_week_idx').on(table.userId, table.weekStartDate),
+  ]
 )
 
 // CR-10 — Donor ↔ project pivot. Funding amount is per-link (the same donor may
@@ -2377,4 +2396,370 @@ export const melLessons = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [index('mel_lessons_org_idx').on(table.organizationId)]
+)
+
+// ─── HR & Expert Database (S17–S19) ──────────────────────────────────────────
+
+export const employmentTypeEnum = pgEnum('employment_type', [
+  'full_time',
+  'part_time',
+  'contract',
+  'consultant',
+  'intern',
+])
+export const employeeStatusEnum = pgEnum('employee_status', [
+  'active',
+  'on_leave',
+  'suspended',
+  'terminated',
+])
+export const leaveTypeEnum = pgEnum('leave_type', [
+  'annual',
+  'sick',
+  'unpaid',
+  'maternity',
+  'paternity',
+  'compassionate',
+  'study',
+])
+export const leaveStatusEnum = pgEnum('leave_status', [
+  'pending',
+  'approved',
+  'rejected',
+  'cancelled',
+])
+export const expertAvailabilityEnum = pgEnum('expert_availability', [
+  'available',
+  'partially_available',
+  'unavailable',
+])
+
+// HR-01 — one personnel file per employee.
+export const employeeProfiles = pgTable(
+  'employee_profiles',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    employeeNumber: text('employee_number'),
+    jobTitle: text('job_title'),
+    department: text(),
+    employmentType: employmentTypeEnum('employment_type').notNull().default('full_time'),
+    status: employeeStatusEnum().notNull().default('active'),
+    managerUserId: uuid('manager_user_id').references(() => users.id, { onDelete: 'set null' }),
+    startDate: date('start_date'),
+    endDate: date('end_date'),
+    dateOfBirth: date('date_of_birth'),
+    nationalId: text('national_id'),
+    phone: text(),
+    address: text(),
+    emergencyContactName: text('emergency_contact_name'),
+    emergencyContactPhone: text('emergency_contact_phone'),
+    // HR-03 — annual entitlement, in days; balance is this minus approved leave.
+    annualLeaveEntitlement: numeric('annual_leave_entitlement', { precision: 5, scale: 1 })
+      .notNull()
+      .default('21'),
+    baseSalary: numeric('base_salary', { precision: 14, scale: 2 }),
+    currency: varchar('currency', { length: 3 }).notNull().default('USD'),
+    notes: text(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    unique('employee_profiles_user_unique').on(table.userId),
+    index('employee_profiles_org_idx').on(table.organizationId),
+  ]
+)
+
+// HR-03 / HR-04 — leave requests; the team calendar is derived from approved rows.
+export const leaveRequests = pgTable(
+  'leave_requests',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: leaveTypeEnum().notNull().default('annual'),
+    startDate: date('start_date').notNull(),
+    endDate: date('end_date').notNull(),
+    days: numeric('days', { precision: 5, scale: 1 }).notNull(),
+    reason: text(),
+    status: leaveStatusEnum().notNull().default('pending'),
+    reviewedByUserId: uuid('reviewed_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    decisionNote: text('decision_note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('leave_requests_org_idx').on(table.organizationId),
+    index('leave_requests_user_idx').on(table.userId),
+  ]
+)
+
+// HR-07 — certifications & training with expiry tracking.
+export const certifications = pgTable(
+  'certifications',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text().notNull(),
+    issuer: text(),
+    // 'certification' | 'training' — drives the badge/filter, not a hard enum
+    // so orgs can add their own categories without a migration.
+    kind: text().notNull().default('certification'),
+    issuedDate: date('issued_date'),
+    expiryDate: date('expiry_date'),
+    credentialId: text('credential_id'),
+    notes: text(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('certifications_org_idx').on(table.organizationId),
+    index('certifications_user_idx').on(table.userId),
+  ]
+)
+
+// EX-01 / EX-02 / EX-03 — expert profile (one per consultant) with virtual CV
+// sections stored as JSONB and searchable skill/language/sector arrays.
+export const expertProfiles = pgTable(
+  'expert_profiles',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    headline: text(),
+    summary: text(),
+    yearsExperience: integer('years_experience'),
+    dailyRate: numeric('daily_rate', { precision: 12, scale: 2 }),
+    currency: varchar('currency', { length: 3 }).notNull().default('USD'),
+    availability: expertAvailabilityEnum().notNull().default('available'),
+    skills: jsonb().$type<string[]>().notNull().default([]),
+    languages: jsonb().$type<{ language: string; proficiency: string }[]>().notNull().default([]),
+    sectors: jsonb().$type<string[]>().notNull().default([]),
+    countries: jsonb().$type<string[]>().notNull().default([]),
+    // EX-02 — virtual CV sections.
+    education: jsonb()
+      .$type<{ institution: string; qualification: string; year?: string }[]>()
+      .notNull()
+      .default([]),
+    experience: jsonb()
+      .$type<
+        {
+          role: string
+          organization: string
+          startYear?: string
+          endYear?: string
+          description?: string
+        }[]
+      >()
+      .notNull()
+      .default([]),
+    // EX-05 (S18) — assignment history, appended when assigned to a project.
+    assignmentHistory: jsonb()
+      .$type<
+        {
+          projectId?: string
+          projectName: string
+          role?: string
+          startDate?: string
+          endDate?: string
+        }[]
+      >()
+      .notNull()
+      .default([]),
+    linkedinUrl: text('linkedin_url'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    unique('expert_profiles_user_unique').on(table.userId),
+    index('expert_profiles_org_idx').on(table.organizationId),
+  ]
+)
+
+export type EmployeeProfile = typeof employeeProfiles.$inferSelect
+export type NewEmployeeProfile = typeof employeeProfiles.$inferInsert
+export type LeaveRequest = typeof leaveRequests.$inferSelect
+export type NewLeaveRequest = typeof leaveRequests.$inferInsert
+export type Certification = typeof certifications.$inferSelect
+export type NewCertification = typeof certifications.$inferInsert
+export type ExpertProfile = typeof expertProfiles.$inferSelect
+export type NewExpertProfile = typeof expertProfiles.$inferInsert
+
+// EX-06 — Personal Growth Plan (one per staff member, upserted).
+export const growthPlans = pgTable(
+  'growth_plans',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    periodLabel: text('period_label'),
+    goals: jsonb()
+      .$type<
+        {
+          area: string
+          objective: string
+          actions?: string
+          targetDate?: string
+          status: 'not_started' | 'in_progress' | 'achieved'
+        }[]
+      >()
+      .notNull()
+      .default([]),
+    reviewNotes: text('review_notes'),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    unique('growth_plans_user_unique').on(table.userId),
+    index('growth_plans_org_idx').on(table.organizationId),
+  ]
+)
+
+export type GrowthPlan = typeof growthPlans.$inferSelect
+export type NewGrowthPlan = typeof growthPlans.$inferInsert
+
+// ─── Recruitment (HR-02) & Performance reviews (HR-05) — S19 ─────────────────
+
+export const vacancyStatusEnum = pgEnum('vacancy_status', ['open', 'on_hold', 'closed', 'filled'])
+export const applicantStageEnum = pgEnum('applicant_stage', [
+  'applied',
+  'screening',
+  'interview',
+  'offer',
+  'hired',
+  'rejected',
+])
+export const performanceReviewStatusEnum = pgEnum('performance_review_status', [
+  'draft',
+  'collecting',
+  'completed',
+])
+export const feedbackRelationshipEnum = pgEnum('feedback_relationship', [
+  'self',
+  'manager',
+  'peer',
+  'report',
+])
+
+// HR-02 — job vacancy + its applicant pipeline.
+export const jobVacancies = pgTable(
+  'job_vacancies',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    title: text().notNull(),
+    department: text(),
+    description: text(),
+    employmentType: employmentTypeEnum('employment_type').notNull().default('full_time'),
+    location: text(),
+    openings: integer().notNull().default(1),
+    status: vacancyStatusEnum().notNull().default('open'),
+    closingDate: date('closing_date'),
+    postedByUserId: uuid('posted_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('job_vacancies_org_idx').on(table.organizationId)]
+)
+
+export const jobApplicants = pgTable(
+  'job_applicants',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    vacancyId: uuid('vacancy_id')
+      .notNull()
+      .references(() => jobVacancies.id, { onDelete: 'cascade' }),
+    name: text().notNull(),
+    email: text(),
+    phone: text(),
+    cvUrl: text('cv_url'),
+    stage: applicantStageEnum().notNull().default('applied'),
+    rating: integer(),
+    notes: text(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('job_applicants_vacancy_idx').on(table.vacancyId)]
+)
+
+// HR-05 — a performance review for one subject, gathering 360° feedback.
+export const performanceReviews = pgTable(
+  'performance_reviews',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    subjectUserId: uuid('subject_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    periodLabel: text('period_label'),
+    status: performanceReviewStatusEnum().notNull().default('draft'),
+    overallRating: integer('overall_rating'),
+    summary: text(),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('performance_reviews_org_idx').on(table.organizationId)]
+)
+
+export const performanceFeedback = pgTable(
+  'performance_feedback',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    reviewId: uuid('review_id')
+      .notNull()
+      .references(() => performanceReviews.id, { onDelete: 'cascade' }),
+    reviewerUserId: uuid('reviewer_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    relationship: feedbackRelationshipEnum().notNull().default('peer'),
+    rating: integer(),
+    strengths: text(),
+    improvements: text(),
+    comments: text(),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    unique('performance_feedback_review_reviewer_unique').on(table.reviewId, table.reviewerUserId),
+    index('performance_feedback_review_idx').on(table.reviewId),
+  ]
 )

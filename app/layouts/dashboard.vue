@@ -119,6 +119,42 @@ const navItems = computed(() => {
         route.path === '/reports/crm-activity',
     })
   }
+  // HR & Expert Database (S17–S19)
+  if (can.value('hr', 'read')) {
+    items.push({
+      label: 'People',
+      to: '/hr',
+      icon: 'i-lucide-users-round',
+      active: route.path === '/hr' || /^\/hr\//.test(route.path),
+    })
+    items.push({
+      label: 'Expert Database',
+      to: '/experts',
+      icon: 'i-lucide-graduation-cap',
+      active: route.path === '/experts' || route.path.startsWith('/experts/'),
+    })
+  }
+  if (can.value('timesheet', 'read') || can.value('timesheet', 'create')) {
+    items.push({
+      label: 'Timesheets',
+      to: '/timesheets',
+      icon: 'i-lucide-clock',
+      active: route.path.startsWith('/timesheets'),
+    })
+  }
+  // Personal entries — every authenticated staff member.
+  items.push({
+    label: 'My Leave',
+    to: '/leave',
+    icon: 'i-lucide-palmtree',
+    active: route.path === '/leave',
+  })
+  items.push({
+    label: 'My Expert Profile',
+    to: '/experts/me',
+    icon: 'i-lucide-id-card',
+    active: route.path === '/experts/me',
+  })
   return items
 })
 
