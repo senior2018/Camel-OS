@@ -3036,3 +3036,165 @@ export const vendorInvoices = pgTable(
   },
   (table) => [index('vendor_invoices_org_idx').on(table.organizationId)]
 )
+
+// ─── Procurement (S23, PR-01..08) ────────────────────────────────────────────
+export const poStatusEnum = pgEnum('po_status', [
+  'draft',
+  'approved',
+  'committed',
+  'received',
+  'closed',
+  'cancelled',
+])
+export const procurementVendorStatusEnum = pgEnum('procurement_vendor_status', [
+  'active',
+  'inactive',
+])
+export const rfqStatusEnum = pgEnum('rfq_status', ['open', 'closed', 'awarded'])
+export const procurementContractStatusEnum = pgEnum('procurement_contract_status', [
+  'active',
+  'expiring',
+  'expired',
+  'terminated',
+])
+
+// PR-02 — org-level vendor register with compliance documentation.
+export const procurementVendors = pgTable(
+  'procurement_vendors',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    name: text().notNull(),
+    category: text(),
+    contactName: text('contact_name'),
+    contactEmail: text('contact_email'),
+    phone: text(),
+    taxId: text('tax_id'),
+    complianceDocUrl: text('compliance_doc_url'),
+    status: procurementVendorStatusEnum().notNull().default('active'),
+    notes: text(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('procurement_vendors_org_idx').on(table.organizationId)]
+)
+
+// PR-01/06 — purchase orders through their lifecycle, optionally linked to a
+// budget category and a project. `committed` feeds Finance (PR-05).
+export const purchaseOrders = pgTable(
+  'purchase_orders',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    poNumber: text('po_number').notNull(),
+    vendorId: uuid('vendor_id').references(() => procurementVendors.id, { onDelete: 'set null' }),
+    title: text().notNull(),
+    amount: numeric({ precision: 16, scale: 2 }).notNull().default('0'),
+    currency: varchar({ length: 3 }).notNull().default('USD'),
+    budgetCategory: text('budget_category'),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
+    status: poStatusEnum().notNull().default('draft'),
+    orderedDate: date('ordered_date'),
+    expectedDate: date('expected_date'),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    approvedByUserId: uuid('approved_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    unique('purchase_orders_org_number_uq').on(table.organizationId, table.poNumber),
+    index('purchase_orders_org_idx').on(table.organizationId),
+  ]
+)
+
+export const purchaseOrderLines = pgTable(
+  'purchase_order_lines',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    poId: uuid('po_id')
+      .notNull()
+      .references(() => purchaseOrders.id, { onDelete: 'cascade' }),
+    description: text().notNull(),
+    quantity: numeric({ precision: 12, scale: 2 }).notNull().default('1'),
+    unitPrice: numeric('unit_price', { precision: 16, scale: 2 }).notNull().default('0'),
+    amount: numeric({ precision: 16, scale: 2 }).notNull().default('0'),
+  },
+  (table) => [index('purchase_order_lines_po_idx').on(table.poId)]
+)
+
+// PR-04 — delivery receipts against open POs.
+export const deliveryReceipts = pgTable(
+  'delivery_receipts',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    poId: uuid('po_id')
+      .notNull()
+      .references(() => purchaseOrders.id, { onDelete: 'cascade' }),
+    receivedDate: date('received_date').notNull(),
+    complete: boolean().notNull().default(true),
+    note: text(),
+    receivedByUserId: uuid('received_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('delivery_receipts_po_idx').on(table.poId)]
+)
+
+// PR-03 — RFQs to multiple vendors; responses recorded inline.
+export const rfqs = pgTable(
+  'rfqs',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    title: text().notNull(),
+    description: text(),
+    dueDate: date('due_date'),
+    status: rfqStatusEnum().notNull().default('open'),
+    invitedVendors: jsonb('invited_vendors').$type<string[]>().notNull().default([]),
+    responses: jsonb()
+      .$type<{ vendor: string; amount: number; note?: string }[]>()
+      .notNull()
+      .default([]),
+    awardedVendor: text('awarded_vendor'),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('rfqs_org_idx').on(table.organizationId)]
+)
+
+// PR-08 — contract register for all vendor contracts.
+export const procurementContracts = pgTable(
+  'procurement_contracts',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    vendorId: uuid('vendor_id').references(() => procurementVendors.id, { onDelete: 'set null' }),
+    vendorName: text('vendor_name'),
+    title: text().notNull(),
+    value: numeric({ precision: 16, scale: 2 }),
+    currency: varchar({ length: 3 }).notNull().default('USD'),
+    startDate: date('start_date'),
+    endDate: date('end_date'),
+    status: procurementContractStatusEnum().notNull().default('active'),
+    documentUrl: text('document_url'),
+    note: text(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('procurement_contracts_org_idx').on(table.organizationId)]
+)

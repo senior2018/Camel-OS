@@ -176,6 +176,13 @@
       "when": 1783812378480,
       "tag": "0024_dizzy_ultron",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1783813020754,
+      "tag": "0025_military_stepford_cuckoos",
+      "breakpoints": true
     }
   ]
 }

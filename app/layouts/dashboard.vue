@@ -151,6 +151,15 @@ const navItems = computed(() => {
       active: route.path.startsWith('/finance'),
     })
   }
+  // Procurement (S23)
+  if (can.value('procurement', 'read')) {
+    items.push({
+      label: 'Procurement',
+      to: '/procurement',
+      icon: 'i-lucide-shopping-cart',
+      active: route.path.startsWith('/procurement'),
+    })
+  }
   // Personal entries — every authenticated staff member.
   items.push({
     label: 'My Leave',

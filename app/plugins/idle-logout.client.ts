@@ -73,7 +73,12 @@ export default defineNuxtPlugin((nuxtApp) => {
     // Keep the server session warm while the user is genuinely active.
     if (now - lastBeat > HEARTBEAT_THROTTLE_MS) {
       lastBeat = now
-      $fetch('/api/auth/heartbeat').catch(() => {})
+      // Cast $fetch to a plain function so TS doesn't resolve the path against
+      // the (now very large) generated route union — avoids a deep
+      // type-instantiation error.
+      void (globalThis.$fetch as (url: string) => Promise<unknown>)('/api/auth/heartbeat').catch(
+        () => {}
+      )
     }
     if (now - lastReset < RESET_THROTTLE_MS) return
     lastReset = now
