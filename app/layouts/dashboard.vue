@@ -155,6 +155,15 @@ const navItems = computed(() => {
     icon: 'i-lucide-id-card',
     active: route.path === '/experts/me',
   })
+  // Strategy & Goals (S20)
+  if (can.value('strategy', 'read')) {
+    items.push({
+      label: 'Strategy',
+      to: '/strategy',
+      icon: 'i-lucide-compass',
+      active: route.path.startsWith('/strategy'),
+    })
+  }
   return items
 })
 

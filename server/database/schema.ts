@@ -2763,3 +2763,151 @@ export const performanceFeedback = pgTable(
     index('performance_feedback_review_idx').on(table.reviewId),
   ]
 )
+
+// ─── Strategy & Goals (S20, ST-01..06) ───────────────────────────────────────
+// A cascade: corporate objective → KPIs, and → departmental goals → individual
+// objectives. Check-ins capture the periodic review trail; RAG is derived from
+// KPI progress unless an owner sets a manual status.
+
+export const strategyStatusEnum = pgEnum('strategy_status', [
+  'not_started',
+  'on_track',
+  'at_risk',
+  'off_track',
+  'achieved',
+])
+export const kpiDirectionEnum = pgEnum('kpi_direction', ['increase', 'decrease'])
+
+// ST-01 — annual corporate strategic objective.
+export const strategicObjectives = pgTable(
+  'strategic_objectives',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    year: integer().notNull(),
+    title: text().notNull(),
+    description: text(),
+    theme: text(),
+    ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
+    manualStatus: strategyStatusEnum('manual_status'),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('strategic_objectives_org_idx').on(table.organizationId)]
+)
+
+export const strategyKpis = pgTable(
+  'strategy_kpis',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    objectiveId: uuid('objective_id')
+      .notNull()
+      .references(() => strategicObjectives.id, { onDelete: 'cascade' }),
+    name: text().notNull(),
+    unit: text(),
+    baseline: numeric({ precision: 16, scale: 2 }).notNull().default('0'),
+    target: numeric({ precision: 16, scale: 2 }),
+    current: numeric({ precision: 16, scale: 2 }).notNull().default('0'),
+    direction: kpiDirectionEnum().notNull().default('increase'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('strategy_kpis_objective_idx').on(table.objectiveId)]
+)
+
+// ST-02 — departmental goal cascading from a corporate objective.
+export const departmentalGoals = pgTable(
+  'departmental_goals',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    objectiveId: uuid('objective_id').references(() => strategicObjectives.id, {
+      onDelete: 'set null',
+    }),
+    title: text().notNull(),
+    description: text(),
+    department: text(),
+    ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
+    progressPct: integer('progress_pct').notNull().default(0),
+    status: strategyStatusEnum().notNull().default('not_started'),
+    dueDate: date('due_date'),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('departmental_goals_org_idx').on(table.organizationId),
+    index('departmental_goals_objective_idx').on(table.objectiveId),
+  ]
+)
+
+// ST-05 — individual performance objective linked to a departmental goal.
+export const individualObjectives = pgTable(
+  'individual_objectives',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    goalId: uuid('goal_id')
+      .notNull()
+      .references(() => departmentalGoals.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    title: text().notNull(),
+    description: text(),
+    progressPct: integer('progress_pct').notNull().default(0),
+    status: strategyStatusEnum().notNull().default('not_started'),
+    dueDate: date('due_date'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('individual_objectives_goal_idx').on(table.goalId),
+    index('individual_objectives_user_idx').on(table.userId),
+  ]
+)
+
+// ST-03 — periodic strategy review check-in against an objective.
+export const strategyCheckins = pgTable(
+  'strategy_checkins',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    objectiveId: uuid('objective_id')
+      .notNull()
+      .references(() => strategicObjectives.id, { onDelete: 'cascade' }),
+    summary: text(),
+    ragStatus: strategyStatusEnum('rag_status').notNull().default('on_track'),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('strategy_checkins_objective_idx').on(table.objectiveId)]
+)
+
+export type StrategicObjective = typeof strategicObjectives.$inferSelect
+export type NewStrategicObjective = typeof strategicObjectives.$inferInsert
+export type StrategyKpi = typeof strategyKpis.$inferSelect
+export type NewStrategyKpi = typeof strategyKpis.$inferInsert
+export type DepartmentalGoal = typeof departmentalGoals.$inferSelect
+export type NewDepartmentalGoal = typeof departmentalGoals.$inferInsert
+export type IndividualObjective = typeof individualObjectives.$inferSelect
+export type NewIndividualObjective = typeof individualObjectives.$inferInsert
+export type StrategyCheckin = typeof strategyCheckins.$inferSelect
