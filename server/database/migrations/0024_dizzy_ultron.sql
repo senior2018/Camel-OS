@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "budget_alert_threshold" integer DEFAULT 90 NOT NULL;

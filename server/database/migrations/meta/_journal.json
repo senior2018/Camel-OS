@@ -169,6 +169,13 @@
       "when": 1783812048528,
       "tag": "0023_melted_dazzler",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1783812378480,
+      "tag": "0024_dizzy_ultron",
+      "breakpoints": true
     }
   ]
 }

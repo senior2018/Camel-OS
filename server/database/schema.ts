@@ -1718,6 +1718,9 @@ export const projects = pgTable(
     // ME-06 — donor portal share token (null = disabled). Anyone with the link
     // sees the project's read-only results portal.
     portalToken: text('portal_token'),
+    // FN-09 — budget-burn alert threshold (%): the project is flagged when its
+    // burn rate crosses this. Default 90%.
+    budgetAlertThreshold: integer('budget_alert_threshold').notNull().default(90),
     // PJ-11 — close + archive.
     closedAt: timestamp('closed_at', { withTimezone: true }),
     closeChecklist: jsonb('close_checklist').$type<Record<string, boolean>>(),

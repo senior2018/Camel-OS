@@ -21,9 +21,10 @@ if (!can.value('finance', 'read')) {
 const canManage = computed(() => can.value('finance', 'create') || can.value('finance', 'update'))
 const toast = useToast()
 
-const tab = ref<'budget' | 'claims' | 'invoices' | 'reports'>('budget')
+const tab = ref<'budget' | 'portfolio' | 'claims' | 'invoices' | 'reports'>('budget')
 const tabs = [
   { key: 'budget', label: 'Budget', icon: 'i-lucide-wallet' },
+  { key: 'portfolio', label: 'Portfolio & Forecast', icon: 'i-lucide-trending-up' },
   { key: 'claims', label: 'Expense Claims', icon: 'i-lucide-receipt' },
   { key: 'invoices', label: 'Vendor Invoices', icon: 'i-lucide-file-text' },
   { key: 'reports', label: 'Reports', icon: 'i-lucide-bar-chart-3' },
@@ -262,6 +263,58 @@ const { data: repData } = await useFetch<Reports>('/api/finance/reports', {
     costToProject: [],
   }),
 })
+
+// ── Portfolio & forecast (FN-06/07/08/09/10) ──
+interface PortfolioRow {
+  projectId: string
+  name: string
+  status: string
+  currency: string
+  budget: number
+  spent: number
+  burn: number
+  alertThreshold: number
+  overThreshold: boolean
+  rag: 'success' | 'warning' | 'error'
+}
+const { data: portData, refresh: refreshPort } = await useFetch<{
+  currency: string
+  portfolio: PortfolioRow[]
+  forecast: {
+    allocated: number
+    spentToDate: number
+    monthsElapsed: number
+    forecastYearEnd: number
+    overBudget: boolean
+  }
+}>('/api/finance/portfolio', {
+  key: 'finance-portfolio',
+  default: () => ({
+    currency: 'USD',
+    portfolio: [],
+    forecast: {
+      allocated: 0,
+      spentToDate: 0,
+      monthsElapsed: 1,
+      forecastYearEnd: 0,
+      overBudget: false,
+    },
+  }),
+})
+const ragText = (r: string) =>
+  ({ success: 'text-success', warning: 'text-warning', error: 'text-error' })[r] ?? 'text-muted'
+async function setThreshold(p: PortfolioRow, value: number) {
+  if (value === p.alertThreshold) return
+  await call(
+    () =>
+      $fetch(`/api/finance/portfolio/${p.projectId}`, {
+        method: 'PATCH',
+        body: { budgetAlertThreshold: value },
+      }),
+    'Alert threshold saved'
+  )
+  await refreshPort()
+}
 </script>
 
 <template>
@@ -409,6 +462,96 @@ const { data: repData } = await useFetch<Reports>('/api/finance/reports', {
       >
         No budget for this year yet.<span v-if="canManage"> Create one to start tracking.</span>
       </div>
+    </div>
+
+    <!-- PORTFOLIO & FORECAST -->
+    <div v-show="tab === 'portfolio'" class="space-y-4">
+      <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div class="rounded-xl border border-default bg-default p-4 shadow-sm">
+          <p class="text-xs uppercase tracking-wide text-muted">Budget allocated</p>
+          <p class="mt-1 text-xl font-semibold text-default">
+            {{ money(portData?.forecast.allocated, portData?.currency) }}
+          </p>
+        </div>
+        <div class="rounded-xl border border-default bg-default p-4 shadow-sm">
+          <p class="text-xs uppercase tracking-wide text-muted">Spent to date</p>
+          <p class="mt-1 text-xl font-semibold text-default">
+            {{ money(portData?.forecast.spentToDate, portData?.currency) }}
+          </p>
+        </div>
+        <div class="rounded-xl border border-default bg-default p-4 shadow-sm">
+          <p class="text-xs uppercase tracking-wide text-muted">Forecast year-end</p>
+          <p
+            class="mt-1 text-xl font-semibold"
+            :class="portData?.forecast.overBudget ? 'text-error' : 'text-success'"
+          >
+            {{ money(portData?.forecast.forecastYearEnd, portData?.currency) }}
+          </p>
+        </div>
+        <div class="rounded-xl border border-default bg-default p-4 shadow-sm">
+          <p class="text-xs uppercase tracking-wide text-muted">Run-rate basis</p>
+          <p class="mt-1 text-xl font-semibold text-default">
+            {{ portData?.forecast.monthsElapsed }} mo
+          </p>
+        </div>
+      </div>
+
+      <UCard>
+        <template #header>
+          <h3 class="text-sm font-semibold text-default">Portfolio burn rate</h3>
+        </template>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="text-left text-xs uppercase tracking-wide text-muted">
+              <tr>
+                <th class="py-1.5 pr-2 font-medium">Project</th>
+                <th class="px-2 py-1.5 text-right font-medium">Budget</th>
+                <th class="px-2 py-1.5 text-right font-medium">Spent</th>
+                <th class="px-2 py-1.5 text-right font-medium">Burn</th>
+                <th class="px-2 py-1.5 text-right font-medium">Alert %</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-default">
+              <tr v-for="p in portData?.portfolio ?? []" :key="p.projectId">
+                <td class="py-1.5 pr-2">
+                  <NuxtLink
+                    :to="`/projects/${p.projectId}`"
+                    class="text-default hover:text-primary"
+                    >{{ p.name }}</NuxtLink
+                  >
+                  <UIcon
+                    v-if="p.overThreshold"
+                    name="i-lucide-alert-triangle"
+                    class="ml-1 inline size-3.5 text-warning"
+                  />
+                </td>
+                <td class="px-2 py-1.5 text-right text-muted">{{ money(p.budget, p.currency) }}</td>
+                <td class="px-2 py-1.5 text-right text-default">
+                  {{ money(p.spent, p.currency) }}
+                </td>
+                <td class="px-2 py-1.5 text-right font-medium" :class="ragText(p.rag)">
+                  {{ p.burn }}%
+                </td>
+                <td class="px-2 py-1.5 text-right">
+                  <UInputNumber
+                    v-if="canManage"
+                    :model-value="p.alertThreshold"
+                    :min="1"
+                    :max="200"
+                    size="xs"
+                    class="w-20"
+                    @update:model-value="(v: number) => setThreshold(p, v)"
+                  />
+                  <span v-else>{{ p.alertThreshold }}%</span>
+                </td>
+              </tr>
+              <tr v-if="!(portData?.portfolio ?? []).length">
+                <td colspan="5" class="py-3 text-center text-muted">No projects yet.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </UCard>
     </div>
 
     <!-- EXPENSE CLAIMS -->
