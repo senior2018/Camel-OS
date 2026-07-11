@@ -2911,3 +2911,125 @@ export type NewDepartmentalGoal = typeof departmentalGoals.$inferInsert
 export type IndividualObjective = typeof individualObjectives.$inferSelect
 export type NewIndividualObjective = typeof individualObjectives.$inferInsert
 export type StrategyCheckin = typeof strategyCheckins.$inferSelect
+
+// ─── Finance Management (S21, FN-01..05) ─────────────────────────────────────
+export const orgBudgetStatusEnum = pgEnum('org_budget_status', ['draft', 'active', 'closed'])
+export const expenseClaimStatusEnum = pgEnum('expense_claim_status', [
+  'draft',
+  'submitted',
+  'approved',
+  'rejected',
+  'paid',
+])
+export const vendorInvoiceStatusEnum = pgEnum('vendor_invoice_status', [
+  'pending',
+  'approved',
+  'paid',
+])
+
+// FN-01 — the annual organisational budget (one per fiscal year), with lines.
+export const orgBudgets = pgTable(
+  'org_budgets',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    fiscalYear: integer('fiscal_year').notNull(),
+    name: text().notNull(),
+    status: orgBudgetStatusEnum().notNull().default('draft'),
+    currency: varchar({ length: 3 }).notNull().default('USD'),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    unique('org_budgets_org_year_uq').on(table.organizationId, table.fiscalYear),
+    index('org_budgets_org_idx').on(table.organizationId),
+  ]
+)
+
+export const orgBudgetLines = pgTable(
+  'org_budget_lines',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    budgetId: uuid('budget_id')
+      .notNull()
+      .references(() => orgBudgets.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    category: text().notNull(),
+    allocatedAmount: numeric('allocated_amount', { precision: 16, scale: 2 })
+      .notNull()
+      .default('0'),
+    note: text(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('org_budget_lines_budget_idx').on(table.budgetId)]
+)
+
+// FN-02 — staff expense claims (distinct from project expenses): submitted by
+// staff, approved by Finance, then marked paid.
+export const expenseClaims = pgTable(
+  'expense_claims',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    claimantUserId: uuid('claimant_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    title: text().notNull(),
+    category: text(),
+    amount: numeric({ precision: 14, scale: 2 }).notNull(),
+    currency: varchar({ length: 3 }).notNull().default('USD'),
+    incurredDate: date('incurred_date').notNull(),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
+    status: expenseClaimStatusEnum().notNull().default('draft'),
+    receiptUrl: text('receipt_url'),
+    decisionNote: text('decision_note'),
+    reviewedByUserId: uuid('reviewed_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('expense_claims_org_idx').on(table.organizationId),
+    index('expense_claims_claimant_idx').on(table.claimantUserId),
+  ]
+)
+
+// FN-03 — vendor invoices, optionally matched to a purchase-order reference
+// (PO register arrives with Procurement, S23) and a project.
+export const vendorInvoices = pgTable(
+  'vendor_invoices',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    vendorName: text('vendor_name').notNull(),
+    invoiceNumber: text('invoice_number').notNull(),
+    amount: numeric({ precision: 16, scale: 2 }).notNull(),
+    currency: varchar({ length: 3 }).notNull().default('USD'),
+    invoiceDate: date('invoice_date').notNull(),
+    dueDate: date('due_date'),
+    poReference: text('po_reference'),
+    budgetCategory: text('budget_category'),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
+    status: vendorInvoiceStatusEnum().notNull().default('pending'),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('vendor_invoices_org_idx').on(table.organizationId)]
+)

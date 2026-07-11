@@ -162,6 +162,13 @@
       "when": 1783810780605,
       "tag": "0022_damp_forgotten_one",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1783812048528,
+      "tag": "0023_melted_dazzler",
+      "breakpoints": true
     }
   ]
 }

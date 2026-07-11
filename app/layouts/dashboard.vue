@@ -142,12 +142,27 @@ const navItems = computed(() => {
       active: route.path.startsWith('/timesheets'),
     })
   }
+  // Finance Management (S21)
+  if (can.value('finance', 'read')) {
+    items.push({
+      label: 'Finance',
+      to: '/finance',
+      icon: 'i-lucide-banknote',
+      active: route.path.startsWith('/finance'),
+    })
+  }
   // Personal entries — every authenticated staff member.
   items.push({
     label: 'My Leave',
     to: '/leave',
     icon: 'i-lucide-palmtree',
     active: route.path === '/leave',
+  })
+  items.push({
+    label: 'My Expenses',
+    to: '/expenses',
+    icon: 'i-lucide-receipt',
+    active: route.path === '/expenses',
   })
   items.push({
     label: 'My Expert Profile',
