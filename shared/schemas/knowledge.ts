@@ -50,6 +50,7 @@ export const updateKnowledgeSchema = z.object({
   title: z.string().trim().min(1).max(240).optional(),
   excerpt: z.string().trim().max(500).nullish(),
   body: z.string().max(200000).nullish(),
+  videoUrl: z.string().trim().url().max(2000).nullish().or(z.literal('')),
   category: z.string().trim().max(120).nullish(),
   tags: z.array(z.string().trim().min(1).max(60)).max(30).optional(),
   contextKeys: z.array(z.string().trim().min(1).max(60)).max(30).optional(),

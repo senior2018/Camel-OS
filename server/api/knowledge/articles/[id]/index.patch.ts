@@ -27,6 +27,7 @@ export default defineEventHandler(async (event) => {
       'title',
       'excerpt',
       'body',
+      'videoUrl',
       'category',
       'tags',
       'contextKeys',

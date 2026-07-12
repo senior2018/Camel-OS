@@ -3219,6 +3219,8 @@ export const knowledgeArticles = pgTable(
     title: text().notNull(),
     excerpt: text(),
     body: text(), // rich-text HTML
+    // HD-03 — optional training video for help docs.
+    videoUrl: text('video_url'),
     category: text(),
     tags: jsonb().$type<string[]>().notNull().default([]),
     // HD-02 — module/route keys this help doc is relevant to (e.g. 'projects').
@@ -3259,4 +3261,26 @@ export const knowledgeFeedback = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [unique('knowledge_feedback_article_user_uq').on(table.articleId, table.userId)]
+)
+
+// ─── Release notes (S25, HD-04) ──────────────────────────────────────────────
+export const releaseNotes = pgTable(
+  'release_notes',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    version: text().notNull(),
+    title: text().notNull(),
+    body: text(),
+    highlights: jsonb().$type<string[]>().notNull().default([]),
+    releasedAt: date('released_at').notNull(),
+    published: boolean().notNull().default(false),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('release_notes_org_idx').on(table.organizationId)]
 )

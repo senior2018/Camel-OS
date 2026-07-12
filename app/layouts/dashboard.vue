@@ -188,13 +188,19 @@ const navItems = computed(() => {
       active: route.path.startsWith('/strategy'),
     })
   }
-  // Knowledge Management (S24)
+  // Knowledge Management (S24) + Help Center (S25)
   if (can.value('knowledge', 'read')) {
     items.push({
       label: 'Knowledge Base',
       to: '/knowledge',
       icon: 'i-lucide-book-open',
       active: route.path.startsWith('/knowledge'),
+    })
+    items.push({
+      label: 'Help Center',
+      to: '/help',
+      icon: 'i-lucide-life-buoy',
+      active: route.path.startsWith('/help'),
     })
   }
   return items
