@@ -232,6 +232,12 @@ const adminItems = computed(() => {
       icon: 'i-lucide-sliders-horizontal',
       active: route.path.startsWith('/admin/proposal-settings'),
     },
+    {
+      label: 'Launch cockpit',
+      to: '/launch',
+      icon: 'i-lucide-rocket',
+      active: route.path.startsWith('/launch'),
+    },
   ]
 })
 
@@ -269,6 +275,12 @@ const userMenu = [
 
 <template>
   <div class="flex min-h-screen bg-muted">
+    <!-- S27 accessibility — keyboard skip link to bypass nav. -->
+    <a
+      href="#main-content"
+      class="sr-only z-60 rounded-md bg-primary px-4 py-2 text-sm font-medium text-inverted focus:not-sr-only focus:absolute focus:left-4 focus:top-4"
+      >Skip to content</a
+    >
     <!-- Sidebar (desktop) -->
     <aside
       class="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-default bg-default lg:flex"
@@ -392,9 +404,12 @@ const userMenu = [
         </div>
       </header>
 
-      <main class="min-w-0 flex-1 px-4 pb-8 pt-4 sm:px-6 lg:px-8 lg:pt-5">
+      <main id="main-content" class="min-w-0 flex-1 px-4 pb-8 pt-4 sm:px-6 lg:px-8 lg:pt-5">
         <slot />
       </main>
+
+      <!-- S29 — always-available pilot feedback. -->
+      <FeedbackWidget />
     </div>
 
     <!-- Mobile nav drawer -->

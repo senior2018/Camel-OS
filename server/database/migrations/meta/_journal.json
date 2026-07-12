@@ -183,6 +183,13 @@
       "when": 1783813020754,
       "tag": "0025_military_stepford_cuckoos",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1783822472866,
+      "tag": "0026_empty_lester",
+      "breakpoints": true
     }
   ]
 }

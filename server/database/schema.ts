@@ -3198,3 +3198,74 @@ export const procurementContracts = pgTable(
   },
   (table) => [index('procurement_contracts_org_idx').on(table.organizationId)]
 )
+
+// ─── Launch Operations (S27–S30: Hardening, UAT, Pilot, GA) ──────────────────
+export const uatStatusEnum = pgEnum('uat_status', ['untested', 'pass', 'fail', 'blocked'])
+export const feedbackCategoryEnum = pgEnum('feedback_category', [
+  'bug',
+  'idea',
+  'question',
+  'praise',
+])
+export const feedbackStatusEnum = pgEnum('feedback_status', [
+  'new',
+  'triaged',
+  'resolved',
+  'wont_fix',
+])
+
+// S28 — UAT tracker: one row per acceptance case, testers record the result.
+export const uatCases = pgTable(
+  'uat_cases',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    module: text().notNull(),
+    storyCode: text('story_code'),
+    title: text().notNull(),
+    status: uatStatusEnum().notNull().default('untested'),
+    notes: text(),
+    testedByUserId: uuid('tested_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    testedAt: timestamp('tested_at', { withTimezone: true }),
+    orderIndex: integer('order_index').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('uat_cases_org_idx').on(table.organizationId)]
+)
+
+// S29 — in-app feedback from pilot users, triaged toward GA.
+export const feedbackItems = pgTable(
+  'feedback_items',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    category: feedbackCategoryEnum().notNull().default('idea'),
+    message: text().notNull(),
+    pageUrl: text('page_url'),
+    status: feedbackStatusEnum().notNull().default('new'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('feedback_items_org_idx').on(table.organizationId)]
+)
+
+// S30 — go-live readiness checklist.
+export const launchTasks = pgTable(
+  'launch_tasks',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    category: text().notNull().default('General'),
+    label: text().notNull(),
+    done: boolean().notNull().default(false),
+    orderIndex: integer('order_index').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('launch_tasks_org_idx').on(table.organizationId)]
+)
