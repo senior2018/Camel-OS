@@ -18,6 +18,11 @@ if (!isAdmin.value && !can.value('admin', 'admin')) {
   throw createError({ statusCode: 403, statusMessage: 'Admin only', fatal: true })
 }
 const tab = ref<'readiness' | 'uat' | 'feedback'>('readiness')
+const tabs = [
+  { key: 'readiness' as const, label: 'Readiness', icon: 'i-lucide-gauge' },
+  { key: 'uat' as const, label: 'UAT sign-off', icon: 'i-lucide-clipboard-check' },
+  { key: 'feedback' as const, label: 'Pilot feedback', icon: 'i-lucide-message-square-text' },
+]
 
 const { data: ready, refresh: refreshReady } = await useFetch<{
   readiness: number
@@ -112,19 +117,19 @@ const readyColor = computed(() =>
       </div>
     </header>
 
-    <div class="flex gap-1 border-b border-default">
+    <div class="flex gap-1 overflow-x-auto border-b border-default">
       <button
-        v-for="t in ['readiness', 'uat', 'feedback'] as const"
-        :key="t"
-        class="border-b-2 px-3 py-2 text-sm font-medium capitalize transition-colors"
+        v-for="t in tabs"
+        :key="t.key"
+        class="flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors"
         :class="
-          tab === t
+          tab === t.key
             ? 'border-primary text-primary'
             : 'border-transparent text-muted hover:text-default'
         "
-        @click="tab = t"
+        @click="tab = t.key"
       >
-        {{ t }}
+        <UIcon :name="t.icon" class="size-4" /> {{ t.label }}
       </button>
     </div>
 

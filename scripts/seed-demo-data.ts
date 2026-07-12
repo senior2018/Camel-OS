@@ -7,6 +7,7 @@ import dotenv from 'dotenv'
 import consola from 'consola'
 
 import * as schema from '../server/database/schema'
+import { DEFAULT_LAUNCH_TASKS, DEFAULT_UAT_MODULES } from '../shared/schemas/launch'
 import {
   authAccounts,
   campaignBudgetLines,
@@ -47,6 +48,9 @@ import {
   contentReviews,
   donorGrants,
   donorProjects,
+  feedbackItems,
+  launchTasks,
+  uatCases,
   mediaMentions,
   stakeholderActivities,
   stakeholders,
@@ -363,6 +367,9 @@ async function run() {
     expertProfiles,
     employeeProfiles,
     strategicObjectives,
+    uatCases,
+    feedbackItems,
+    launchTasks,
   ]) {
     await db.delete(t).where(eq(t.organizationId, orgId))
   }
@@ -2521,6 +2528,167 @@ async function run() {
     })
   }
   consola.success('Modules: MEL, HR, Strategy, Finance & Procurement demo data seeded.')
+
+  // ── Launch Operations (S27–S30): cockpit checklist, UAT sign-off, pilot feedback ──
+  {
+    const u = (e: string) => userIdByEmail.get(e) ?? null
+    const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000)
+
+    // Go-live checklist — most complete, a few outstanding (readiness ≈ mid-70s%).
+    const doneLabels = new Set([
+      'Production database provisioned & migrated',
+      'Seed / import of real organisational data',
+      'MFA enforced for admins; secrets rotated',
+      'Backups & restore tested',
+      'Accessibility audit passed (WCAG AA)',
+      'Monitoring & error tracking live',
+      'Scheduled jobs / cron verified in prod',
+      'Staff training delivered',
+      'Knowledge base populated',
+      'Go-live support rota agreed',
+    ])
+    await db.insert(launchTasks).values(
+      DEFAULT_LAUNCH_TASKS.map((t, i) => ({
+        organizationId: orgId,
+        category: t.category,
+        label: t.label,
+        done: doneLabels.has(t.label),
+        orderIndex: i,
+      }))
+    )
+
+    // UAT sign-off — one case per module, mostly passing with a couple of issues.
+    const uatOverrides: Record<
+      string,
+      { status: 'pass' | 'fail' | 'blocked' | 'untested'; by?: string; note?: string }
+    > = {
+      Opportunities: { status: 'pass', by: 'david@camel-os.com' },
+      Proposals: { status: 'pass', by: 'linda@camel-os.com' },
+      CRM: { status: 'pass', by: 'maria@camel-os.com' },
+      Projects: { status: 'pass', by: 'ben@camel-os.com' },
+      MEL: { status: 'pass', by: 'priya@camel-os.com' },
+      Communications: {
+        status: 'fail',
+        by: 'nadia@camel-os.com',
+        note: 'Calendar export drops the timezone on recurring items.',
+      },
+      'HR & Expert DB': { status: 'pass', by: 'rita@camel-os.com' },
+      Timesheets: {
+        status: 'blocked',
+        by: 'sam@camel-os.com',
+        note: 'Awaiting finance sign-off on the weekly approval rule.',
+      },
+      Strategy: { status: 'pass', by: 'david@camel-os.com' },
+      Finance: { status: 'pass', by: 'doris@camel-os.com' },
+      Procurement: { status: 'untested' },
+      'Knowledge & Help': { status: 'pass', by: 'priya@camel-os.com' },
+      'Notifications & API': { status: 'pass', by: 'omar@camel-os.com' },
+      'Admin & Security': { status: 'pass', by: 'david@camel-os.com' },
+    }
+    await db.insert(uatCases).values(
+      DEFAULT_UAT_MODULES.map((m, i) => {
+        const o = uatOverrides[m] ?? { status: 'untested' as const }
+        const tested = o.status !== 'untested'
+        return {
+          organizationId: orgId,
+          module: m,
+          title: `End-to-end smoke test — ${m}`,
+          status: o.status,
+          notes: o.note ?? null,
+          testedByUserId: tested && o.by ? u(o.by) : null,
+          testedAt: tested ? daysAgo(rand(6) + 1) : null,
+          orderIndex: i,
+        }
+      })
+    )
+
+    // Pilot feedback — spread across category & triage status, with page context.
+    const fb: {
+      by: string | null
+      category: 'bug' | 'idea' | 'question' | 'praise'
+      message: string
+      pageUrl: string
+      status: 'new' | 'triaged' | 'resolved' | 'wont_fix'
+      days: number
+    }[] = [
+      {
+        by: 'sam@camel-os.com',
+        category: 'bug',
+        message: 'Report editor lost my cursor position after inserting an image.',
+        pageUrl: '/projects',
+        status: 'triaged',
+        days: 1,
+      },
+      {
+        by: 'priya@camel-os.com',
+        category: 'idea',
+        message: 'Let me duplicate a proposal as a starting point for a similar bid.',
+        pageUrl: '/proposals',
+        status: 'new',
+        days: 2,
+      },
+      {
+        by: 'maria@camel-os.com',
+        category: 'praise',
+        message: 'The customer management tabs are so much faster than the old spreadsheet.',
+        pageUrl: '/clients',
+        status: 'resolved',
+        days: 4,
+      },
+      {
+        by: 'ben@camel-os.com',
+        category: 'question',
+        message: 'How do I re-open a closed project if the client extends the contract?',
+        pageUrl: '/projects',
+        status: 'triaged',
+        days: 3,
+      },
+      {
+        by: 'linda@camel-os.com',
+        category: 'idea',
+        message: 'A weekly digest email of opportunities nearing their deadline would help.',
+        pageUrl: '/opportunities',
+        status: 'new',
+        days: 1,
+      },
+      {
+        by: null,
+        category: 'bug',
+        message: 'On mobile the sidebar overlaps the content on the finance page.',
+        pageUrl: '/finance',
+        status: 'wont_fix',
+        days: 6,
+      },
+      {
+        by: 'doris@camel-os.com',
+        category: 'praise',
+        message: 'Approvals workflow is clear — I always know what is waiting on me.',
+        pageUrl: '/finance',
+        status: 'resolved',
+        days: 5,
+      },
+      {
+        by: 'rita@camel-os.com',
+        category: 'question',
+        message: 'Is there a way to export the expert database to share with a partner?',
+        pageUrl: '/experts',
+        status: 'new',
+        days: 2,
+      },
+    ]
+    await db.insert(feedbackItems).values(
+      fb.map((f) => ({
+        organizationId: orgId,
+        userId: f.by ? u(f.by) : null,
+        category: f.category,
+        message: f.message,
+        pageUrl: f.pageUrl,
+        status: f.status,
+        createdAt: daysAgo(f.days),
+      }))
+    )
+  }
+  consola.success('Launch Operations: checklist, UAT sign-off & pilot feedback seeded.')
 
   consola.box(
     [
