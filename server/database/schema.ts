@@ -3284,3 +3284,45 @@ export const releaseNotes = pgTable(
   },
   (table) => [index('release_notes_org_idx').on(table.organizationId)]
 )
+
+// ─── Notification preferences + API access (S26, NT-01..04 / UM) ─────────────
+// Per-user channel preferences. In-app is always on; email is opt-in per
+// category so professionals control their own signal-to-noise.
+export const notificationPreferences = pgTable('notification_preferences', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  organizationId: uuid('organization_id')
+    .notNull()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  emailByCategory: jsonb('email_by_category')
+    .$type<Record<string, boolean>>()
+    .notNull()
+    .default({}),
+  digestFrequency: text('digest_frequency').notNull().default('off'), // off | daily | weekly
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+// REST API access: hashed keys with scopes; the raw key is shown once on
+// creation. Revocable and expirable — the audit trail lives in `audit_logs`.
+export const apiKeys = pgTable(
+  'api_keys',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    name: text().notNull(),
+    keyPrefix: text('key_prefix').notNull(),
+    keyHash: text('key_hash').notNull(),
+    scopes: jsonb().$type<string[]>().notNull().default([]),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('api_keys_org_idx').on(table.organizationId)]
+)

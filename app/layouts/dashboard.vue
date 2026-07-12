@@ -236,6 +236,12 @@ const adminItems = computed(() => {
       active: route.path.startsWith('/admin/audit-log'),
     },
     {
+      label: 'API keys',
+      to: '/admin/api-keys',
+      icon: 'i-lucide-key-round',
+      active: route.path.startsWith('/admin/api-keys'),
+    },
+    {
       label: 'Lookup values',
       to: '/admin/lookup-values',
       icon: 'i-lucide-list-tree',
