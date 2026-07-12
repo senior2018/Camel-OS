@@ -188,6 +188,15 @@ const navItems = computed(() => {
       active: route.path.startsWith('/strategy'),
     })
   }
+  // Knowledge Management (S24)
+  if (can.value('knowledge', 'read')) {
+    items.push({
+      label: 'Knowledge Base',
+      to: '/knowledge',
+      icon: 'i-lucide-book-open',
+      active: route.path.startsWith('/knowledge'),
+    })
+  }
   return items
 })
 
@@ -395,6 +404,9 @@ const userMenu = [
       <main class="min-w-0 flex-1 px-4 pb-8 pt-4 sm:px-6 lg:px-8 lg:pt-5">
         <slot />
       </main>
+
+      <!-- HD-02 — contextual help affordance, available on every module. -->
+      <ContextualHelp />
     </div>
 
     <!-- Mobile nav drawer -->
