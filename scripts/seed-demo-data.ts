@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from 'node:crypto'
 import { and, eq, inArray } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import { Hash } from '@adonisjs/hash'
@@ -47,6 +48,11 @@ import {
   contentReviews,
   donorGrants,
   donorProjects,
+  apiKeys,
+  knowledgeArticles,
+  knowledgeFeedback,
+  notificationPreferences,
+  releaseNotes,
   mediaMentions,
   stakeholderActivities,
   stakeholders,
@@ -363,6 +369,11 @@ async function run() {
     expertProfiles,
     employeeProfiles,
     strategicObjectives,
+    knowledgeFeedback,
+    knowledgeArticles,
+    releaseNotes,
+    notificationPreferences,
+    apiKeys,
   ]) {
     await db.delete(t).where(eq(t.organizationId, orgId))
   }
@@ -2521,6 +2532,359 @@ async function run() {
     })
   }
   consola.success('Modules: MEL, HR, Strategy, Finance & Procurement demo data seeded.')
+
+  // ── Knowledge Base, Help Center, Release notes, Notifications & API (S24–S26) ──
+  {
+    const u = (e: string) => userIdByEmail.get(e) ?? null
+    const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000)
+    const managerRole = roleId('Manager')
+
+    type ArticleSeed = {
+      kind: 'article' | 'help'
+      title: string
+      excerpt: string
+      body: string
+      category: string
+      tags: string[]
+      contextKeys?: string[]
+      videoUrl?: string
+      visibility?: 'everyone' | 'restricted'
+      status?: 'draft' | 'published' | 'archived'
+      author: string
+      helpful?: number
+      notHelpful?: number
+      views?: number
+      days: number
+    }
+    const articles: ArticleSeed[] = [
+      {
+        kind: 'article',
+        title: 'How we win competitive bids',
+        excerpt:
+          'The internal playbook for qualifying opportunities and shaping a winning proposal.',
+        body: '<h2>Qualify ruthlessly</h2><p>Not every RFP is worth a response. Score each opportunity on strategic fit, our win probability, and margin before committing writers.</p><h2>Shape the win theme</h2><p>Lead with the client’s problem, not our credentials. Every section should answer “why us, why now”.</p><ul><li>Anchor on measurable outcomes</li><li>Name the delivery team early</li><li>Price to value, not to cost</li></ul>',
+        category: 'Business Development',
+        tags: ['proposals', 'bidding', 'playbook'],
+        visibility: 'everyone',
+        status: 'published',
+        author: 'linda@camel-os.com',
+        helpful: 18,
+        notHelpful: 1,
+        views: 240,
+        days: 30,
+      },
+      {
+        kind: 'article',
+        title: 'Field data collection standards',
+        excerpt: 'Consistent, defensible MEL data from every engagement.',
+        body: '<h2>Before the field</h2><p>Agree indicators and disaggregation with the client. Pilot every instrument.</p><h2>In the field</h2><p>Enumerators verify each record the same day. Flag outliers immediately rather than in the report.</p>',
+        category: 'MEL',
+        tags: ['mel', 'data-quality', 'field'],
+        visibility: 'everyone',
+        status: 'published',
+        author: 'priya@camel-os.com',
+        helpful: 11,
+        notHelpful: 0,
+        views: 132,
+        days: 21,
+      },
+      {
+        kind: 'article',
+        title: 'Partner due-diligence checklist',
+        excerpt: 'What to verify before signing a consortium or sub-grant agreement.',
+        body: '<h2>Legal & financial</h2><ul><li>Registration & tax status</li><li>Audited accounts (2 years)</li><li>Anti-terrorism / sanctions screening</li></ul><h2>Delivery track record</h2><p>Two referenceable projects of similar scope in the last three years.</p>',
+        category: 'Partnerships',
+        tags: ['partners', 'compliance', 'due-diligence'],
+        visibility: 'restricted',
+        status: 'published',
+        author: 'maria@camel-os.com',
+        helpful: 7,
+        notHelpful: 0,
+        views: 58,
+        days: 14,
+      },
+      {
+        kind: 'article',
+        title: 'Board pack template (Q3 draft)',
+        excerpt: 'Work-in-progress structure for the quarterly board report.',
+        body: '<h2>Sections</h2><p>Strategy scorecard, pipeline health, delivery RAG, finance summary, risks.</p><p><em>Draft — do not circulate.</em></p>',
+        category: 'Strategy',
+        tags: ['board', 'reporting'],
+        visibility: 'restricted',
+        status: 'draft',
+        author: 'david@camel-os.com',
+        views: 4,
+        days: 2,
+      },
+      {
+        kind: 'article',
+        title: 'Legacy expenses process (superseded)',
+        excerpt: 'Kept for reference only — replaced by the in-app expense claims module.',
+        body: '<h2>Archived</h2><p>This spreadsheet-based process is no longer used. Submit expenses under <strong>My Expenses</strong>.</p>',
+        category: 'Finance',
+        tags: ['expenses', 'legacy'],
+        visibility: 'everyone',
+        status: 'archived',
+        author: 'doris@camel-os.com',
+        views: 90,
+        days: 60,
+      },
+      {
+        kind: 'help',
+        title: 'Getting started with Projects',
+        excerpt: 'Set up a project, assign the team, and track milestones.',
+        body: '<h2>Create a project</h2><p>From <strong>Projects → New</strong>, link the client and set the delivery window.</p><h2>Build the team</h2><p>The project manager, creator, or leader manages the roster under the <strong>Team</strong> tab.</p><h2>Report progress</h2><p>Draft reports open in a full-page editor, then go through review before approval.</p>',
+        category: 'Projects',
+        tags: ['projects', 'getting-started'],
+        contextKeys: ['projects'],
+        videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        visibility: 'everyone',
+        status: 'published',
+        author: 'ben@camel-os.com',
+        helpful: 22,
+        notHelpful: 2,
+        views: 310,
+        days: 25,
+      },
+      {
+        kind: 'help',
+        title: 'Submitting a proposal for review',
+        excerpt: 'The reviewer gate and final approval, step by step.',
+        body: '<h2>Assign reviewers</h2><p>Add the required number of reviewers; each reads and comments.</p><h2>Final approval</h2><p>Once the review threshold is met, the final approver can sign off.</p>',
+        category: 'Proposals',
+        tags: ['proposals', 'review'],
+        contextKeys: ['proposals'],
+        visibility: 'everyone',
+        status: 'published',
+        author: 'linda@camel-os.com',
+        helpful: 15,
+        notHelpful: 1,
+        views: 176,
+        days: 18,
+      },
+      {
+        kind: 'help',
+        title: 'Logging your weekly timesheet',
+        excerpt: 'Enter hours per day and submit the week for approval.',
+        body: '<h2>Weekly entry</h2><p>Pick the week, log hours against projects or a task label, then <strong>Submit</strong>.</p><h2>Approvals</h2><p>Your reviewer approves or returns the week with a note.</p>',
+        category: 'Timesheets',
+        tags: ['timesheets', 'how-to'],
+        contextKeys: ['timesheets'],
+        visibility: 'everyone',
+        status: 'published',
+        author: 'sam@camel-os.com',
+        helpful: 9,
+        notHelpful: 0,
+        views: 121,
+        days: 10,
+      },
+      {
+        kind: 'help',
+        title: 'Managing customers, donors & partners',
+        excerpt: 'Use the tabs and activity log in Customer Management.',
+        body: '<h2>Tabs</h2><p>Filter by clients, prospects, donors, and partners. Each record keeps its own activity history.</p>',
+        category: 'CRM',
+        tags: ['crm', 'clients'],
+        contextKeys: ['clients'],
+        visibility: 'everyone',
+        status: 'published',
+        author: 'maria@camel-os.com',
+        helpful: 6,
+        notHelpful: 0,
+        views: 84,
+        days: 7,
+      },
+    ]
+
+    const articleIdByTitle = new Map<string, string>()
+    for (const a of articles) {
+      const published = a.status === 'published'
+      const [row] = await db
+        .insert(knowledgeArticles)
+        .values({
+          organizationId: orgId,
+          kind: a.kind,
+          title: a.title,
+          excerpt: a.excerpt,
+          body: a.body,
+          videoUrl: a.videoUrl ?? null,
+          category: a.category,
+          tags: a.tags,
+          contextKeys: a.contextKeys ?? [],
+          visibility: a.visibility ?? 'everyone',
+          allowedRoleIds: a.visibility === 'restricted' && managerRole ? [managerRole] : [],
+          status: a.status ?? 'published',
+          helpfulCount: a.helpful ?? 0,
+          notHelpfulCount: a.notHelpful ?? 0,
+          viewCount: a.views ?? 0,
+          authorUserId: u(a.author),
+          publishedAt: published ? daysAgo(a.days) : null,
+          createdAt: daysAgo(a.days + 2),
+          updatedAt: daysAgo(Math.max(0, a.days - 1)),
+        })
+        .returning()
+      if (row) articleIdByTitle.set(a.title, row.id)
+    }
+
+    // Per-user helpful/not-helpful ratings (KM-05) on a couple of popular docs.
+    const fbSeed: { title: string; by: string; helpful: boolean; comment?: string }[] = [
+      {
+        title: 'How we win competitive bids',
+        by: 'sam@camel-os.com',
+        helpful: true,
+        comment: 'The win-theme section changed how I structure my drafts.',
+      },
+      { title: 'How we win competitive bids', by: 'priya@camel-os.com', helpful: true },
+      { title: 'Getting started with Projects', by: 'rita@camel-os.com', helpful: true },
+      {
+        title: 'Getting started with Projects',
+        by: 'nadia@camel-os.com',
+        helpful: false,
+        comment: 'Would love a short video on milestones specifically.',
+      },
+      { title: 'Submitting a proposal for review', by: 'omar@camel-os.com', helpful: true },
+    ]
+    for (const f of fbSeed) {
+      const articleId = articleIdByTitle.get(f.title)
+      const userId = u(f.by)
+      if (!articleId || !userId) continue
+      await db
+        .insert(knowledgeFeedback)
+        .values({
+          articleId,
+          organizationId: orgId,
+          userId,
+          helpful: f.helpful,
+          comment: f.comment ?? null,
+        })
+        .onConflictDoNothing()
+    }
+
+    // Release notes timeline (HD-04) — the "What's new" feed.
+    const releases: {
+      version: string
+      title: string
+      releasedAt: string
+      days: number
+      highlights: string[]
+      body: string
+    }[] = [
+      {
+        version: 'v1.0',
+        title: 'General availability',
+        releasedAt: daysAgo(1).toISOString().slice(0, 10),
+        days: 1,
+        highlights: [
+          'Launch cockpit & UAT sign-off',
+          'Knowledge base and in-app help',
+          'API keys for reporting integrations',
+        ],
+        body: '<p>Camel OS is now generally available across the firm. Thank you to every pilot user.</p>',
+      },
+      {
+        version: 'v0.9',
+        title: 'Finance, forecasting & procurement',
+        releasedAt: daysAgo(21).toISOString().slice(0, 10),
+        days: 21,
+        highlights: [
+          'Organisational budgets & expense claims',
+          'Portfolio forecasting',
+          'Purchase orders, RFQs & vendor contracts',
+        ],
+        body: '<p>End-to-end money and procurement workflows joined the platform.</p>',
+      },
+      {
+        version: 'v0.8',
+        title: 'People, experts & strategy',
+        releasedAt: daysAgo(45).toISOString().slice(0, 10),
+        days: 45,
+        highlights: [
+          'HR & expert database',
+          'Weekly timesheets & leave',
+          'Strategy scorecards and goals',
+        ],
+        body: '<p>The team and strategy modules landed, connecting delivery to organisational goals.</p>',
+      },
+    ]
+    for (const r of releases) {
+      await db.insert(releaseNotes).values({
+        organizationId: orgId,
+        version: r.version,
+        title: r.title,
+        body: r.body,
+        highlights: r.highlights,
+        releasedAt: r.releasedAt,
+        published: true,
+        createdByUserId: u('david@camel-os.com'),
+        createdAt: daysAgo(r.days),
+      })
+    }
+
+    // A couple of users have tuned their notification preferences (NT-01..03).
+    const prefs: { email: string; email_by: Record<string, boolean>; digest: string }[] = [
+      {
+        email: 'david@camel-os.com',
+        email_by: { approvals: true, mentions: true, assignments: true, deadlines: true },
+        digest: 'daily',
+      },
+      {
+        email: 'linda@camel-os.com',
+        email_by: { approvals: true, mentions: true, assignments: false, deadlines: true },
+        digest: 'weekly',
+      },
+      {
+        email: 'sam@camel-os.com',
+        email_by: { approvals: false, mentions: true, assignments: true, deadlines: false },
+        digest: 'off',
+      },
+    ]
+    for (const p of prefs) {
+      const userId = u(p.email)
+      if (!userId) continue
+      await db
+        .insert(notificationPreferences)
+        .values({
+          userId,
+          organizationId: orgId,
+          emailByCategory: p.email_by,
+          digestFrequency: p.digest,
+        })
+        .onConflictDoNothing()
+    }
+
+    // API keys (UM) — one active, one revoked; hashes only, raw keys are never stored.
+    const fakeKey = () => {
+      const raw = `co_live_${randomBytes(18).toString('hex')}`
+      return { prefix: raw.slice(0, 12), hash: createHash('sha256').update(raw).digest('hex') }
+    }
+    const k1 = fakeKey()
+    const k2 = fakeKey()
+    await db.insert(apiKeys).values([
+      {
+        organizationId: orgId,
+        name: 'Power BI reporting',
+        keyPrefix: k1.prefix,
+        keyHash: k1.hash,
+        scopes: ['projects:read', 'finance:read'],
+        lastUsedAt: daysAgo(1),
+        createdByUserId: u('david@camel-os.com'),
+        createdAt: daysAgo(20),
+      },
+      {
+        organizationId: orgId,
+        name: 'Legacy export (revoked)',
+        keyPrefix: k2.prefix,
+        keyHash: k2.hash,
+        scopes: ['projects:read'],
+        revokedAt: daysAgo(5),
+        createdByUserId: u('david@camel-os.com'),
+        createdAt: daysAgo(40),
+      },
+    ])
+  }
+  consola.success(
+    'Knowledge base, help center, release notes, notification prefs & API keys seeded.'
+  )
 
   consola.box(
     [
