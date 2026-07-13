@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ACTIVITY_STATUS_LABEL, type ActivityStatus } from '@@/shared/schemas/project'
+import { STATUS_CATEGORY_LABEL, type StatusCategory } from '@@/shared/schemas/project-settings'
 
 interface Activity {
   id: string
@@ -8,7 +8,8 @@ interface Activity {
   startDate: string | null
   endDate: string | null
   percentComplete: number
-  status: ActivityStatus
+  statusLabel: string
+  statusCategory: StatusCategory
   assigneeFirstName: string | null
   assigneeLastName: string | null
 }
@@ -16,7 +17,7 @@ interface Milestone {
   id: string
   name: string
   dueDate: string | null
-  status: string
+  statusCategory: StatusCategory
 }
 
 const props = defineProps<{
@@ -75,10 +76,9 @@ const ticks = computed(() => {
   }
   return out
 })
-const barColor: Record<ActivityStatus, string> = {
-  todo: 'bg-neutral-300 dark:bg-neutral-600',
+const barColor: Record<StatusCategory, string> = {
+  not_started: 'bg-neutral-300 dark:bg-neutral-600',
   in_progress: 'bg-info',
-  blocked: 'bg-error',
   done: 'bg-success',
 }
 const rows = computed(() => {
@@ -89,7 +89,7 @@ const rows = computed(() => {
   const unassigned = props.activities.filter((a) => !a.milestoneId)
   if (unassigned.length)
     groups.push({
-      milestone: { id: 'none', name: 'Unscheduled', dueDate: null, status: 'not_started' },
+      milestone: { id: 'none', name: 'Unscheduled', dueDate: null, statusCategory: 'not_started' },
       items: unassigned,
     })
   return groups.filter((g) => g.items.length || g.milestone.id !== 'none')
@@ -155,9 +155,9 @@ function mDueLeft(m: Milestone) {
             />
             <div
               class="absolute top-1/2 h-4 -translate-y-1/2 overflow-hidden rounded"
-              :class="barColor[a.status]"
+              :class="barColor[a.statusCategory]"
               :style="barStyle(a)"
-              :title="`${a.name} · ${ACTIVITY_STATUS_LABEL[a.status]} · ${a.percentComplete}%`"
+              :title="`${a.name} · ${a.statusLabel} · ${a.percentComplete}%`"
             >
               <div class="h-full bg-black/20" :style="{ width: `${a.percentComplete}%` }" />
             </div>
@@ -172,7 +172,7 @@ function mDueLeft(m: Milestone) {
         >
         <span v-for="(c, s) in barColor" :key="s" class="flex items-center gap-1.5">
           <span class="size-2.5 rounded-sm" :class="c" />
-          {{ ACTIVITY_STATUS_LABEL[s as ActivityStatus] }}
+          {{ STATUS_CATEGORY_LABEL[s as StatusCategory] }}
         </span>
         <span class="flex items-center gap-1.5"><span class="h-3 w-px bg-primary/60" /> Today</span>
       </div>

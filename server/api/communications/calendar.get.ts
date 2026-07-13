@@ -25,6 +25,10 @@ export default defineEventHandler(async (event) => {
         status: contentItems.status,
         scheduledFor: contentItems.scheduledFor,
         publishedAt: contentItems.publishedAt,
+        excerpt: contentItems.excerpt,
+        coverImageUrl: contentItems.coverImageUrl,
+        platform: contentItems.platform,
+        publishedUrl: contentItems.publishedUrl,
       })
       .from(contentItems)
       .where(

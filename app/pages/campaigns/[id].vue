@@ -54,11 +54,19 @@ interface Summary {
   budgetVariance: number
 }
 
+interface Performance {
+  publishedCount: number
+  paidCount: number
+  freeCount: number
+  totalSpend: number
+  metricTotals: Record<string, number>
+}
 const { data, refresh } = await useFetch<{
   campaign: Campaign
   content: LinkedContent[]
   budgetLines: BudgetLine[]
   summary: Summary
+  performance: Performance
 }>(`/api/communications/campaigns/${id}`, { key: `campaign-${id}` })
 if (!data.value)
   throw createError({ statusCode: 404, statusMessage: 'Campaign not found', fatal: true })
@@ -216,6 +224,31 @@ async function closeCampaign() {
         </p>
       </div>
     </div>
+
+    <!-- C2 — performance roll-up across published posts (spend vs numbers gained) -->
+    <UCard v-if="data.performance.publishedCount">
+      <template #header>
+        <h3 class="text-sm font-semibold text-default">Performance across published posts</h3>
+      </template>
+      <div class="flex flex-wrap gap-6">
+        <div>
+          <p class="text-xs uppercase tracking-wide text-muted">Spend</p>
+          <p class="mt-0.5 text-xl font-semibold text-default">
+            {{ money(data.performance.totalSpend) }}
+          </p>
+          <p class="text-xs text-muted">
+            {{ data.performance.paidCount }} paid · {{ data.performance.freeCount }} free
+          </p>
+        </div>
+        <div v-for="(v, k) in data.performance.metricTotals" :key="k" class="min-w-20">
+          <p class="text-xs uppercase tracking-wide text-muted">{{ k }}</p>
+          <p class="mt-0.5 text-xl font-semibold text-default">{{ v.toLocaleString() }}</p>
+        </div>
+      </div>
+      <p v-if="!Object.keys(data.performance.metricTotals).length" class="text-sm text-muted">
+        No metrics captured yet — add them on each published post.
+      </p>
+    </UCard>
 
     <div class="grid grid-cols-1 gap-5 lg:grid-cols-3">
       <!-- Budget (CC-12) -->

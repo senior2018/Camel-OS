@@ -65,6 +65,7 @@ export default defineEventHandler(async (event) => {
         projectManagerUserId: projects.projectManagerUserId,
         pmFirstName: users.firstName,
         pmLastName: users.lastName,
+        closedAt: projects.closedAt,
         createdAt: projects.createdAt,
       })
       .from(projects)
@@ -80,7 +81,7 @@ export default defineEventHandler(async (event) => {
           .select({
             projectId: projectMilestones.projectId,
             total: sql<number>`count(*)::int`,
-            done: sql<number>`count(*) filter (where ${projectMilestones.status} = 'completed')::int`,
+            done: sql<number>`(count(*) filter (where ${projectMilestones.statusCategory} = 'done'))::int`,
           })
           .from(projectMilestones)
           .where(

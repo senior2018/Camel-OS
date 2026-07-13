@@ -31,21 +31,27 @@ export default defineEventHandler(async (event) => {
         name: projects.name,
         projectManagerUserId: projects.projectManagerUserId,
         createdByUserId: projects.createdByUserId,
+        closedAt: projects.closedAt,
       })
       .from(projects)
       .where(and(eq(projects.id, id), eq(projects.organizationId, ctx.organizationId)))
       .limit(1)
     if (!existing) throw createError({ statusCode: 404, statusMessage: 'Project not found' })
 
-    // Re-assigning the PM is a leadership action — restrict it even though
-    // general project edits are open to any project editor.
-    const changingPm =
-      data.projectManagerUserId !== undefined &&
-      (data.projectManagerUserId ?? null) !== existing.projectManagerUserId
-    if (changingPm && !(await canManageProjectTeam(ctx.userId, ctx.isSystemAdmin, existing))) {
+    // P3 — editing project details (and re-assigning the PM) is a leadership
+    // action: the PM, the creator, a project leader, or a system admin — not
+    // every consultant with project:update.
+    const isLead = await canManageProjectTeam(ctx.userId, ctx.isSystemAdmin, existing)
+    if (!isLead) {
       throw createError({
         statusCode: 403,
-        statusMessage: 'Only the project manager or a project leader can reassign the PM.',
+        statusMessage: 'Only the project manager or a project leader can edit this project.',
+      })
+    }
+    if (existing.closedAt) {
+      throw createError({
+        statusCode: 409,
+        statusMessage: 'Reopen the project before editing it.',
       })
     }
 
@@ -60,6 +66,7 @@ export default defineEventHandler(async (event) => {
     if (data.totalBudget !== undefined) updates.totalBudget = data.totalBudget ?? null
     if (data.currency !== undefined) updates.currency = data.currency
     if (data.clientId !== undefined) updates.clientId = data.clientId ?? null
+    if (data.proposalId !== undefined) updates.proposalId = data.proposalId ?? null
     if (data.projectManagerUserId !== undefined)
       updates.projectManagerUserId = data.projectManagerUserId ?? null
 

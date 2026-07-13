@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import { Hash } from '@adonisjs/hash'
 import { Scrypt } from '@adonisjs/hash/drivers/scrypt'
@@ -2521,6 +2521,51 @@ async function run() {
     })
   }
   consola.success('Modules: MEL, HR, Strategy, Finance & Procurement demo data seeded.')
+
+  // ── PM rework: derive the configurable status model from the seeded enums ────
+  // Activities carry statusLabel/statusCategory; milestones + projects derive
+  // their category from children (matches the runtime rollup). Scoped to this org.
+  await db.execute(sql`
+    UPDATE "project_activities" SET
+      "status_category" = CASE "status" WHEN 'done' THEN 'done' WHEN 'in_progress' THEN 'in_progress' WHEN 'blocked' THEN 'in_progress' ELSE 'not_started' END,
+      "status_label" = CASE "status" WHEN 'done' THEN 'Completed' WHEN 'in_progress' THEN 'In progress' WHEN 'blocked' THEN 'Blocked' ELSE 'Not started' END
+    WHERE "organization_id" = ${orgId}`)
+  await db.execute(sql`
+    UPDATE "project_milestones" m SET "status_category" = COALESCE((
+      SELECT CASE
+        WHEN count(*) = 0 THEN 'not_started'
+        WHEN count(*) FILTER (WHERE a."status_category" = 'done') = count(*) THEN 'done'
+        WHEN count(*) FILTER (WHERE a."status_category" = 'not_started') = count(*) THEN 'not_started'
+        ELSE 'in_progress' END
+      FROM "project_activities" a WHERE a."milestone_id" = m."id"), 'not_started')
+    WHERE m."organization_id" = ${orgId}`)
+  await db.execute(sql`
+    UPDATE "projects" p SET "lifecycle_category" = COALESCE((
+      SELECT CASE
+        WHEN count(*) = 0 THEN 'not_started'
+        WHEN count(*) FILTER (WHERE m."status_category" = 'done') = count(*) THEN 'done'
+        WHEN count(*) FILTER (WHERE m."status_category" = 'not_started') = count(*) THEN 'not_started'
+        ELSE 'in_progress' END
+      FROM "project_milestones" m WHERE m."project_id" = p."id"), 'not_started')
+    WHERE p."organization_id" = ${orgId}`)
+
+  // A couple of seeded reports become member "activity" reports (P17) so the
+  // reports tab shows both kinds; the rest stay as the general project report.
+  await db.execute(sql`
+    UPDATE "project_reports" SET "kind" = 'activity', "status" = 'in_review'
+    WHERE "organization_id" = ${orgId} AND "title" LIKE 'Monthly Progress%'`)
+
+  // ── Comms rework: give published content platform + performance so campaign
+  // roll-ups aren't empty. ─────────────────────────────────────────────────────
+  await db.execute(sql`
+    UPDATE "content_items" SET
+      "platform" = 'Facebook',
+      "published_url" = 'https://facebook.com/sahara/posts/demo',
+      "is_paid" = true,
+      "spend" = '150.00',
+      "metrics" = '{"Reach": 10400, "Impressions": 18700, "Clicks": 320, "Shares": 45}'::jsonb
+    WHERE "organization_id" = ${orgId} AND "status" = 'published'`)
+  consola.success('Rework: derived project statuses + report kinds + content performance.')
 
   consola.box(
     [

@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import {
   DEFAULT_PROJECT_SETTINGS,
+  STATUS_CATEGORIES,
+  STATUS_CATEGORY_LABEL,
   type ProjectSettings,
+  type StatusCategory,
   type UpdateProjectSettingsPayload,
 } from '@@/shared/schemas/project-settings'
 
@@ -36,18 +39,32 @@ watchEffect(() => {
     form.closeChecklist = [...s.closeChecklist]
     form.budgetCategories = [...s.budgetCategories]
     form.teamRoles = [...s.teamRoles]
+    form.activityStatuses = s.activityStatuses.map((x) => ({ ...x }))
+    form.lifecycleLabels = { ...s.lifecycleLabels }
     form.requireBudgetRevisionApproval = s.requireBudgetRevisionApproval
   }
 })
 
-// Each editable vocabulary rendered by the same list editor.
+// Activity status editor (P7) — each label maps to a category driving automation.
+const categoryItems = STATUS_CATEGORIES.map((c) => ({ label: STATUS_CATEGORY_LABEL[c], value: c }))
+const newStatus = reactive({ label: '', category: 'not_started' as StatusCategory })
+function addStatus() {
+  const label = newStatus.label.trim()
+  if (!label) return
+  if (!form.activityStatuses.some((s) => s.label.toLowerCase() === label.toLowerCase()))
+    form.activityStatuses.push({ label, category: newStatus.category })
+  newStatus.label = ''
+  newStatus.category = 'not_started'
+}
+function removeStatus(i: number) {
+  form.activityStatuses.splice(i, 1)
+}
+const catColor = (c: StatusCategory) =>
+  c === 'done' ? 'success' : c === 'in_progress' ? 'info' : 'neutral'
+
+// Each editable vocabulary rendered by the same list editor. Reports are now
+// free-form (P12), so report sections are no longer configured here.
 const lists = [
-  {
-    key: 'reportSections' as const,
-    title: 'Report template sections',
-    help: 'Every project report is scaffolded with these sections and must fill them before review.',
-    placeholder: 'e.g. Risks & mitigation',
-  },
   {
     key: 'closeChecklist' as const,
     title: 'Close-out checklist',
@@ -96,6 +113,8 @@ async function save() {
         closeChecklist: form.closeChecklist,
         budgetCategories: form.budgetCategories,
         teamRoles: form.teamRoles,
+        activityStatuses: form.activityStatuses,
+        lifecycleLabels: form.lifecycleLabels,
         requireBudgetRevisionApproval: form.requireBudgetRevisionApproval,
       } satisfies UpdateProjectSettingsPayload,
     })
@@ -126,8 +145,8 @@ async function save() {
         />
         <h1 class="mt-1 text-2xl font-semibold tracking-tight text-default">Project settings</h1>
         <p class="mt-1 text-sm text-muted">
-          Customize the vocabularies the module uses — nothing here is hard-coded. Statuses are a
-          fixed workflow and aren't editable.
+          Customize the vocabularies the module uses — nothing here is hard-coded, including the
+          activity statuses and lifecycle labels.
         </p>
       </div>
       <UButton label="Save settings" :loading="saving" @click="save" />
@@ -178,6 +197,84 @@ async function save() {
             label="Add"
             @click="addItem(l.key)"
           />
+        </div>
+      </UCard>
+
+      <UCard>
+        <template #header>
+          <div>
+            <h3 class="text-sm font-semibold text-default">Activity statuses</h3>
+            <p class="mt-0.5 text-xs text-muted">
+              Statuses staff pick on an activity. Each maps to a category that drives milestone &
+              project progress automatically — keep at least one in “Done”.
+            </p>
+          </div>
+        </template>
+        <ul class="space-y-1.5">
+          <li
+            v-for="(s, i) in form.activityStatuses"
+            :key="i"
+            class="flex items-center justify-between gap-2 rounded-lg border border-default bg-default px-3 py-1.5 text-sm shadow-sm"
+          >
+            <span class="text-default">{{ s.label }}</span>
+            <div class="flex items-center gap-2">
+              <UBadge
+                :color="catColor(s.category)"
+                variant="subtle"
+                size="xs"
+                :label="STATUS_CATEGORY_LABEL[s.category]"
+              />
+              <UButton
+                size="xs"
+                variant="ghost"
+                color="error"
+                icon="i-lucide-x"
+                aria-label="Remove"
+                @click="removeStatus(i)"
+              />
+            </div>
+          </li>
+          <li v-if="!form.activityStatuses.length" class="text-xs text-muted">Nothing yet.</li>
+        </ul>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <UInput
+            v-model="newStatus.label"
+            placeholder="e.g. In review"
+            size="sm"
+            class="flex-1"
+            @keydown.enter.prevent="addStatus"
+          />
+          <USelect
+            v-model="newStatus.category"
+            :items="categoryItems"
+            value-key="value"
+            size="sm"
+            class="w-36"
+          />
+          <UButton size="sm" variant="soft" icon="i-lucide-plus" label="Add" @click="addStatus" />
+        </div>
+      </UCard>
+
+      <UCard>
+        <template #header>
+          <div>
+            <h3 class="text-sm font-semibold text-default">Lifecycle labels</h3>
+            <p class="mt-0.5 text-xs text-muted">
+              How the derived milestone & project state is displayed. These are labels only — the
+              state itself is always computed from activity progress.
+            </p>
+          </div>
+        </template>
+        <div class="space-y-3">
+          <UFormField label="Not started">
+            <UInput v-model="form.lifecycleLabels.notStarted" class="w-full" />
+          </UFormField>
+          <UFormField label="In progress">
+            <UInput v-model="form.lifecycleLabels.inProgress" class="w-full" />
+          </UFormField>
+          <UFormField label="Completed">
+            <UInput v-model="form.lifecycleLabels.done" class="w-full" />
+          </UFormField>
         </div>
       </UCard>
 

@@ -12,7 +12,6 @@ import {
 // without importing them here.
 import ContentEditor from '~/components/communication/ContentEditor.vue'
 import ContentComments from '~/components/communication/ContentComments.vue'
-import ContentMetricsCard from '~/components/communication/ContentMetricsCard.vue'
 import ContentReviewModal from '~/components/communication/ContentReviewModal.vue'
 
 definePageMeta({ layout: 'dashboard' })
@@ -63,6 +62,11 @@ interface Content {
   scheduledFor: string | null
   campaignId: string | null
   publishedAt: string | null
+  platform: string | null
+  publishedUrl: string | null
+  isPaid: boolean
+  spend: string
+  metrics: Record<string, number>
   createdAt: string
   updatedAt: string
 }
@@ -82,6 +86,72 @@ const canWrite = computed(
     can.value('communications', 'update') && ['draft', 'changes_requested'].includes(cStatus.value)
 )
 const myReview = computed(() => data.value?.reviews.find((r) => r.reviewerUserId === myId.value))
+
+// C1/C2 — publishing + performance (shown once approved/published).
+const { data: commsSettings } = useFetch<{
+  settings: { platforms: string[]; platformMetrics: Record<string, string[]> }
+}>('/api/communications/settings/platforms', {
+  key: 'comms-platforms',
+  default: () => ({ settings: { platforms: [], platformMetrics: {} } }),
+})
+const canEditPublish = computed(
+  () => can.value('communications', 'update') && ['approved', 'published'].includes(cStatus.value)
+)
+const showPublishing = computed(() => ['approved', 'published'].includes(cStatus.value))
+const pub = reactive({
+  platform: '__none__' as string,
+  publishedUrl: '',
+  isPaid: false,
+  spend: null as number | null,
+  metrics: {} as Record<string, number>,
+})
+watchEffect(() => {
+  const c = data.value?.content
+  if (c) {
+    pub.platform = c.platform ?? '__none__'
+    pub.publishedUrl = c.publishedUrl ?? ''
+    pub.isPaid = c.isPaid
+    pub.spend = c.spend != null ? Number(c.spend) : null
+    pub.metrics = { ...(c.metrics ?? {}) }
+  }
+})
+const platformItems = computed(() => [
+  { label: 'Not specified', value: '__none__' },
+  ...(commsSettings.value?.settings.platforms ?? []).map((p) => ({ label: p, value: p })),
+])
+// Metric fields for the chosen platform (configurable).
+const metricFields = computed(() => {
+  const map = commsSettings.value?.settings.platformMetrics ?? {}
+  return pub.platform !== '__none__' ? (map[pub.platform] ?? []) : []
+})
+const savingPub = ref(false)
+async function savePublish() {
+  savingPub.value = true
+  try {
+    const metrics: Record<string, number> = {}
+    for (const f of metricFields.value) metrics[f] = Number(pub.metrics[f] ?? 0)
+    await $fetch(`/api/communications/content/${id}/publish`, {
+      method: 'PUT',
+      body: {
+        platform: pub.platform === '__none__' ? null : pub.platform,
+        publishedUrl: pub.publishedUrl.trim() || '',
+        isPaid: pub.isPaid,
+        spend: pub.isPaid ? Number(pub.spend ?? 0) : 0,
+        metrics,
+      },
+    })
+    toast.add({ title: 'Publishing details saved', color: 'success' })
+    await refresh()
+  } catch (err) {
+    toast.add({
+      title: 'Could not save',
+      description: (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Failed',
+      color: 'error',
+    })
+  } finally {
+    savingPub.value = false
+  }
+}
 const isPendingReviewer = computed(
   () => cStatus.value === 'in_review' && myReview.value?.decision === 'pending'
 )
@@ -574,12 +644,74 @@ const workspaceTabs = [
           :can-post="can('communications', 'update') || can('communications', 'approve')"
           class="flex min-h-0 flex-1 flex-col"
         />
-        <ContentMetricsCard
-          v-if="data.content.status === 'published'"
-          :content-id="id"
-          :can-edit="can('communications', 'update')"
-          class="shrink-0"
-        />
+        <!-- C1/C2 — publishing + performance -->
+        <UCard v-if="showPublishing" class="shrink-0">
+          <template #header>
+            <h3 class="text-sm font-semibold text-default">Publishing &amp; performance</h3>
+          </template>
+          <div v-if="canEditPublish" class="space-y-3">
+            <UFormField label="Platform" hint="Where this was posted">
+              <USelect
+                v-model="pub.platform"
+                :items="platformItems"
+                value-key="value"
+                class="w-full"
+              />
+            </UFormField>
+            <UFormField label="Live post link">
+              <UInput v-model="pub.publishedUrl" placeholder="https://…" class="w-full" />
+            </UFormField>
+            <USwitch v-model="pub.isPaid" label="Paid ad (has spend)" />
+            <UFormField v-if="pub.isPaid" label="Spend">
+              <UInputNumber v-model="pub.spend" :min="0" class="w-full" />
+            </UFormField>
+            <div v-if="metricFields.length" class="space-y-2 border-t border-default pt-3">
+              <p class="text-xs font-medium uppercase tracking-wide text-muted">
+                {{ pub.platform }} metrics
+              </p>
+              <div class="grid grid-cols-2 gap-2">
+                <UFormField v-for="f in metricFields" :key="f" :label="f">
+                  <UInputNumber v-model="pub.metrics[f]" :min="0" size="sm" class="w-full" />
+                </UFormField>
+              </div>
+            </div>
+            <p v-else-if="pub.platform !== '__none__'" class="text-xs text-muted">
+              No metrics configured for this platform. Add them in Communications settings.
+            </p>
+            <div class="flex justify-end">
+              <UButton size="sm" label="Save" :loading="savingPub" @click="savePublish" />
+            </div>
+          </div>
+          <!-- Read-only view -->
+          <dl v-else class="space-y-2 text-sm">
+            <div class="flex justify-between">
+              <dt class="text-muted">Platform</dt>
+              <dd class="text-default">{{ data.content.platform || '—' }}</dd>
+            </div>
+            <div v-if="data.content.publishedUrl" class="flex justify-between">
+              <dt class="text-muted">Live post</dt>
+              <dd>
+                <a
+                  :href="data.content.publishedUrl"
+                  target="_blank"
+                  rel="noopener"
+                  class="text-primary hover:underline"
+                  >Open ↗</a
+                >
+              </dd>
+            </div>
+            <div class="flex justify-between">
+              <dt class="text-muted">Spend</dt>
+              <dd class="text-default">
+                {{ data.content.isPaid ? data.content.spend : 'Free (0)' }}
+              </dd>
+            </div>
+            <div v-for="(v, k) in data.content.metrics" :key="k" class="flex justify-between">
+              <dt class="text-muted">{{ k }}</dt>
+              <dd class="text-default">{{ v }}</dd>
+            </div>
+          </dl>
+        </UCard>
       </div>
     </div>
 

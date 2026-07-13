@@ -36,11 +36,63 @@ export const DEFAULT_PROJECT_TEAM_ROLES = [
   'Coordinator',
 ]
 
+// ── Configurable statuses (P6/P7/P14) ────────────────────────────────────────
+// Every status LABEL is org-configurable; each maps to a hidden CATEGORY that
+// drives automation. Activity status is the only thing set manually — milestone
+// and project state are derived from these categories.
+export type StatusCategory = 'not_started' | 'in_progress' | 'done'
+export const STATUS_CATEGORIES: StatusCategory[] = ['not_started', 'in_progress', 'done']
+export const STATUS_CATEGORY_LABEL: Record<StatusCategory, string> = {
+  not_started: 'Not started',
+  in_progress: 'In progress',
+  done: 'Done',
+}
+export const STATUS_CATEGORY_COLOR: Record<
+  StatusCategory,
+  'neutral' | 'info' | 'warning' | 'success' | 'primary' | 'error'
+> = {
+  not_started: 'neutral',
+  in_progress: 'info',
+  done: 'success',
+}
+
+export interface ActivityStatusOption {
+  label: string
+  category: StatusCategory
+}
+export const DEFAULT_ACTIVITY_STATUSES: ActivityStatusOption[] = [
+  { label: 'Not started', category: 'not_started' },
+  { label: 'In progress', category: 'in_progress' },
+  { label: 'Blocked', category: 'in_progress' },
+  { label: 'Completed', category: 'done' },
+]
+
+// Labels used to display the DERIVED milestone/project lifecycle state.
+export interface LifecycleLabels {
+  notStarted: string
+  inProgress: string
+  done: string
+}
+export const DEFAULT_LIFECYCLE_LABELS: LifecycleLabels = {
+  notStarted: 'Not started',
+  inProgress: 'In progress',
+  done: 'Completed',
+}
+export function lifecycleLabel(category: StatusCategory, labels: LifecycleLabels): string {
+  return category === 'done'
+    ? labels.done
+    : category === 'in_progress'
+      ? labels.inProgress
+      : labels.notStarted
+}
+
 export interface ProjectSettings {
   reportSections: string[]
   closeChecklist: string[]
   budgetCategories: string[]
   teamRoles: string[]
+  activityStatuses: ActivityStatusOption[]
+  lifecycleLabels: LifecycleLabels
   requireBudgetRevisionApproval: boolean
 }
 
@@ -49,6 +101,8 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   closeChecklist: [...DEFAULT_PROJECT_CLOSE_CHECKLIST],
   budgetCategories: [...DEFAULT_PROJECT_BUDGET_CATEGORIES],
   teamRoles: [...DEFAULT_PROJECT_TEAM_ROLES],
+  activityStatuses: DEFAULT_ACTIVITY_STATUSES.map((s) => ({ ...s })),
+  lifecycleLabels: { ...DEFAULT_LIFECYCLE_LABELS },
   requireBudgetRevisionApproval: true,
 }
 
@@ -58,6 +112,24 @@ export const updateProjectSettingsSchema = z.object({
   closeChecklist: stringList.min(1, 'Keep at least one checklist item'),
   budgetCategories: stringList,
   teamRoles: stringList,
+  activityStatuses: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1).max(80),
+        category: z.enum(['not_started', 'in_progress', 'done']),
+      })
+    )
+    .min(1, 'Keep at least one activity status')
+    .max(20)
+    // Must offer at least one "done" status so activities can ever complete.
+    .refine((list) => list.some((s) => s.category === 'done'), {
+      message: 'Include at least one status in the "Done" category',
+    }),
+  lifecycleLabels: z.object({
+    notStarted: z.string().trim().min(1).max(60),
+    inProgress: z.string().trim().min(1).max(60),
+    done: z.string().trim().min(1).max(60),
+  }),
   requireBudgetRevisionApproval: z.boolean(),
 })
 export type UpdateProjectSettingsPayload = z.output<typeof updateProjectSettingsSchema>

@@ -36,6 +36,55 @@ export const updateContentLookupSchema = z.object({
 export type UpdateContentLookupPayload = z.output<typeof updateContentLookupSchema>
 
 /**
+ * C2 — configurable social platforms and, per platform, the performance metrics
+ * captured for a published post. Fully org-editable so the campaign entry form
+ * adapts to each platform. Nothing here is hard-coded.
+ */
+export const DEFAULT_PLATFORMS = [
+  'Facebook',
+  'X (Twitter)',
+  'LinkedIn',
+  'Instagram',
+  'YouTube',
+  'Website / Blog',
+]
+export const DEFAULT_PLATFORM_METRICS: Record<string, string[]> = {
+  Facebook: ['Reach', 'Impressions', 'Engagements', 'Clicks', 'Shares', 'Reactions'],
+  'X (Twitter)': ['Impressions', 'Engagements', 'Retweets', 'Likes', 'Link clicks'],
+  LinkedIn: ['Impressions', 'Clicks', 'Reactions', 'Comments', 'Shares'],
+  Instagram: ['Reach', 'Impressions', 'Likes', 'Comments', 'Saves'],
+  YouTube: ['Views', 'Watch time (min)', 'Likes', 'Comments', 'Subscribers gained'],
+  'Website / Blog': ['Visits', 'Unique visitors', 'Avg. time (s)', 'Registrations'],
+}
+
+export interface CommunicationsSettings {
+  platforms: string[]
+  platformMetrics: Record<string, string[]>
+}
+export const DEFAULT_COMMUNICATIONS_SETTINGS: CommunicationsSettings = {
+  platforms: [...DEFAULT_PLATFORMS],
+  platformMetrics: structuredClone(DEFAULT_PLATFORM_METRICS),
+}
+
+export const updateCommunicationsSettingsSchema = z.object({
+  platforms: z.array(z.string().trim().min(1).max(60)).min(1).max(30),
+  platformMetrics: z.record(z.string(), z.array(z.string().trim().min(1).max(60)).max(30)),
+})
+export type UpdateCommunicationsSettingsPayload = z.output<
+  typeof updateCommunicationsSettingsSchema
+>
+
+// C1/C2 — publishing + performance fields set on a content item once it's live.
+export const contentPublishSchema = z.object({
+  platform: z.string().trim().max(60).nullish(),
+  publishedUrl: z.string().trim().url().max(2000).nullish().or(z.literal('')),
+  isPaid: z.boolean().optional(),
+  spend: z.number().min(0).optional(),
+  metrics: z.record(z.string(), z.number().min(0)).optional(),
+})
+export type ContentPublishPayload = z.output<typeof contentPublishSchema>
+
+/**
  * Content review policy (CC — mirrors the proposal review policy). Reviewers
  * read, comment, and approve; the policy decides how many approvals are needed
  * before a content item is ready for the final approver (the Communications

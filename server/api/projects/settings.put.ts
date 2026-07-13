@@ -26,12 +26,23 @@ export default defineEventHandler(async (event) => {
       })
     }
 
+    // De-duplicate activity statuses by label (case-insensitive), keeping order.
+    const seenStatus = new Set<string>()
+    const activityStatuses = payload.activityStatuses.filter((s) => {
+      const k = s.label.trim().toLowerCase()
+      if (!s.label.trim() || seenStatus.has(k)) return false
+      seenStatus.add(k)
+      return true
+    })
+
     const row = {
       organizationId: ctx.organizationId,
       reportSections: dedupe(payload.reportSections),
       closeChecklist: dedupe(payload.closeChecklist),
       budgetCategories: dedupe(payload.budgetCategories),
       teamRoles: dedupe(payload.teamRoles),
+      activityStatuses,
+      lifecycleLabels: payload.lifecycleLabels,
       requireBudgetRevisionApproval: payload.requireBudgetRevisionApproval,
       updatedAt: new Date(),
     }
@@ -39,6 +50,12 @@ export default defineEventHandler(async (event) => {
       throw createError({
         statusCode: 400,
         statusMessage: 'Report sections and the close checklist each need at least one entry.',
+      })
+    }
+    if (!row.activityStatuses.length || !row.activityStatuses.some((s) => s.category === 'done')) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Keep at least one activity status, including one in the "Done" category.',
       })
     }
 

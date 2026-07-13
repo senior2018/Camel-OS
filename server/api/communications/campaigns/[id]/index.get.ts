@@ -45,12 +45,37 @@ export default defineEventHandler(async (event) => {
         status: contentItems.status,
         scheduledFor: contentItems.scheduledFor,
         publishedAt: contentItems.publishedAt,
+        platform: contentItems.platform,
+        publishedUrl: contentItems.publishedUrl,
+        isPaid: contentItems.isPaid,
+        spend: contentItems.spend,
+        metrics: contentItems.metrics,
       })
       .from(contentItems)
       .where(
         and(eq(contentItems.campaignId, id), eq(contentItems.organizationId, ctx.organizationId))
       )
       .orderBy(desc(contentItems.createdAt))
+
+    // C2 — performance roll-up across the campaign's published posts: total spend
+    // (paid vs free), and every captured metric summed by its label.
+    const published = content.filter((c) => c.status === 'published')
+    const metricTotals: Record<string, number> = {}
+    let totalSpend = 0
+    let paidCount = 0
+    for (const c of published) {
+      totalSpend += Number(c.spend ?? 0)
+      if (c.isPaid) paidCount++
+      for (const [k, v] of Object.entries(c.metrics ?? {}))
+        metricTotals[k] = (metricTotals[k] ?? 0) + Number(v)
+    }
+    const performance = {
+      publishedCount: published.length,
+      paidCount,
+      freeCount: published.length - paidCount,
+      totalSpend,
+      metricTotals,
+    }
 
     const budgetLines = await db
       .select()
@@ -69,7 +94,7 @@ export default defineEventHandler(async (event) => {
       budgetVariance: budgetPlanned - actual,
     }
 
-    return { campaign, content, budgetLines, summary }
+    return { campaign, content, budgetLines, summary, performance }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
     consola.error('Error loading campaign', error)

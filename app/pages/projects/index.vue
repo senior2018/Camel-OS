@@ -30,6 +30,7 @@ interface ProjectRow {
   clientName: string | null
   pmFirstName: string | null
   pmLastName: string | null
+  closedAt: string | null
   milestonesTotal: number
   milestonesDone: number
 }
@@ -53,6 +54,21 @@ const filtered = computed(() => {
       return false
     return true
   })
+})
+
+// Client-side pagination — the list can grow large, so we page the filtered set
+// and reset to page 1 whenever the search or status filter changes.
+const page = ref(1)
+const pageSize = 9
+const pageCount = computed(() => Math.max(1, Math.ceil(filtered.value.length / pageSize)))
+const paged = computed(() =>
+  filtered.value.slice((page.value - 1) * pageSize, page.value * pageSize)
+)
+watch([search, statusFilter], () => {
+  page.value = 1
+})
+watch(pageCount, (n) => {
+  if (page.value > n) page.value = n
 })
 
 const toast = useToast()
@@ -116,7 +132,9 @@ function progress(p: ProjectRow) {
 
 <template>
   <div class="space-y-6">
-    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <header
+      class="flex flex-col gap-3 border-b border-default/70 pb-5 sm:flex-row sm:items-end sm:justify-between"
+    >
       <div>
         <h1 class="text-2xl font-semibold tracking-tight text-default">Projects</h1>
         <p class="mt-1 text-sm text-muted">
@@ -183,7 +201,7 @@ function progress(p: ProjectRow) {
 
     <div v-else class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
       <article
-        v-for="p in filtered"
+        v-for="p in paged"
         :key="p.id"
         class="flex cursor-pointer flex-col rounded-xl border border-default bg-default p-4 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow"
         @click="navigateTo(`/projects/${p.id}`)"
@@ -193,7 +211,9 @@ function progress(p: ProjectRow) {
             <h2 class="truncate font-semibold text-default">{{ p.name }}</h2>
             <p v-if="p.code" class="text-xs text-dimmed">{{ p.code }}</p>
           </div>
+          <UBadge v-if="p.closedAt" color="neutral" variant="subtle" size="xs" label="Closed" />
           <UBadge
+            v-else
             :color="PROJECT_STATUS_COLOR[p.status]"
             variant="subtle"
             size="xs"
@@ -223,6 +243,15 @@ function progress(p: ProjectRow) {
           <span>{{ money(p.totalBudget, p.currency) }}</span>
         </div>
       </article>
+    </div>
+
+    <div v-if="filtered.length > pageSize" class="flex justify-center pt-2">
+      <UPagination
+        v-model:page="page"
+        :total="filtered.length"
+        :items-per-page="pageSize"
+        :sibling-count="1"
+      />
     </div>
 
     <UModal v-model:open="createOpen" title="New project">

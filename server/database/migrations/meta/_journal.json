@@ -183,6 +183,41 @@
       "when": 1783813020754,
       "tag": "0025_military_stepford_cuckoos",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1783938095504,
+      "tag": "0026_woozy_moonstone",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1783943740395,
+      "tag": "0027_spooky_mandroid",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1783944631466,
+      "tag": "0028_goofy_namora",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1783945265767,
+      "tag": "0029_orange_maddog",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1783946169786,
+      "tag": "0030_heavy_lenny_balinger",
+      "breakpoints": true
     }
   ]
 }

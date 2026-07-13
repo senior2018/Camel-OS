@@ -168,6 +168,11 @@ async function confirmDelete() {
       <CommunicationsReviewPolicyCard :can-manage="canManage" />
     </section>
 
+    <!-- C2 — social platforms + per-platform performance metrics. -->
+    <section class="max-w-xl">
+      <CommunicationsPlatformsCard :can-manage="canManage" />
+    </section>
+
     <div class="pt-2">
       <h2 class="text-sm font-semibold text-default">Vocabularies</h2>
       <p class="text-xs text-muted">Content types and categories shown in the writing pickers.</p>

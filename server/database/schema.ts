@@ -950,6 +950,12 @@ export const organizationCommunicationsSettings = pgTable('organization_communic
   reviewRule: text('review_rule').notNull().default('all'),
   reviewThreshold: integer('review_threshold'),
   requireFinalApprover: boolean('require_final_approver').notNull().default(true),
+  // C2 — configurable social platforms + the metrics captured per platform.
+  platforms: jsonb().$type<string[]>().notNull().default([]),
+  platformMetrics: jsonb('platform_metrics')
+    .$type<Record<string, string[]>>()
+    .notNull()
+    .default({}),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
 
@@ -976,6 +982,15 @@ export const contentItems = pgTable(
     // CC-10 — optional campaign this content contributes to.
     campaignId: uuid('campaign_id').references(() => campaigns.id, { onDelete: 'set null' }),
     publishedAt: timestamp('published_at', { withTimezone: true }),
+    // C1 — once approved, content is posted externally; we record which social
+    // platform and the live post link (indirect publishing).
+    platform: text(),
+    publishedUrl: text('published_url'),
+    // C2 — campaign performance is measured here: whether the post was a paid ad
+    // (spend) or free (0), plus the platform-specific metrics filled manually.
+    isPaid: boolean('is_paid').notNull().default(false),
+    spend: numeric({ precision: 12, scale: 2 }).notNull().default('0'),
+    metrics: jsonb().$type<Record<string, number>>().notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -1699,6 +1714,9 @@ export const projects = pgTable(
     code: text(),
     description: text(),
     status: projectStatusEnum().notNull().default('planning'),
+    // P6 — DERIVED lifecycle state (not_started/in_progress/done) rolled up from
+    // milestones; the manual overlay is Active vs Closed (`closedAt`).
+    lifecycleCategory: text('lifecycle_category').notNull().default('not_started'),
     startDate: date('start_date'),
     endDate: date('end_date'),
     totalBudget: numeric('total_budget', { precision: 14, scale: 2 }),
@@ -1721,8 +1739,10 @@ export const projects = pgTable(
     // FN-09 — budget-burn alert threshold (%): the project is flagged when its
     // burn rate crosses this. Default 90%.
     budgetAlertThreshold: integer('budget_alert_threshold').notNull().default(90),
-    // PJ-11 — close + archive.
+    // PJ-11 — close + archive. `closeReason` records why it was closed (P20);
+    // a project can later be reopened, clearing `closedAt`/`closeReason`.
     closedAt: timestamp('closed_at', { withTimezone: true }),
+    closeReason: text('close_reason'),
     closeChecklist: jsonb('close_checklist').$type<Record<string, boolean>>(),
     createdByUserId: uuid('created_by_user_id').references(() => users.id, {
       onDelete: 'set null',
@@ -1750,6 +1770,16 @@ export const organizationProjectSettings = pgTable('organization_project_setting
   closeChecklist: jsonb('close_checklist').$type<string[]>().notNull(),
   budgetCategories: jsonb('budget_categories').$type<string[]>().notNull(),
   teamRoles: jsonb('team_roles').$type<string[]>().notNull(),
+  // P7/P14 — configurable activity status labels (each mapped to a category that
+  // drives milestone/project automation) + labels for the derived lifecycle.
+  activityStatuses: jsonb('activity_statuses')
+    .$type<{ label: string; category: 'not_started' | 'in_progress' | 'done' }[]>()
+    .notNull()
+    .default([]),
+  lifecycleLabels: jsonb('lifecycle_labels')
+    .$type<{ notStarted: string; inProgress: string; done: string }>()
+    .notNull()
+    .default({ notStarted: 'Not started', inProgress: 'In progress', done: 'Completed' }),
   requireBudgetRevisionApproval: boolean('require_budget_revision_approval')
     .notNull()
     .default(true),
@@ -1812,7 +1842,10 @@ export const projectMilestones = pgTable(
     name: text().notNull(),
     dueDate: date('due_date'),
     completionCriteria: text('completion_criteria'),
+    // Legacy enum kept for back-compat. The live value is `statusCategory`,
+    // which is DERIVED from the milestone's activities (P14) — never set by hand.
     status: projectMilestoneStatusEnum().notNull().default('not_started'),
+    statusCategory: text('status_category').notNull().default('not_started'),
     orderIndex: integer('order_index').notNull().default(0),
     completedAt: timestamp('completed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -1835,16 +1868,46 @@ export const projectActivities = pgTable(
       onDelete: 'set null',
     }),
     name: text().notNull(),
+    description: text(),
     assignedUserId: uuid('assigned_user_id').references(() => users.id, { onDelete: 'set null' }),
     startDate: date('start_date'),
     endDate: date('end_date'),
     plannedHours: numeric('planned_hours', { precision: 7, scale: 2 }),
     percentComplete: integer('percent_complete').notNull().default(0),
+    // Legacy enum status kept for back-compat; the live model is the
+    // configurable `statusLabel` + its `statusCategory` (P7/P14).
     status: projectActivityStatusEnum().notNull().default('todo'),
+    statusLabel: text('status_label').notNull().default('Not started'),
+    statusCategory: text('status_category').notNull().default('not_started'),
     dependsOnActivityId: uuid('depends_on_activity_id'),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [index('project_activities_project_idx').on(table.projectId)]
+)
+
+// P16 — discussion thread on an activity: progress updates from the assignee and
+// review comments from the PM.
+export const projectActivityComments = pgTable(
+  'project_activity_comments',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    activityId: uuid('activity_id')
+      .notNull()
+      .references(() => projectActivities.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    body: text().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('project_activity_comments_activity_idx').on(table.activityId)]
 )
 
 // PJ-05 — budget by category + phase (original vs revised).
@@ -1894,6 +1957,48 @@ export const projectExpenses = pgTable(
   (table) => [index('project_expenses_project_idx').on(table.projectId)]
 )
 
+// P9 — expense request → approval → return (reconcile with receipt). A request
+// asks for funds; once approved & disbursed, the requester "returns" it by
+// recording what was actually spent + proof, which posts to the actuals ledger
+// (projectExpenses) so budgeting reflects real spend.
+export const projectExpenseRequestStatusEnum = pgEnum('project_expense_request_status', [
+  'requested',
+  'approved',
+  'rejected',
+  'returned',
+])
+export const projectExpenseRequests = pgTable(
+  'project_expense_requests',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    purpose: text().notNull(),
+    category: text(),
+    amount: numeric({ precision: 14, scale: 2 }).notNull(),
+    status: projectExpenseRequestStatusEnum().notNull().default('requested'),
+    requestedByUserId: uuid('requested_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    approvedByUserId: uuid('approved_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    decisionNote: text('decision_note'),
+    // Populated on return: what was actually spent + proof of payment.
+    spentAmount: numeric('spent_amount', { precision: 14, scale: 2 }),
+    receiptUrl: text('receipt_url'),
+    returnNote: text('return_note'),
+    returnedAt: timestamp('returned_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('project_expense_requests_project_idx').on(table.projectId)]
+)
+
 // PJ-08 — vendors / subcontractors.
 export const projectVendors = pgTable(
   'project_vendors',
@@ -1934,6 +2039,19 @@ export const projectReports = pgTable(
     title: text().notNull(),
     content: text(),
     status: projectReportStatusEnum().notNull().default('draft'),
+    // P17 — 'activity' = a member's report on their own activities (submit only);
+    // 'general' = the project-wide report (goes through review + approval).
+    kind: text().notNull().default('general'),
+    // Activities an activity-report covers (one member, one or many activities).
+    activityIds: jsonb('activity_ids').$type<string[]>().notNull().default([]),
+    // P18 — a general report can be shared with all project members.
+    visibleToMembers: boolean('visible_to_members').notNull().default(false),
+    // P11 — the general report's assigned approver (client/sponsor/anyone).
+    approverUserId: uuid('approver_user_id').references(() => users.id, { onDelete: 'set null' }),
+    approvedByUserId: uuid('approved_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
     authorUserId: uuid('author_user_id').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

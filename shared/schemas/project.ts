@@ -51,6 +51,8 @@ export const createProjectSchema = z.object({
   // S14 (PJ-01) — delivery ownership + inherited context.
   scope: z.string().trim().max(4000).optional().nullable(),
   clientId: z.string().uuid().optional().nullable(),
+  // PJ-01 (P4) — link the project to the proposal it originated from.
+  proposalId: z.string().uuid().optional().nullable(),
   projectManagerUserId: z.string().uuid().optional().nullable(),
 })
 
@@ -139,29 +141,51 @@ export const projectMemberSchema = z.object({
 })
 export type ProjectMemberPayload = z.infer<typeof projectMemberSchema>
 
-// PJ-03
+// PJ-03 — milestone status is DERIVED from activities (P14), never set here.
 export const milestoneSchema = z.object({
   name: z.string().trim().min(1).max(200),
   dueDate: z.string().trim().min(1).nullish(),
   completionCriteria: z.string().trim().max(2000).nullish(),
-  status: z.enum(MILESTONE_STATUSES).default('not_started'),
   orderIndex: z.number().int().min(0).default(0),
 })
 export type MilestonePayload = z.infer<typeof milestoneSchema>
 
-// PJ-04
-export const activitySchema = z.object({
+// PJ-04 — create. Status is NOT set here: a new activity starts at the first
+// "not started" configured status. Its creator is auto-assigned server-side
+// when no assignee is given (P21).
+export const createActivitySchema = z.object({
   name: z.string().trim().min(1).max(200),
+  description: z.string().trim().max(4000).nullish(),
   milestoneId: z.string().uuid().nullish(),
   assignedUserId: z.string().uuid().nullish(),
   startDate: z.string().trim().min(1).nullish(),
   endDate: z.string().trim().min(1).nullish(),
   plannedHours: z.number().min(0).nullish(),
-  percentComplete: z.number().int().min(0).max(100).default(0),
-  status: z.enum(ACTIVITY_STATUSES).default('todo'),
   dependsOnActivityId: z.string().uuid().nullish(),
 })
-export type ActivityPayload = z.infer<typeof activitySchema>
+export type CreateActivityPayload = z.infer<typeof createActivitySchema>
+
+// PJ-04 — update. `statusLabel` must be one of the org's configured activity
+// statuses (validated server-side); changing it is gated to the assignee or PM.
+export const updateActivitySchema = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  description: z.string().trim().max(4000).nullish(),
+  milestoneId: z.string().uuid().nullish(),
+  assignedUserId: z.string().uuid().nullish(),
+  startDate: z.string().trim().min(1).nullish(),
+  endDate: z.string().trim().min(1).nullish(),
+  plannedHours: z.number().min(0).nullish(),
+  percentComplete: z.number().int().min(0).max(100).optional(),
+  statusLabel: z.string().trim().min(1).max(80).optional(),
+  dependsOnActivityId: z.string().uuid().nullish(),
+})
+export type UpdateActivityPayload = z.infer<typeof updateActivitySchema>
+
+// P16 — a comment/progress note on an activity.
+export const activityCommentSchema = z.object({
+  body: z.string().trim().min(1).max(4000),
+})
+export type ActivityCommentPayload = z.infer<typeof activityCommentSchema>
 
 // PJ-05
 export const projectBudgetSchema = z.object({
@@ -189,6 +213,40 @@ export const expenseSchema = z.object({
 })
 export type ExpensePayload = z.infer<typeof expenseSchema>
 
+// P9 — expense request → approval → return.
+export const expenseRequestSchema = z.object({
+  purpose: z.string().trim().min(1).max(500),
+  category: z.string().trim().max(120).nullish(),
+  amount: z.number().min(0),
+})
+export type ExpenseRequestPayload = z.infer<typeof expenseRequestSchema>
+
+export const expenseApproveSchema = z.object({
+  approve: z.boolean(),
+  note: z.string().trim().max(1000).nullish(),
+})
+export type ExpenseApprovePayload = z.infer<typeof expenseApproveSchema>
+
+export const expenseReturnSchema = z.object({
+  spentAmount: z.number().min(0),
+  receiptUrl: z.string().trim().url().max(2000).nullish().or(z.literal('')),
+  returnNote: z.string().trim().max(1000).nullish(),
+})
+export type ExpenseReturnPayload = z.infer<typeof expenseReturnSchema>
+
+export const EXPENSE_REQUEST_STATUS_LABEL: Record<string, string> = {
+  requested: 'Requested',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  returned: 'Returned',
+}
+export const EXPENSE_REQUEST_STATUS_COLOR: Record<string, BadgeColor> = {
+  requested: 'warning',
+  approved: 'info',
+  rejected: 'error',
+  returned: 'success',
+}
+
 // PJ-08
 export const vendorSchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -203,13 +261,36 @@ export const vendorSchema = z.object({
 })
 export type VendorPayload = z.infer<typeof vendorSchema>
 
-// PJ-09 — report sections + template now live in shared/schemas/project-settings
-// (org-configurable). See DEFAULT_PROJECT_REPORT_SECTIONS there.
-export const projectReportSchema = z.object({
+// PJ-09 / P17 — reports are free-form (no enforced sections). Two kinds:
+// 'activity' (a member's report on their activities, submit-only) and 'general'
+// (the project report, reviewed + approved).
+export const REPORT_KINDS = ['activity', 'general'] as const
+export type ReportKind = (typeof REPORT_KINDS)[number]
+
+export const createProjectReportSchema = z.object({
   title: z.string().trim().min(1).max(200),
-  content: z.string().max(20000).nullish(),
+  kind: z.enum(REPORT_KINDS).default('general'),
+  activityIds: z.array(z.string().uuid()).max(100).default([]),
+  content: z.string().max(200000).nullish(),
 })
-export type ProjectReportPayload = z.infer<typeof projectReportSchema>
+export type CreateProjectReportPayload = z.infer<typeof createProjectReportSchema>
+
+export const updateProjectReportSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  content: z.string().max(200000).nullish(),
+  activityIds: z.array(z.string().uuid()).max(100).optional(),
+  visibleToMembers: z.boolean().optional(),
+  approverUserId: z.string().uuid().nullish(),
+  // Status transitions are validated server-side against kind + role.
+  status: z.enum(PROJECT_REPORT_STATUSES).optional(),
+})
+export type UpdateProjectReportPayload = z.infer<typeof updateProjectReportSchema>
+
+// Status label depends on kind: an activity report is "Submitted", not "In review".
+export function reportStatusLabel(status: ProjectReportStatus, kind: string): string {
+  if (kind === 'activity' && status === 'in_review') return 'Submitted'
+  return PROJECT_REPORT_STATUS_LABEL[status]
+}
 
 // PJ-06
 export const timesheetEntrySchema = z.object({
@@ -220,15 +301,13 @@ export const timesheetEntrySchema = z.object({
 })
 export type TimesheetEntryPayload = z.infer<typeof timesheetEntrySchema>
 
-// PJ-11 — close requires a completed sign-off checklist.
-export const CLOSE_CHECKLIST_ITEMS = [
-  'All milestones complete',
-  'Final report approved',
-  'Budget reconciled',
-  'Client sign-off received',
-  'Documents archived',
-] as const
+// PJ-11 — close requires a completed sign-off checklist. The checklist items
+// themselves are org-configurable (see DEFAULT_PROJECT_CLOSE_CHECKLIST in
+// shared/schemas/project-settings and the Projects → Settings page) — nothing
+// here is hard-coded.
 export const closeProjectSchema = z.object({
   checklist: z.record(z.string(), z.boolean()),
+  // P20 — closing always records why (kept for the audit trail + reopen context).
+  reason: z.string().trim().min(3, 'Give a reason for closing').max(1000),
 })
 export type CloseProjectPayload = z.infer<typeof closeProjectSchema>

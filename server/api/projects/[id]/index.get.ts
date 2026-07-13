@@ -5,6 +5,7 @@ import {
   clients,
   projectActivities,
   projectBudgetLines,
+  projectExpenseRequests,
   projectExpenses,
   projectMembers,
   projectMilestones,
@@ -16,7 +17,7 @@ import {
 } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
-import { canOverseeProjects } from '@@/server/utils/project-settings'
+import { canOverseeProjects, canViewProjectBudget } from '@@/server/utils/project-settings'
 
 /** Full project workspace payload (PJ-01..11) + a computed health summary. */
 export default defineEventHandler(async (event) => {
@@ -49,6 +50,7 @@ export default defineEventHandler(async (event) => {
         budgetRevisionNote: projects.budgetRevisionNote,
         portalToken: projects.portalToken,
         closedAt: projects.closedAt,
+        closeReason: projects.closeReason,
         closeChecklist: projects.closeChecklist,
         createdAt: projects.createdAt,
       })
@@ -107,6 +109,7 @@ export default defineEventHandler(async (event) => {
         id: projectActivities.id,
         milestoneId: projectActivities.milestoneId,
         name: projectActivities.name,
+        description: projectActivities.description,
         assignedUserId: projectActivities.assignedUserId,
         assigneeFirstName: users.firstName,
         assigneeLastName: users.lastName,
@@ -114,7 +117,8 @@ export default defineEventHandler(async (event) => {
         endDate: projectActivities.endDate,
         plannedHours: projectActivities.plannedHours,
         percentComplete: projectActivities.percentComplete,
-        status: projectActivities.status,
+        statusLabel: projectActivities.statusLabel,
+        statusCategory: projectActivities.statusCategory,
         dependsOnActivityId: projectActivities.dependsOnActivityId,
       })
       .from(projectActivities)
@@ -140,11 +144,26 @@ export default defineEventHandler(async (event) => {
       .where(eq(projectVendors.projectId, id))
       .orderBy(asc(projectVendors.createdAt))
 
-    const reports = await db
+    // P9 — expense requests (request → approve → return).
+    const expenseRequests = await db
+      .select({
+        request: projectExpenseRequests,
+        requesterFirstName: users.firstName,
+        requesterLastName: users.lastName,
+      })
+      .from(projectExpenseRequests)
+      .leftJoin(users, eq(users.id, projectExpenseRequests.requestedByUserId))
+      .where(eq(projectExpenseRequests.projectId, id))
+      .orderBy(desc(projectExpenseRequests.createdAt))
+
+    const allReports = await db
       .select({
         id: projectReports.id,
         title: projectReports.title,
         status: projectReports.status,
+        kind: projectReports.kind,
+        authorUserId: projectReports.authorUserId,
+        visibleToMembers: projectReports.visibleToMembers,
         authorFirstName: users.firstName,
         authorLastName: users.lastName,
         updatedAt: projectReports.updatedAt,
@@ -153,6 +172,16 @@ export default defineEventHandler(async (event) => {
       .leftJoin(users, eq(users.id, projectReports.authorUserId))
       .where(eq(projectReports.projectId, id))
       .orderBy(desc(projectReports.updatedAt))
+    // P18 — the PM/lead sees all reports; everyone else sees only their own plus
+    // any general report that's been shared with members.
+    const reportsLead =
+      canViewAll ||
+      project.projectManagerUserId === ctx.userId ||
+      project.createdByUserId === ctx.userId
+    const reports = allReports.filter(
+      (r) =>
+        reportsLead || r.authorUserId === ctx.userId || (r.kind === 'general' && r.visibleToMembers)
+    )
 
     const timesheet = await db
       .select({
@@ -166,6 +195,9 @@ export default defineEventHandler(async (event) => {
       .leftJoin(users, eq(users.id, timesheetEntries.userId))
       .where(eq(timesheetEntries.projectId, id))
 
+    // P8 — budget visibility: only PM/lead + finance may see the money.
+    const canViewBudget = await canViewProjectBudget(ctx.userId, ctx.isSystemAdmin, project)
+
     // ── Health summary (PJ-10) ──
     const budgetPlanned = budgetLines.reduce(
       (s, l) => s + Number(l.revisedAmount ?? l.originalAmount),
@@ -174,10 +206,16 @@ export default defineEventHandler(async (event) => {
     const totalBudget = budgetPlanned || Number(project.totalBudget ?? 0)
     const spent = expenses.reduce((s, e) => s + Number(e.amount), 0)
     const burnRate = totalBudget ? Math.round((spent / totalBudget) * 100) : 0
-    const milestonesDone = milestones.filter((m) => m.status === 'completed').length
+    // P10 — committed = approved requests not yet returned; remaining balance.
+    const committed = expenseRequests
+      .filter((r) => r.request.status === 'approved')
+      .reduce((s, r) => s + Number(r.request.amount), 0)
+    const remaining = totalBudget - spent - committed
+    const overBudget = totalBudget > 0 && spent > totalBudget
+    const milestonesDone = milestones.filter((m) => m.statusCategory === 'done').length
     const today = new Date().toISOString().slice(0, 10)
     const overdueMilestones = milestones.filter(
-      (m) => m.status !== 'completed' && m.dueDate && m.dueDate < today
+      (m) => m.statusCategory !== 'done' && m.dueDate && m.dueDate < today
     ).length
     const tsByUser = new Map<string, { name: string; hours: number }>()
     for (const t of timesheet) {
@@ -224,21 +262,34 @@ export default defineEventHandler(async (event) => {
       members,
       milestones,
       activities,
-      budgetLines,
-      expenses,
-      vendors,
+      // P8 — budget/finance data is withheld from non-privileged viewers.
+      canViewBudget,
+      budgetLines: canViewBudget ? budgetLines : [],
+      expenses: canViewBudget ? expenses : [],
+      vendors: canViewBudget ? vendors : [],
+      expenseRequests: canViewBudget
+        ? expenseRequests.map((r) => ({
+            ...r.request,
+            requesterName:
+              [r.requesterFirstName, r.requesterLastName].filter(Boolean).join(' ') || null,
+          }))
+        : [],
       reports,
       timesheetByUser: [...tsByUser.entries()].map(([userId, v]) => ({ userId, ...v })),
       timesheetWeekly,
       summary: {
-        budgetTotal: totalBudget,
-        spent,
-        burnRate,
+        // Zero the money for non-privileged viewers so nothing leaks.
+        budgetTotal: canViewBudget ? totalBudget : 0,
+        spent: canViewBudget ? spent : 0,
+        committed: canViewBudget ? committed : 0,
+        remaining: canViewBudget ? remaining : 0,
+        burnRate: canViewBudget ? burnRate : 0,
+        overBudget: canViewBudget ? overBudget : false,
         milestonesTotal: milestones.length,
         milestonesDone,
         overdueMilestones,
         activitiesTotal: activities.length,
-        activitiesDone: activities.filter((a) => a.status === 'done').length,
+        activitiesDone: activities.filter((a) => a.statusCategory === 'done').length,
         loggedHours,
         memberCount: members.length,
       },

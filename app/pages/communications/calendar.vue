@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import CommunicationsTabs from '~/components/communication/CommunicationsTabs.vue'
-import { CONTENT_STATUS_LABEL, type ContentStatus } from '@@/shared/schemas/communication'
+import {
+  CONTENT_STATUS_COLOR,
+  CONTENT_STATUS_LABEL,
+  type ContentStatus,
+} from '@@/shared/schemas/communication'
 
 definePageMeta({ layout: 'dashboard' })
 useHead({ title: 'Content Calendar — Camel OS' })
@@ -18,6 +22,30 @@ interface Item {
   status: ContentStatus
   scheduledFor: string | null
   publishedAt: string | null
+  excerpt: string | null
+  coverImageUrl: string | null
+  platform: string | null
+  publishedUrl: string | null
+}
+
+// C3 — click an item to preview it in a popup, with a link to the full page.
+const preview = ref<Item | null>(null)
+const previewOpen = ref(false)
+function openPreview(it: Item) {
+  preview.value = it
+  previewOpen.value = true
+}
+function previewWhen(it: Item) {
+  const iso = it.publishedAt ?? it.scheduledFor
+  return iso
+    ? new Date(iso).toLocaleString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '—'
 }
 
 function ymd(d: Date) {
@@ -183,7 +211,7 @@ function inMonth(d: Date) {
               class="flex cursor-pointer items-center gap-1 rounded border border-default bg-default px-1.5 py-1 text-xs transition-colors hover:border-primary/40"
               :title="`${it.title} · ${CONTENT_STATUS_LABEL[it.status]}`"
               @dragstart="onDragStart(it)"
-              @click="navigateTo(`/communications/${it.id}`)"
+              @click="openPreview(it)"
             >
               <span class="size-1.5 shrink-0 rounded-full" :class="dotColor[it.status]" />
               <span class="truncate text-default">{{ it.title }}</span>
@@ -200,5 +228,56 @@ function inMonth(d: Date) {
         {{ CONTENT_STATUS_LABEL[s as ContentStatus] }}
       </span>
     </div>
+
+    <!-- C3 — preview popup with a link to the full item -->
+    <UModal v-model:open="previewOpen" :title="preview?.title ?? 'Preview'">
+      <template #body>
+        <div v-if="preview" class="space-y-3">
+          <div
+            v-if="preview.coverImageUrl"
+            class="h-32 w-full rounded-lg bg-elevated bg-cover bg-center"
+            :style="{ backgroundImage: `url(${preview.coverImageUrl})` }"
+          />
+          <div class="flex flex-wrap items-center gap-2">
+            <UBadge
+              :color="CONTENT_STATUS_COLOR[preview.status]"
+              variant="subtle"
+              size="xs"
+              :label="CONTENT_STATUS_LABEL[preview.status]"
+            />
+            <UBadge color="neutral" variant="outline" size="xs" :label="preview.type" />
+            <UBadge
+              v-if="preview.platform"
+              color="primary"
+              variant="subtle"
+              size="xs"
+              :label="preview.platform"
+            />
+          </div>
+          <p class="text-sm text-muted">{{ previewWhen(preview) }}</p>
+          <p v-if="preview.excerpt" class="text-sm text-default">{{ preview.excerpt }}</p>
+          <a
+            v-if="preview.publishedUrl"
+            :href="preview.publishedUrl"
+            target="_blank"
+            rel="noopener"
+            class="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+          >
+            <UIcon name="i-lucide-external-link" class="size-3.5" /> View live post
+          </a>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton variant="ghost" color="neutral" label="Close" @click="previewOpen = false" />
+          <UButton
+            icon="i-lucide-arrow-right"
+            trailing
+            label="View full details"
+            @click="navigateTo(`/communications/${preview?.id}`)"
+          />
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>

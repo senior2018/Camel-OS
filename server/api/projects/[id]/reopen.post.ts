@@ -4,22 +4,21 @@ import { and, eq } from 'drizzle-orm'
 import { projects } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
-import { canManageProjectTeam, resolveOrgProjectSettings } from '@@/server/utils/project-settings'
+import { canManageProjectTeam } from '@@/server/utils/project-settings'
 import { logAuditEvent } from '@@/server/utils/audit'
-import { closeProjectSchema } from '@@/shared/schemas/project'
 
-/** PJ-11 — close + archive a project once the sign-off checklist is complete. */
+/** P19 — reopen a closed project (undo the archive) so it can be edited again. */
 export default defineEventHandler(async (event) => {
   try {
     const ctx = await requirePermission(event, 'project', 'update')
     const id = getRouterParam(event, 'id')
     if (!id) throw createError({ statusCode: 400, statusMessage: 'Project ID is required' })
-    const body = await readValidatedBody(event, closeProjectSchema.parse)
     const db = useDrizzle()
 
     const [existing] = await db
       .select({
         id: projects.id,
+        closedAt: projects.closedAt,
         projectManagerUserId: projects.projectManagerUserId,
         createdByUserId: projects.createdByUserId,
       })
@@ -28,30 +27,22 @@ export default defineEventHandler(async (event) => {
       .limit(1)
     if (!existing) throw createError({ statusCode: 404, statusMessage: 'Project not found' })
 
-    // P19 — only the PM, creator, project leader, or system admin may close.
     if (!(await canManageProjectTeam(ctx.userId, ctx.isSystemAdmin, existing))) {
       throw createError({
         statusCode: 403,
-        statusMessage: 'Only the project manager or a project leader can close this project.',
+        statusMessage: 'Only the project manager or a project leader can reopen this project.',
       })
     }
-
-    const settings = await resolveOrgProjectSettings(ctx.organizationId)
-    const incomplete = settings.closeChecklist.filter((item) => !body.checklist[item])
-    if (incomplete.length) {
-      throw createError({
-        statusCode: 400,
-        statusMessage: `Complete the sign-off checklist first (${incomplete.length} item${incomplete.length === 1 ? '' : 's'} remaining).`,
-      })
+    if (!existing.closedAt) {
+      throw createError({ statusCode: 409, statusMessage: 'Project is not closed.' })
     }
 
     await db
       .update(projects)
       .set({
-        status: 'completed',
-        closedAt: new Date(),
-        closeReason: body.reason,
-        closeChecklist: body.checklist,
+        status: 'active',
+        closedAt: null,
+        closeReason: null,
         updatedAt: new Date(),
       })
       .where(eq(projects.id, id))
@@ -62,12 +53,12 @@ export default defineEventHandler(async (event) => {
       resource: 'project',
       action: 'update',
       resourceId: id,
-      meta: { event: 'closed', reason: body.reason },
+      meta: { event: 'reopened' },
     })
     return { success: true }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
-    consola.error('Error closing project', error)
+    consola.error('Error reopening project', error)
     throw createError({ statusCode: 500, statusMessage: 'Internal server error' })
   }
 })

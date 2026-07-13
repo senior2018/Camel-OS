@@ -1,24 +1,16 @@
 <script setup lang="ts">
 import {
-  ACTIVITY_STATUS_COLOR,
-  ACTIVITY_STATUS_LABEL,
-  ACTIVITY_STATUSES,
-  MILESTONE_STATUS_COLOR,
-  MILESTONE_STATUS_LABEL,
-  MILESTONE_STATUSES,
+  EXPENSE_REQUEST_STATUS_COLOR,
+  EXPENSE_REQUEST_STATUS_LABEL,
   PROJECT_REPORT_STATUS_COLOR,
-  PROJECT_REPORT_STATUS_LABEL,
-  PROJECT_STATUS_COLOR,
-  PROJECT_STATUS_LABEL,
-  PROJECT_STATUSES,
-  type ActivityStatus,
-  type MilestoneStatus,
-  type ProjectStatus,
+  reportStatusLabel,
 } from '@@/shared/schemas/project'
 import {
   DEFAULT_PROJECT_SETTINGS,
-  reportTemplateFromSections,
+  STATUS_CATEGORY_COLOR,
+  lifecycleLabel,
   type ProjectSettings,
+  type StatusCategory,
 } from '@@/shared/schemas/project-settings'
 
 definePageMeta({ layout: 'dashboard' })
@@ -28,6 +20,9 @@ const { can, isSystemAdmin } = await usePermissions()
 const { user } = useUserSession()
 const myId = computed(() => (user.value as { id?: string } | null)?.id ?? '')
 const toast = useToast()
+// Nuxt UI v4 forbids an empty-string option value, so "none" choices in the
+// pickers use a sentinel that the submit handlers map back to null.
+const NONE_OPT = '__none__'
 
 interface Member {
   id: string
@@ -43,7 +38,7 @@ interface Milestone {
   name: string
   dueDate: string | null
   completionCriteria: string | null
-  status: MilestoneStatus
+  statusCategory: StatusCategory
   orderIndex: number
   completedAt: string | null
 }
@@ -51,6 +46,7 @@ interface Activity {
   id: string
   milestoneId: string | null
   name: string
+  description: string | null
   assignedUserId: string | null
   assigneeFirstName: string | null
   assigneeLastName: string | null
@@ -58,7 +54,8 @@ interface Activity {
   endDate: string | null
   plannedHours: string | null
   percentComplete: number
-  status: ActivityStatus
+  statusLabel: string
+  statusCategory: StatusCategory
   dependsOnActivityId: string | null
 }
 interface BudgetLine {
@@ -89,6 +86,9 @@ interface ReportRow {
   id: string
   title: string
   status: 'draft' | 'in_review' | 'approved'
+  kind: string
+  authorUserId: string | null
+  visibleToMembers: boolean
   authorFirstName: string | null
   authorLastName: string | null
   updatedAt: string
@@ -99,7 +99,8 @@ interface Project {
   code: string | null
   description: string | null
   scope: string | null
-  status: ProjectStatus
+  status: string
+  lifecycleCategory: StatusCategory
   startDate: string | null
   endDate: string | null
   totalBudget: string | null
@@ -115,12 +116,32 @@ interface Project {
   budgetRevisionNote: string | null
   portalToken: string | null
   closedAt: string | null
+  closeReason: string | null
   closeChecklist: Record<string, boolean> | null
+}
+interface ExpenseRequest {
+  id: string
+  purpose: string
+  category: string | null
+  amount: string
+  status: 'requested' | 'approved' | 'rejected' | 'returned'
+  requestedByUserId: string | null
+  requesterName: string | null
+  approvedByUserId: string | null
+  decisionNote: string | null
+  spentAmount: string | null
+  receiptUrl: string | null
+  returnNote: string | null
+  returnedAt: string | null
+  createdAt: string
 }
 interface Summary {
   budgetTotal: number
   spent: number
+  committed: number
+  remaining: number
   burnRate: number
+  overBudget: boolean
   milestonesTotal: number
   milestonesDone: number
   overdueMilestones: number
@@ -134,9 +155,11 @@ interface Detail {
   members: Member[]
   milestones: Milestone[]
   activities: Activity[]
+  canViewBudget: boolean
   budgetLines: BudgetLine[]
   expenses: Expense[]
   vendors: Vendor[]
+  expenseRequests: ExpenseRequest[]
   reports: ReportRow[]
   timesheetByUser: { userId: string; name: string; hours: number }[]
   timesheetWeekly: {
@@ -167,6 +190,33 @@ const { data: settingsData } = useFetch<{ settings: ProjectSettings }>('/api/pro
   default: () => ({ settings: { ...DEFAULT_PROJECT_SETTINGS } }),
 })
 const projectSettings = computed(() => settingsData.value?.settings ?? DEFAULT_PROJECT_SETTINGS)
+
+// P4 — link options (clients/donors + unlinked proposals) for the edit form.
+const { data: linkOptions } = useFetch<{
+  clients: { id: string; name: string; type: string }[]
+  proposals: { id: string; title: string; status: string }[]
+}>('/api/projects/link-options', {
+  key: 'project-link-options',
+  default: () => ({ clients: [], proposals: [] }),
+})
+const clientItems = computed(() => [
+  { label: 'No client / donor', value: NONE_OPT },
+  ...(linkOptions.value?.clients ?? []).map((c) => ({
+    label: c.type && c.type !== 'client' ? `${c.name} · ${c.type}` : c.name,
+    value: c.id,
+  })),
+])
+const proposalItems = computed(() => {
+  const items = [{ label: 'No proposal', value: NONE_OPT }]
+  // Keep the currently-linked proposal selectable even though it's excluded from
+  // the "unlinked" options returned by the endpoint.
+  const current = data.value?.project.proposalId
+  if (current && !(linkOptions.value?.proposals ?? []).some((p) => p.id === current))
+    items.push({ label: 'Currently linked proposal', value: current })
+  for (const p of linkOptions.value?.proposals ?? []) items.push({ label: p.title, value: p.id })
+  return items
+})
+
 const userName = (uid: string | null) => {
   if (!uid) return 'Unassigned'
   const u = usersData.value?.users.find((x) => x.id === uid)
@@ -199,21 +249,26 @@ function fdate(s: string | null) {
     ? new Date(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
     : '—'
 }
-// PJ-06 — short "week of" label for the weekly timesheet columns.
-const weekLabel = (w: string) =>
-  new Date(`${w}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 
 type TabKey = 'overview' | 'plan' | 'budget' | 'team' | 'reports' | 'mel'
 const canMel = computed(() => can.value('mel', 'read'))
+// P8 — the budget/finances are only visible to the PM/lead + finance.
+const canViewBudget = computed(() => !!data.value?.canViewBudget)
 const tab = ref<TabKey>('overview')
 const tabs = computed<{ key: TabKey; label: string; icon: string }[]>(() => [
   { key: 'overview', label: 'Overview', icon: 'i-lucide-gauge' },
   { key: 'plan', label: 'Plan', icon: 'i-lucide-list-checks' },
-  { key: 'budget', label: 'Budget', icon: 'i-lucide-wallet' },
+  ...(canViewBudget.value
+    ? [{ key: 'budget' as TabKey, label: 'Budget', icon: 'i-lucide-wallet' }]
+    : []),
   { key: 'team', label: 'Team', icon: 'i-lucide-users' },
   { key: 'reports', label: 'Reports', icon: 'i-lucide-file-text' },
   ...(canMel.value ? [{ key: 'mel' as TabKey, label: 'M&E', icon: 'i-lucide-line-chart' }] : []),
 ])
+// If a non-privileged viewer is somehow on the budget tab, bounce to overview.
+watchEffect(() => {
+  if (tab.value === 'budget' && !canViewBudget.value) tab.value = 'overview'
+})
 
 // RAG helpers for the health dashboard (PJ-10).
 const scheduleRag = computed(() => {
@@ -258,24 +313,85 @@ async function call(method: string, path: string, body?: Record<string, unknown>
   }
 }
 
-// ── PM + status ──
+// ── PM (project status is derived, never set by hand) ──
 const pmId = ref<string | undefined>(undefined)
-const projStatus = ref<ProjectStatus>('planning')
 watchEffect(() => {
   pmId.value = data.value?.project.projectManagerUserId ?? undefined
-  projStatus.value = data.value?.project.status ?? 'planning'
 })
-const statusItems = PROJECT_STATUSES.map((s) => ({
-  label: PROJECT_STATUS_LABEL[s],
-  value: s as string,
-}))
 async function saveHeader() {
-  await call(
+  await call('PATCH', '', { projectManagerUserId: pmId.value ?? null }, 'Project manager updated')
+}
+
+// Configurable statuses + derived-lifecycle display helpers.
+const activityStatusItems = computed(() =>
+  projectSettings.value.activityStatuses.map((s) => ({ label: s.label, value: s.label }))
+)
+const catColor = (c: StatusCategory) => STATUS_CATEGORY_COLOR[c]
+const lifeLabel = (c: StatusCategory) => lifecycleLabel(c, projectSettings.value.lifecycleLabels)
+// Only the assignee or a project lead may move an activity's status (P14/P21).
+const canEditActivityStatus = (a: Activity) =>
+  !closed.value && (isProjectLead.value || a.assignedUserId === myId.value)
+async function updateActivityStatus(a: Activity, statusLabel: string) {
+  await call('PATCH', `/activities/${a.id}`, { statusLabel })
+}
+
+// ── Edit project details (P3) + linking (P4) — leads only ──
+const editOpen = ref(false)
+const editForm = reactive({
+  name: '',
+  code: '',
+  description: '',
+  scope: '',
+  startDate: '',
+  endDate: '',
+  totalBudget: null as number | null,
+  currency: 'USD',
+  clientId: NONE_OPT as string,
+  proposalId: NONE_OPT as string,
+})
+function openEdit() {
+  const p = data.value?.project
+  if (!p) return
+  editForm.name = p.name
+  editForm.code = p.code ?? ''
+  editForm.description = p.description ?? ''
+  editForm.scope = p.scope ?? ''
+  editForm.startDate = p.startDate ?? ''
+  editForm.endDate = p.endDate ?? ''
+  editForm.totalBudget = p.totalBudget != null ? Number(p.totalBudget) : null
+  editForm.currency = p.currency ?? 'USD'
+  editForm.clientId = p.clientId ?? NONE_OPT
+  editForm.proposalId = p.proposalId ?? NONE_OPT
+  editOpen.value = true
+}
+async function saveEdit() {
+  if (!editForm.name.trim()) {
+    toast.add({ title: 'A project name is required', color: 'warning' })
+    return
+  }
+  const ok = await call(
     'PATCH',
     '',
-    { projectManagerUserId: pmId.value ?? null, status: projStatus.value },
+    {
+      name: editForm.name.trim(),
+      code: editForm.code.trim() || null,
+      description: editForm.description.trim() || null,
+      scope: editForm.scope.trim() || null,
+      startDate: editForm.startDate || null,
+      endDate: editForm.endDate || null,
+      totalBudget: editForm.totalBudget != null ? Number(editForm.totalBudget) : null,
+      currency: (editForm.currency || 'USD').toUpperCase(),
+      clientId: editForm.clientId === NONE_OPT ? null : editForm.clientId,
+      proposalId: editForm.proposalId === NONE_OPT ? null : editForm.proposalId,
+    },
     'Project updated'
   )
+  if (ok) editOpen.value = false
+}
+
+// ── Reopen a closed project (P19) ──
+async function reopenProject() {
+  await call('POST', '/reopen', undefined, 'Project reopened')
 }
 
 // ── Team (PJ-02) ──
@@ -304,37 +420,42 @@ async function saveTeam() {
   await call('PUT', '/members', { members: team.value }, 'Team saved')
 }
 
-// ── Milestones (PJ-03) ──
+// ── Milestones (PJ-03) — PM/lead only; status is derived (P14/P21). ──
 const msOpen = ref(false)
-const msForm = reactive({ name: '', dueDate: '', completionCriteria: '' })
-async function addMilestone() {
+const msForm = reactive({
+  id: null as string | null,
+  name: '',
+  dueDate: '',
+  completionCriteria: '',
+})
+function openMilestoneCreate() {
+  msForm.id = null
+  msForm.name = ''
+  msForm.dueDate = ''
+  msForm.completionCriteria = ''
+  msOpen.value = true
+}
+function openMilestoneEdit(m: Milestone) {
+  msForm.id = m.id
+  msForm.name = m.name
+  msForm.dueDate = m.dueDate ?? ''
+  msForm.completionCriteria = m.completionCriteria ?? ''
+  msOpen.value = true
+}
+async function saveMilestone() {
   if (!msForm.name.trim()) return
-  if (
-    await call('POST', '/milestones', {
-      name: msForm.name,
-      dueDate: msForm.dueDate || null,
-      completionCriteria: msForm.completionCriteria || null,
-    })
-  ) {
-    msOpen.value = false
-    msForm.name = ''
-    msForm.dueDate = ''
-    msForm.completionCriteria = ''
+  const body = {
+    name: msForm.name.trim(),
+    dueDate: msForm.dueDate || null,
+    completionCriteria: msForm.completionCriteria || null,
   }
+  const ok = msForm.id
+    ? await call('PATCH', `/milestones/${msForm.id}`, body, 'Milestone updated')
+    : await call('POST', '/milestones', body)
+  if (ok) msOpen.value = false
 }
-const msStatusItems = MILESTONE_STATUSES.map((s) => ({
-  label: MILESTONE_STATUS_LABEL[s],
-  value: s as string,
-}))
-async function setMilestoneStatus(m: Milestone, status: string) {
-  await call('PATCH', `/milestones/${m.id}`, { status })
-}
-
 // ── Activities (PJ-04) ──
 const actOpen = ref(false)
-// Nuxt UI v4 forbids an empty-string option value, so "none" choices in the
-// pickers use a sentinel that the submit handlers map back to null.
-const NONE_OPT = '__none__'
 const actForm = reactive({
   name: '',
   milestoneId: NONE_OPT,
@@ -388,13 +509,6 @@ async function approveRevision(approve: boolean) {
     approve ? 'Budget revision approved' : 'Budget revision rejected'
   )
 }
-const actStatusItems = ACTIVITY_STATUSES.map((s) => ({
-  label: ACTIVITY_STATUS_LABEL[s],
-  value: s as string,
-}))
-async function updateActivity(a: Activity, patch: Record<string, unknown>) {
-  await call('PATCH', `/activities/${a.id}`, patch)
-}
 
 // ── Budget (PJ-05) ──
 const lines = ref<
@@ -416,6 +530,17 @@ const spentByLine = computed(() => {
   for (const e of data.value?.expenses ?? [])
     m[e.category ?? ''] = (m[e.category ?? ''] ?? 0) + Number(e.amount)
   return m
+})
+const budgetTotals = computed(() => {
+  let original = 0
+  let revised = 0
+  let actual = 0
+  for (const l of lines.value) {
+    original += Number(l.originalAmount || 0)
+    revised += Number(l.revisedAmount ?? l.originalAmount ?? 0)
+    actual += spentByLine.value[l.category] ?? 0
+  }
+  return { original, revised, actual }
 })
 async function saveBudget() {
   await call(
@@ -471,6 +596,96 @@ async function addExpense() {
   }
 }
 
+// Budget categories for a budget-line picker (configured + already-used), with a
+// creatable free-text fallback.
+const lineCategoryItems = computed(() => {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const c of [
+    ...projectSettings.value.budgetCategories,
+    ...(data.value?.budgetLines ?? []).map((l) => l.category),
+  ]) {
+    if (c && !seen.has(c)) {
+      seen.add(c)
+      out.push(c)
+    }
+  }
+  return out
+})
+
+// ── Expense requests → approval → return (P9) ──
+const canApproveExpense = computed(() => canViewBudget.value && !closed.value)
+const reqOpen = ref(false)
+const reqForm = reactive({
+  purpose: '',
+  category: NONE_OPT as string,
+  amount: null as number | null,
+})
+async function submitRequest() {
+  if (!reqForm.purpose.trim() || reqForm.amount == null) return
+  if (
+    await call(
+      'POST',
+      '/expense-requests',
+      {
+        purpose: reqForm.purpose.trim(),
+        category: reqForm.category === NONE_OPT ? null : reqForm.category,
+        amount: Number(reqForm.amount),
+      },
+      'Request submitted'
+    )
+  ) {
+    reqOpen.value = false
+    reqForm.purpose = ''
+    reqForm.category = NONE_OPT
+    reqForm.amount = null
+  }
+}
+async function decideRequest(r: ExpenseRequest, approve: boolean) {
+  await call(
+    'POST',
+    `/expense-requests/${r.id}/approve`,
+    { approve },
+    approve ? 'Request approved' : 'Request rejected'
+  )
+}
+const retOpen = ref(false)
+const retTarget = ref<ExpenseRequest | null>(null)
+const retForm = reactive({ spentAmount: null as number | null, receiptUrl: '', returnNote: '' })
+function openReturn(r: ExpenseRequest) {
+  retTarget.value = r
+  retForm.spentAmount = Number(r.amount)
+  retForm.receiptUrl = ''
+  retForm.returnNote = ''
+  retOpen.value = true
+}
+async function submitReturn() {
+  if (!retTarget.value || retForm.spentAmount == null) return
+  if (!retForm.receiptUrl.trim()) {
+    toast.add({ title: 'A receipt link is required', color: 'warning' })
+    return
+  }
+  if (
+    await call(
+      'POST',
+      `/expense-requests/${retTarget.value.id}/return`,
+      {
+        spentAmount: Number(retForm.spentAmount),
+        receiptUrl: retForm.receiptUrl.trim(),
+        returnNote: retForm.returnNote || null,
+      },
+      'Expense returned'
+    )
+  ) {
+    retOpen.value = false
+    retTarget.value = null
+  }
+}
+const canReturn = (r: ExpenseRequest) =>
+  !closed.value &&
+  r.status === 'approved' &&
+  (r.requestedByUserId === myId.value || canViewBudget.value)
+
 // ── Vendors (PJ-08) — a vendor's contract can be linked to a budget line. ──
 const venOpen = ref(false)
 const venForm = reactive({
@@ -524,17 +739,18 @@ async function addVendor() {
   }
 }
 
-// ── Reports (PJ-09) — a new report opens in its own full-page editor. ──
+// ── Reports (PJ-09 / P17) — free-form; open in a full-page editor. ──
 const creatingReport = ref(false)
-async function newReport() {
+async function newReport(kind: 'activity' | 'general') {
   if (creatingReport.value) return
   creatingReport.value = true
   try {
     const res = await $fetch<{ report: { id: string } }>(`/api/projects/${id}/reports`, {
       method: 'POST',
       body: {
-        title: 'New report',
-        content: reportTemplateFromSections(projectSettings.value.reportSections),
+        title: kind === 'general' ? 'Project report' : 'My activity report',
+        kind,
+        content: '',
       },
     })
     await navigateTo(`/projects/${id}/reports/${res.report.id}`)
@@ -576,17 +792,30 @@ async function logTime() {
   }
 }
 
-// ── Close (PJ-11) — checklist items come from settings. ──
+// ── Close (PJ-11) — checklist items come from settings; reason required (P20). ──
 const closeOpen = ref(false)
 const checklist = ref<Record<string, boolean>>({})
+const closeReason = ref('')
 function openClose() {
   checklist.value = Object.fromEntries(projectSettings.value.closeChecklist.map((i) => [i, false]))
+  closeReason.value = ''
   closeOpen.value = true
 }
 const closing = ref(false)
 async function closeProject() {
+  if (closeReason.value.trim().length < 3) {
+    toast.add({ title: 'Give a reason for closing', color: 'warning' })
+    return
+  }
   closing.value = true
-  if (await call('POST', '/close', { checklist: { ...checklist.value } }, 'Project closed'))
+  if (
+    await call(
+      'POST',
+      '/close',
+      { checklist: { ...checklist.value }, reason: closeReason.value.trim() },
+      'Project closed'
+    )
+  )
     closeOpen.value = false
   closing.value = false
 }
@@ -595,6 +824,54 @@ const milestoneItems = computed(() => [
   { label: 'No milestone', value: NONE_OPT },
   ...(data.value?.milestones ?? []).map((m) => ({ label: m.name, value: m.id })),
 ])
+
+// ── Plan view (P13/P15): board (collapsible milestones) vs Gantt, with search
+// and status filter, and pagination when there are many milestones. ──
+const planView = ref<'board' | 'gantt'>('board')
+const planSearch = ref('')
+const ALL_CAT = '__all__'
+const planCat = ref<StatusCategory | typeof ALL_CAT>(ALL_CAT)
+const planCatItems = [
+  { label: 'Any status', value: ALL_CAT },
+  { label: 'Not started', value: 'not_started' },
+  { label: 'In progress', value: 'in_progress' },
+  { label: 'Done', value: 'done' },
+]
+const collapsed = reactive<Record<string, boolean>>({})
+const toggleCollapse = (mid: string) => {
+  collapsed[mid] = !collapsed[mid]
+}
+function activityMatches(a: Activity) {
+  const q = planSearch.value.trim().toLowerCase()
+  if (planCat.value !== ALL_CAT && a.statusCategory !== planCat.value) return false
+  if (q && !a.name.toLowerCase().includes(q)) return false
+  return true
+}
+const activitiesFor = (mid: string | null) =>
+  (data.value?.activities ?? []).filter((a) => a.milestoneId === mid && activityMatches(a))
+const filtering = computed(() => planSearch.value.trim() !== '' || planCat.value !== ALL_CAT)
+// Milestones to show: when filtering, only those whose name matches or that hold
+// a matching activity.
+const shownMilestones = computed(() => {
+  const q = planSearch.value.trim().toLowerCase()
+  return (data.value?.milestones ?? []).filter((m) => {
+    if (!filtering.value) return true
+    if (q && m.name.toLowerCase().includes(q) && planCat.value === ALL_CAT) return true
+    return activitiesFor(m.id).length > 0
+  })
+})
+const msPage = ref(1)
+const msPageSize = 8
+const pagedMilestones = computed(() =>
+  shownMilestones.value.slice((msPage.value - 1) * msPageSize, msPage.value * msPageSize)
+)
+watch([planSearch, planCat], () => {
+  msPage.value = 1
+})
+const unscheduled = computed(() => activitiesFor(null))
+function openActivity(a: Activity) {
+  navigateTo(`/projects/${id}/activities/${a.id}`)
+}
 </script>
 
 <template>
@@ -614,10 +891,12 @@ const milestoneItems = computed(() => [
           <h1 class="text-2xl font-semibold tracking-tight text-default">
             {{ data.project.name }}
           </h1>
+          <UBadge v-if="closed" color="neutral" variant="subtle" label="Closed" />
           <UBadge
-            :color="PROJECT_STATUS_COLOR[data.project.status]"
+            v-else
+            :color="catColor(data.project.lifecycleCategory)"
             variant="subtle"
-            :label="PROJECT_STATUS_LABEL[data.project.status]"
+            :label="lifeLabel(data.project.lifecycleCategory)"
           />
           <UBadge
             v-if="data.project.code"
@@ -632,22 +911,44 @@ const milestoneItems = computed(() => [
           <span v-if="data.project.proposalId"> · from won proposal</span>
         </p>
       </div>
-      <UButton
-        v-if="can('project', 'update') && !closed"
-        icon="i-lucide-flag"
-        color="neutral"
-        variant="outline"
-        label="Close project"
-        @click="openClose()"
-      />
+      <div class="flex items-center gap-2">
+        <UButton
+          v-if="isProjectLead && !closed"
+          icon="i-lucide-pencil"
+          color="neutral"
+          variant="outline"
+          label="Edit"
+          @click="openEdit()"
+        />
+        <UButton
+          v-if="isProjectLead && !closed"
+          icon="i-lucide-flag"
+          color="neutral"
+          variant="outline"
+          label="Close project"
+          @click="openClose()"
+        />
+        <UButton
+          v-if="isProjectLead && closed"
+          icon="i-lucide-rotate-ccw"
+          color="neutral"
+          variant="outline"
+          label="Reopen"
+          :loading="busy"
+          @click="reopenProject()"
+        />
+      </div>
     </div>
 
     <div
       v-if="closed"
-      class="rounded-lg border border-success/40 bg-success/5 px-3 py-2 text-sm text-success"
+      class="rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-sm text-warning"
     >
-      <UIcon name="i-lucide-check-circle" class="inline size-4" /> Closed
+      <UIcon name="i-lucide-archive" class="inline size-4" /> Closed
       {{ fdate(data.project.closedAt) }} — archived &amp; read-only.
+      <span v-if="data.project.closeReason" class="text-default"
+        >· Reason: {{ data.project.closeReason }}</span
+      >
     </div>
 
     <!-- Tabs -->
@@ -677,7 +978,7 @@ const milestoneItems = computed(() => [
           </p>
           <p class="text-xs text-muted">{{ data.summary.overdueMilestones }} overdue</p>
         </div>
-        <div class="rounded-xl border border-default bg-default p-4 shadow-sm">
+        <div v-if="canViewBudget" class="rounded-xl border border-default bg-default p-4 shadow-sm">
           <p class="text-xs uppercase tracking-wide text-muted">Budget burn</p>
           <p class="mt-1 text-2xl font-semibold" :class="ragClass(budgetRag)">
             {{ data.summary.burnRate }}%
@@ -728,148 +1029,257 @@ const milestoneItems = computed(() => [
       </UCard>
     </div>
 
-    <!-- PLAN (PJ-03/04) -->
+    <!-- PLAN (PJ-03/04, P13/P15) -->
     <div v-show="tab === 'plan'" class="space-y-4">
-      <div class="flex justify-end gap-2">
-        <UButton
-          v-if="canEdit"
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="flex rounded-lg border border-default p-0.5">
+          <button
+            class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+            :class="planView === 'board' ? 'bg-elevated text-default' : 'text-muted'"
+            @click="planView = 'board'"
+          >
+            <UIcon name="i-lucide-list-checks" class="mr-1 inline size-3.5" />Board
+          </button>
+          <button
+            class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+            :class="planView === 'gantt' ? 'bg-elevated text-default' : 'text-muted'"
+            @click="planView = 'gantt'"
+          >
+            <UIcon name="i-lucide-bar-chart-3" class="mr-1 inline size-3.5" />Gantt
+          </button>
+        </div>
+        <UInput
+          v-if="planView === 'board'"
+          v-model="planSearch"
+          icon="i-lucide-search"
+          placeholder="Search activities…"
           size="sm"
-          variant="outline"
-          icon="i-lucide-flag"
-          label="Add milestone"
-          @click="msOpen = true"
+          class="w-full sm:w-56"
         />
-        <UButton
-          v-if="canEdit"
+        <USelect
+          v-if="planView === 'board'"
+          v-model="planCat"
+          :items="planCatItems"
+          value-key="value"
           size="sm"
-          icon="i-lucide-plus"
-          label="Add activity"
-          @click="actOpen = true"
+          class="w-40"
         />
+        <div class="ml-auto flex gap-2">
+          <UButton
+            v-if="canManageTeam"
+            size="sm"
+            variant="outline"
+            icon="i-lucide-flag"
+            label="Add milestone"
+            @click="openMilestoneCreate()"
+          />
+          <UButton
+            v-if="canEdit"
+            size="sm"
+            icon="i-lucide-plus"
+            label="Add activity"
+            @click="actOpen = true"
+          />
+        </div>
       </div>
 
-      <UCard v-for="m in data.milestones" :key="m.id">
-        <template #header>
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <div class="flex items-center gap-2">
-              <h3 class="text-sm font-semibold text-default">{{ m.name }}</h3>
-              <UBadge
-                :color="MILESTONE_STATUS_COLOR[m.status]"
-                variant="subtle"
-                size="xs"
-                :label="MILESTONE_STATUS_LABEL[m.status]"
-              />
-              <span v-if="m.dueDate" class="text-xs text-muted">due {{ fdate(m.dueDate) }}</span>
-            </div>
-            <div class="flex items-center gap-1">
-              <USelect
-                v-if="canEdit"
-                :model-value="m.status"
-                :items="msStatusItems"
-                value-key="value"
-                size="xs"
-                class="w-36"
-                @update:model-value="(v) => setMilestoneStatus(m, v as string)"
-              />
-              <UButton
-                v-if="canEdit"
-                size="xs"
-                variant="ghost"
-                color="error"
-                icon="i-lucide-trash-2"
-                aria-label="Delete"
-                @click="call('DELETE', `/milestones/${m.id}`)"
-              />
-            </div>
-          </div>
-        </template>
-        <ul class="divide-y divide-default">
-          <li
-            v-for="a in data.activities.filter((x) => x.milestoneId === m.id)"
-            :key="a.id"
-            class="flex flex-wrap items-center justify-between gap-2 py-2"
-          >
-            <div class="min-w-0">
-              <p class="text-sm font-medium text-default">{{ a.name }}</p>
-              <p class="text-xs text-muted">
-                {{ userName(a.assignedUserId) }} · {{ fdate(a.startDate) }}–{{ fdate(a.endDate) }}
-              </p>
-              <p v-if="a.dependsOnActivityId" class="text-xs text-muted">
-                <UIcon name="i-lucide-link" class="inline size-3" /> after
-                {{ activityName(a.dependsOnActivityId) }}
-              </p>
-            </div>
-            <div class="flex items-center gap-2">
-              <div class="h-1.5 w-20 overflow-hidden rounded-full bg-elevated">
-                <div class="h-full bg-primary" :style="{ width: `${a.percentComplete}%` }" />
+      <!-- GANTT VIEW -->
+      <UCard v-if="planView === 'gantt'">
+        <ProjectGantt
+          :milestones="data.milestones"
+          :activities="data.activities"
+          :project-start="data.project.startDate"
+          :project-end="data.project.endDate"
+        />
+      </UCard>
+
+      <!-- BOARD VIEW -->
+      <template v-else>
+        <UCard v-for="m in pagedMilestones" :key="m.id">
+          <template #header>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <button
+                class="flex min-w-0 items-center gap-2 text-left"
+                @click="toggleCollapse(m.id)"
+              >
+                <UIcon
+                  :name="collapsed[m.id] ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'"
+                  class="size-4 shrink-0 text-muted"
+                />
+                <h3 class="truncate text-sm font-semibold text-default">{{ m.name }}</h3>
+                <UBadge
+                  :color="catColor(m.statusCategory)"
+                  variant="subtle"
+                  size="xs"
+                  :label="lifeLabel(m.statusCategory)"
+                />
+                <span v-if="m.dueDate" class="text-xs text-muted">due {{ fdate(m.dueDate) }}</span>
+                <span class="text-xs text-dimmed">· {{ activitiesFor(m.id).length }}</span>
+              </button>
+              <div v-if="canManageTeam" class="flex items-center gap-1">
+                <UButton
+                  size="xs"
+                  variant="ghost"
+                  color="neutral"
+                  icon="i-lucide-pencil"
+                  aria-label="Edit milestone"
+                  @click="openMilestoneEdit(m)"
+                />
+                <UButton
+                  size="xs"
+                  variant="ghost"
+                  color="error"
+                  icon="i-lucide-trash-2"
+                  aria-label="Delete milestone"
+                  @click="call('DELETE', `/milestones/${m.id}`)"
+                />
               </div>
-              <USelect
-                v-if="canEdit"
-                :model-value="a.status"
-                :items="actStatusItems"
-                value-key="value"
-                size="xs"
-                class="w-32"
-                @update:model-value="(v) => updateActivity(a, { status: v })"
-              />
+            </div>
+          </template>
+          <ul v-show="!collapsed[m.id]" class="divide-y divide-default">
+            <li
+              v-for="a in activitiesFor(m.id)"
+              :key="a.id"
+              class="flex flex-wrap items-center justify-between gap-2 py-2"
+            >
+              <button class="min-w-0 flex-1 text-left" @click="openActivity(a)">
+                <p class="truncate text-sm font-medium text-default hover:text-primary">
+                  {{ a.name }}
+                </p>
+                <p class="text-xs text-muted">
+                  {{ userName(a.assignedUserId) }} · {{ fdate(a.startDate) }}–{{ fdate(a.endDate) }}
+                </p>
+                <p v-if="a.dependsOnActivityId" class="text-xs text-muted">
+                  <UIcon name="i-lucide-link" class="inline size-3" /> after
+                  {{ activityName(a.dependsOnActivityId) }}
+                </p>
+              </button>
+              <div class="flex items-center gap-2">
+                <div class="h-1.5 w-16 overflow-hidden rounded-full bg-elevated">
+                  <div class="h-full bg-primary" :style="{ width: `${a.percentComplete}%` }" />
+                </div>
+                <USelect
+                  v-if="canEditActivityStatus(a)"
+                  :model-value="a.statusLabel"
+                  :items="activityStatusItems"
+                  value-key="value"
+                  size="xs"
+                  class="w-32"
+                  @update:model-value="(v) => updateActivityStatus(a, v as string)"
+                />
+                <UBadge
+                  v-else
+                  :color="catColor(a.statusCategory)"
+                  variant="subtle"
+                  size="xs"
+                  :label="a.statusLabel"
+                />
+                <UButton
+                  v-if="canEdit"
+                  size="xs"
+                  variant="ghost"
+                  color="error"
+                  icon="i-lucide-x"
+                  aria-label="Delete activity"
+                  @click="call('DELETE', `/activities/${a.id}`)"
+                />
+              </div>
+            </li>
+            <li v-if="!activitiesFor(m.id).length" class="py-2 text-xs text-muted">
+              No activities{{ filtering ? ' match' : ' yet' }}.
+            </li>
+          </ul>
+        </UCard>
+
+        <div v-if="shownMilestones.length > msPageSize" class="flex justify-center">
+          <UPagination
+            v-model:page="msPage"
+            :total="shownMilestones.length"
+            :items-per-page="msPageSize"
+            :sibling-count="1"
+          />
+        </div>
+
+        <UCard v-if="unscheduled.length">
+          <template #header
+            ><h3 class="text-sm font-semibold text-default">Unscheduled activities</h3></template
+          >
+          <ul class="divide-y divide-default">
+            <li
+              v-for="a in unscheduled"
+              :key="a.id"
+              class="flex items-center justify-between gap-2 py-2"
+            >
+              <button class="min-w-0 flex-1 text-left" @click="openActivity(a)">
+                <p class="truncate text-sm text-default hover:text-primary">{{ a.name }}</p>
+              </button>
               <UBadge
-                v-else
-                :color="ACTIVITY_STATUS_COLOR[a.status]"
+                :color="catColor(a.statusCategory)"
                 variant="subtle"
                 size="xs"
-                :label="ACTIVITY_STATUS_LABEL[a.status]"
+                :label="a.statusLabel"
               />
-              <UButton
-                v-if="canEdit"
-                size="xs"
-                variant="ghost"
-                color="error"
-                icon="i-lucide-x"
-                aria-label="Delete"
-                @click="call('DELETE', `/activities/${a.id}`)"
-              />
-            </div>
-          </li>
-          <li
-            v-if="!data.activities.some((x) => x.milestoneId === m.id)"
-            class="py-2 text-xs text-muted"
-          >
-            No activities yet.
-          </li>
-        </ul>
-      </UCard>
+            </li>
+          </ul>
+        </UCard>
 
-      <UCard v-if="data.activities.some((a) => !a.milestoneId)">
-        <template #header
-          ><h3 class="text-sm font-semibold text-default">Unscheduled activities</h3></template
+        <p
+          v-if="!data.milestones.length && !unscheduled.length"
+          class="rounded-xl border border-dashed border-default p-8 text-center text-sm text-muted"
         >
-        <ul class="divide-y divide-default">
-          <li
-            v-for="a in data.activities.filter((x) => !x.milestoneId)"
-            :key="a.id"
-            class="flex items-center justify-between gap-2 py-2"
-          >
-            <p class="text-sm text-default">{{ a.name }}</p>
-            <UBadge
-              :color="ACTIVITY_STATUS_COLOR[a.status]"
-              variant="subtle"
-              size="xs"
-              :label="ACTIVITY_STATUS_LABEL[a.status]"
-            />
-          </li>
-        </ul>
-      </UCard>
-
-      <p
-        v-if="!data.milestones.length"
-        class="rounded-xl border border-dashed border-default p-8 text-center text-sm text-muted"
-      >
-        No milestones yet.
-      </p>
+          No milestones yet.
+        </p>
+      </template>
     </div>
 
-    <!-- BUDGET (PJ-05/07/08) -->
-    <div v-show="tab === 'budget'" class="space-y-4">
+    <!-- BUDGET (PJ-05/07/08, P8/P10) -->
+    <div v-show="tab === 'budget' && canViewBudget" class="space-y-4">
+      <!-- P10 — running balance across budget, committed and actual spend. -->
+      <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div class="rounded-xl border border-default bg-default p-4 shadow-sm">
+          <p class="text-xs uppercase tracking-wide text-muted">Budget</p>
+          <p class="mt-1 text-xl font-semibold text-default">
+            {{ money(data.summary.budgetTotal) }}
+          </p>
+        </div>
+        <div class="rounded-xl border border-default bg-default p-4 shadow-sm">
+          <p class="text-xs uppercase tracking-wide text-muted">Committed</p>
+          <p class="mt-1 text-xl font-semibold text-default">{{ money(data.summary.committed) }}</p>
+          <p class="text-xs text-muted">approved, not returned</p>
+        </div>
+        <div class="rounded-xl border border-default bg-default p-4 shadow-sm">
+          <p class="text-xs uppercase tracking-wide text-muted">Actual spent</p>
+          <p class="mt-1 text-xl font-semibold text-default">{{ money(data.summary.spent) }}</p>
+          <p class="text-xs text-muted">{{ data.summary.burnRate }}% of budget</p>
+        </div>
+        <div
+          class="rounded-xl border p-4 shadow-sm"
+          :class="
+            data.summary.remaining < 0
+              ? 'border-error/40 bg-error/5'
+              : 'border-success/40 bg-success/5'
+          "
+        >
+          <p class="text-xs uppercase tracking-wide text-muted">Remaining</p>
+          <p
+            class="mt-1 text-xl font-semibold"
+            :class="data.summary.remaining < 0 ? 'text-error' : 'text-success'"
+          >
+            {{ money(data.summary.remaining) }}
+          </p>
+          <p class="text-xs text-muted">budget − committed − spent</p>
+        </div>
+      </div>
+
+      <div
+        v-if="data.summary.overBudget"
+        class="flex items-center gap-2 rounded-lg border border-error/40 bg-error/5 px-3 py-2 text-sm text-error"
+      >
+        <UIcon name="i-lucide-alert-triangle" class="size-4 shrink-0" />
+        Actual spend has exceeded the budget by
+        {{ money(data.summary.spent - data.summary.budgetTotal) }}.
+      </div>
+
       <!-- PJ-05 — a revised budget must be signed off by a manager. -->
       <div
         v-if="data.project.budgetRevisionStatus === 'pending'"
@@ -920,26 +1330,26 @@ const milestoneItems = computed(() => [
         </template>
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
-            <thead class="text-left text-xs uppercase tracking-wide text-muted">
+            <thead class="text-xs uppercase tracking-wide text-muted">
               <tr>
-                <th class="py-1.5 pr-2 font-medium">Category</th>
-                <th class="py-1.5 px-2 font-medium">Phase</th>
+                <th class="py-1.5 pr-2 text-left font-medium">Category</th>
+                <th class="py-1.5 px-2 text-left font-medium">Phase</th>
                 <th class="py-1.5 px-2 text-right font-medium">Original</th>
                 <th class="py-1.5 px-2 text-right font-medium">Revised</th>
                 <th class="py-1.5 px-2 text-right font-medium">Actual</th>
-                <th v-if="canEdit" />
+                <th v-if="canEdit" class="w-8" />
               </tr>
             </thead>
             <tbody class="divide-y divide-default">
               <tr v-for="(l, i) in lines" :key="i">
-                <!-- Editable rows for a PM; a clean read view otherwise (no
-                     greyed-out disabled inputs). -->
                 <td class="py-1.5 pr-2">
-                  <UInput
+                  <USelectMenu
                     v-if="canEdit"
                     v-model="l.category"
+                    :items="lineCategoryItems"
                     size="sm"
                     placeholder="e.g. Personnel"
+                    class="w-40"
                   />
                   <span v-else class="font-medium text-default">{{ l.category || '—' }}</span>
                 </td>
@@ -953,24 +1363,21 @@ const milestoneItems = computed(() => [
                   />
                   <span v-else class="text-muted">{{ l.phase || '—' }}</span>
                 </td>
-                <td class="py-1.5 px-2" :class="canEdit ? '' : 'text-right'">
-                  <UInputNumber
-                    v-if="canEdit"
-                    v-model="l.originalAmount"
-                    :min="0"
-                    size="sm"
-                    class="w-28"
-                  />
+                <td class="py-1.5 px-2 text-right">
+                  <div v-if="canEdit" class="flex justify-end">
+                    <UInputNumber v-model="l.originalAmount" :min="0" size="sm" class="w-28" />
+                  </div>
                   <span v-else class="text-default">{{ money(l.originalAmount ?? 0) }}</span>
                 </td>
-                <td class="py-1.5 px-2" :class="canEdit ? '' : 'text-right'">
-                  <UInputNumber
-                    v-if="canEdit"
-                    v-model="l.revisedAmount as number"
-                    :min="0"
-                    size="sm"
-                    class="w-28"
-                  />
+                <td class="py-1.5 px-2 text-right">
+                  <div v-if="canEdit" class="flex justify-end">
+                    <UInputNumber
+                      v-model="l.revisedAmount as number"
+                      :min="0"
+                      size="sm"
+                      class="w-28"
+                    />
+                  </div>
                   <span v-else class="text-default">{{
                     l.revisedAmount != null ? money(l.revisedAmount) : '—'
                   }}</span>
@@ -990,14 +1397,103 @@ const milestoneItems = computed(() => [
                 </td>
               </tr>
               <tr v-if="!lines.length">
-                <td colspan="6" class="py-3 text-center text-muted">No budget lines yet.</td>
+                <td :colspan="canEdit ? 6 : 5" class="py-3 text-center text-muted">
+                  No budget lines yet.
+                </td>
               </tr>
             </tbody>
+            <tfoot v-if="lines.length" class="border-t-2 border-default">
+              <tr class="text-sm font-semibold text-default">
+                <td class="py-2 pr-2">Total</td>
+                <td />
+                <td class="px-2 py-2 text-right">{{ money(budgetTotals.original) }}</td>
+                <td class="px-2 py-2 text-right">{{ money(budgetTotals.revised) }}</td>
+                <td class="px-2 py-2 text-right">{{ money(budgetTotals.actual) }}</td>
+                <td v-if="canEdit" />
+              </tr>
+            </tfoot>
           </table>
         </div>
         <div v-if="canEdit" class="mt-3 flex justify-end">
           <UButton size="sm" label="Save budget" :loading="busy" @click="saveBudget" />
         </div>
+      </UCard>
+
+      <!-- P9 — expense requests → approval → return -->
+      <UCard>
+        <template #header>
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-default">Expense requests &amp; returns</h3>
+            <UButton
+              v-if="!closed"
+              size="xs"
+              variant="soft"
+              icon="i-lucide-hand-coins"
+              label="Request funds"
+              @click="reqOpen = true"
+            />
+          </div>
+        </template>
+        <ul v-if="data.expenseRequests.length" class="divide-y divide-default">
+          <li v-for="r in data.expenseRequests" :key="r.id" class="py-2.5">
+            <div class="flex flex-wrap items-start justify-between gap-2">
+              <div class="min-w-0">
+                <p class="text-sm font-medium text-default">{{ r.purpose }}</p>
+                <p class="text-xs text-muted">
+                  {{ r.requesterName || 'Someone' }} · requested {{ money(r.amount) }}
+                  <span v-if="r.category"> · {{ r.category }}</span>
+                  <span v-if="r.status === 'returned' && r.spentAmount">
+                    · spent {{ money(r.spentAmount) }}</span
+                  >
+                </p>
+                <p v-if="r.decisionNote" class="text-xs text-muted">Note: {{ r.decisionNote }}</p>
+                <a
+                  v-if="r.receiptUrl"
+                  :href="r.receiptUrl"
+                  target="_blank"
+                  rel="noopener"
+                  class="text-xs text-primary hover:underline"
+                  ><UIcon name="i-lucide-paperclip" class="inline size-3" /> Receipt</a
+                >
+              </div>
+              <div class="flex shrink-0 items-center gap-2">
+                <UBadge
+                  :color="EXPENSE_REQUEST_STATUS_COLOR[r.status]"
+                  variant="subtle"
+                  size="xs"
+                  :label="EXPENSE_REQUEST_STATUS_LABEL[r.status]"
+                />
+                <template v-if="r.status === 'requested' && canApproveExpense">
+                  <UButton
+                    size="xs"
+                    color="success"
+                    variant="soft"
+                    label="Approve"
+                    @click="decideRequest(r, true)"
+                  />
+                  <UButton
+                    size="xs"
+                    color="neutral"
+                    variant="outline"
+                    label="Reject"
+                    @click="decideRequest(r, false)"
+                  />
+                </template>
+                <UButton
+                  v-if="canReturn(r)"
+                  size="xs"
+                  variant="soft"
+                  icon="i-lucide-receipt"
+                  label="Return"
+                  @click="openReturn(r)"
+                />
+              </div>
+            </div>
+          </li>
+        </ul>
+        <p v-else class="text-sm text-muted">
+          No funds requested yet. Use “Request funds”, then reconcile with a receipt once paid.
+        </p>
       </UCard>
 
       <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -1113,10 +1609,10 @@ const milestoneItems = computed(() => [
               class="w-full"
             />
           </UFormField>
-          <UFormField label="Status">
-            <USelect v-model="projStatus" :items="statusItems" value-key="value" class="w-44" />
-          </UFormField>
           <UButton size="sm" label="Save" :loading="busy" @click="saveHeader" />
+          <p class="w-full text-xs text-muted">
+            Project status is computed from milestone progress — it isn't set by hand.
+          </p>
         </div>
         <!-- Clean read view: plain values, no disabled inputs. -->
         <div v-else class="flex flex-wrap gap-8 text-sm">
@@ -1128,10 +1624,10 @@ const milestoneItems = computed(() => [
             <p class="text-xs uppercase tracking-wide text-muted">Status</p>
             <UBadge
               class="mt-0.5"
-              :color="PROJECT_STATUS_COLOR[data.project.status]"
+              :color="closed ? 'neutral' : catColor(data.project.lifecycleCategory)"
               variant="subtle"
               size="sm"
-              :label="PROJECT_STATUS_LABEL[data.project.status]"
+              :label="closed ? 'Closed' : lifeLabel(data.project.lifecycleCategory)"
             />
           </div>
         </div>
@@ -1153,27 +1649,9 @@ const milestoneItems = computed(() => [
               v-model="m.role"
               size="sm"
               placeholder="Role"
-              class="w-40"
+              class="w-48"
             />
-            <span v-else class="w-40 text-sm text-muted">{{ m.role || 'Member' }}</span>
-            <div class="flex items-center gap-1">
-              <UInputNumber
-                v-if="canManageTeam"
-                v-model="m.allocationPct"
-                :min="0"
-                :max="100"
-                size="sm"
-                class="w-24"
-              />
-              <span v-else class="text-sm text-default">{{ m.allocationPct }}</span>
-              <span class="text-xs text-muted">%</span>
-              <UIcon
-                v-if="m.allocationPct > 100"
-                name="i-lucide-alert-triangle"
-                class="size-4 text-warning"
-                title="Over-allocated"
-              />
-            </div>
+            <span v-else class="w-48 text-sm text-muted">{{ m.role || 'Member' }}</span>
             <UButton
               v-if="canManageTeam"
               size="xs"
@@ -1181,6 +1659,7 @@ const milestoneItems = computed(() => [
               color="error"
               icon="i-lucide-x"
               aria-label="Remove"
+              class="ml-auto"
               @click="team.splice(i, 1)"
             />
           </li>
@@ -1211,44 +1690,6 @@ const milestoneItems = computed(() => [
           <UButton size="sm" label="Save team" class="ml-auto" :loading="busy" @click="saveTeam" />
         </div>
       </UCard>
-
-      <!-- PJ-06 — weekly timesheet: hours per staff per week. -->
-      <UCard>
-        <template #header>
-          <h3 class="text-sm font-semibold text-default">Weekly timesheet — hours per staff</h3>
-        </template>
-        <div v-if="data.timesheetWeekly.rows.length" class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="text-left text-xs uppercase tracking-wide text-muted">
-              <tr>
-                <th class="py-1.5 pr-3 font-medium">Staff</th>
-                <th
-                  v-for="w in data.timesheetWeekly.weeks"
-                  :key="w"
-                  class="px-2 py-1.5 text-right font-medium"
-                >
-                  {{ weekLabel(w) }}
-                </th>
-                <th class="px-2 py-1.5 text-right font-medium">Total</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-default">
-              <tr v-for="r in data.timesheetWeekly.rows" :key="r.userId">
-                <td class="py-1.5 pr-3 text-default">{{ r.name }}</td>
-                <td
-                  v-for="w in data.timesheetWeekly.weeks"
-                  :key="w"
-                  class="px-2 py-1.5 text-right text-muted"
-                >
-                  {{ r.byWeek[w] ? `${r.byWeek[w]}h` : '—' }}
-                </td>
-                <td class="px-2 py-1.5 text-right font-medium text-default">{{ r.total }}h</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p v-else class="text-sm text-muted">No time logged yet.</p>
-      </UCard>
     </div>
 
     <!-- REPORTS (PJ-09) + timesheet (PJ-06) -->
@@ -1256,19 +1697,35 @@ const milestoneItems = computed(() => [
       <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <UCard class="lg:col-span-2">
           <template #header>
-            <div class="flex items-center justify-between">
-              <h3 class="text-sm font-semibold text-default">Project reports</h3>
-              <UButton
-                v-if="canEdit"
-                size="xs"
-                variant="soft"
-                icon="i-lucide-plus"
-                label="New report"
-                :loading="creatingReport"
-                @click="newReport()"
-              />
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <h3 class="text-sm font-semibold text-default">Reports</h3>
+              <div v-if="!closed" class="flex gap-2">
+                <UButton
+                  v-if="canEdit"
+                  size="xs"
+                  variant="outline"
+                  icon="i-lucide-plus"
+                  label="My activity report"
+                  :loading="creatingReport"
+                  @click="newReport('activity')"
+                />
+                <UButton
+                  v-if="isProjectLead"
+                  size="xs"
+                  variant="soft"
+                  icon="i-lucide-plus"
+                  label="General report"
+                  :loading="creatingReport"
+                  @click="newReport('general')"
+                />
+              </div>
             </div>
           </template>
+          <p class="mb-2 text-xs text-muted">
+            You see your own reports;<template v-if="isProjectLead">
+              as lead you see everyone's.</template
+            ><template v-else> the general report appears when it's shared.</template>
+          </p>
           <ul v-if="data.reports.length" class="divide-y divide-default">
             <li
               v-for="r in data.reports"
@@ -1277,7 +1734,17 @@ const milestoneItems = computed(() => [
               @click="navigateTo(`/projects/${id}/reports/${r.id}`)"
             >
               <div class="min-w-0">
-                <p class="truncate text-sm font-medium text-default">{{ r.title }}</p>
+                <p class="truncate text-sm font-medium text-default">
+                  {{ r.title }}
+                  <UBadge
+                    v-if="r.kind === 'general'"
+                    color="primary"
+                    variant="subtle"
+                    size="xs"
+                    label="General"
+                    class="ml-1"
+                  />
+                </p>
                 <p class="text-xs text-muted">
                   {{ [r.authorFirstName, r.authorLastName].filter(Boolean).join(' ') || '—' }} ·
                   {{ fdate(r.updatedAt) }}
@@ -1288,7 +1755,7 @@ const milestoneItems = computed(() => [
                   :color="PROJECT_REPORT_STATUS_COLOR[r.status]"
                   variant="subtle"
                   size="xs"
-                  :label="PROJECT_REPORT_STATUS_LABEL[r.status]"
+                  :label="reportStatusLabel(r.status, r.kind)"
                 />
                 <UIcon name="i-lucide-chevron-right" class="size-4 text-muted" />
               </div>
@@ -1323,22 +1790,29 @@ const milestoneItems = computed(() => [
     </div>
 
     <!-- Modals -->
-    <UModal v-model:open="msOpen" title="Add milestone">
+    <UModal v-model:open="msOpen" :title="msForm.id ? 'Edit milestone' : 'Add milestone'">
       <template #body>
         <div class="space-y-3">
-          <UFormField label="Name" required><UInput v-model="msForm.name" autofocus /></UFormField>
-          <UFormField label="Due date"><UInput v-model="msForm.dueDate" type="date" /></UFormField>
+          <UFormField label="Name" required
+            ><UInput v-model="msForm.name" autofocus class="w-full"
+          /></UFormField>
+          <UFormField label="Due date"
+            ><UInput v-model="msForm.dueDate" type="date" class="w-full"
+          /></UFormField>
           <UFormField label="Completion criteria"
             ><UTextarea v-model="msForm.completionCriteria" :rows="2" class="w-full"
           /></UFormField>
+          <p class="text-xs text-muted">
+            Milestone status is set automatically from its activities.
+          </p>
         </div>
       </template>
       <template #footer
         ><div class="flex w-full justify-end gap-2">
           <UButton variant="ghost" color="neutral" label="Cancel" @click="msOpen = false" /><UButton
-            label="Add"
+            :label="msForm.id ? 'Save' : 'Add'"
             :loading="busy"
-            @click="addMilestone"
+            @click="saveMilestone"
           /></div
       ></template>
     </UModal>
@@ -1422,6 +1896,72 @@ const milestoneItems = computed(() => [
       ></template>
     </UModal>
 
+    <UModal v-model:open="reqOpen" title="Request funds">
+      <template #body>
+        <div class="space-y-3">
+          <UFormField label="Purpose" required>
+            <UInput
+              v-model="reqForm.purpose"
+              autofocus
+              class="w-full"
+              placeholder="e.g. Annual hosting renewal"
+            />
+          </UFormField>
+          <div class="grid grid-cols-2 gap-3">
+            <UFormField label="Amount" required>
+              <UInputNumber v-model="reqForm.amount" :min="0" class="w-full" />
+            </UFormField>
+            <UFormField label="Budget category">
+              <USelect
+                v-model="reqForm.category"
+                :items="[
+                  { label: 'None', value: NONE_OPT },
+                  ...lineCategoryItems.map((c) => ({ label: c, value: c })),
+                ]"
+                value-key="value"
+                class="w-full"
+              />
+            </UFormField>
+          </div>
+          <p class="text-xs text-muted">
+            Once approved and paid, you’ll return it with the receipt to reconcile the budget.
+          </p>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton variant="ghost" color="neutral" label="Cancel" @click="reqOpen = false" />
+          <UButton label="Submit request" :loading="busy" @click="submitRequest" />
+        </div>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="retOpen" title="Return expense">
+      <template #body>
+        <div class="space-y-3">
+          <p v-if="retTarget" class="text-sm text-muted">
+            {{ retTarget.purpose }} — approved for {{ money(retTarget.amount) }}.
+          </p>
+          <UFormField label="Amount actually spent" required>
+            <UInputNumber v-model="retForm.spentAmount" :min="0" class="w-full" />
+          </UFormField>
+          <UFormField label="Receipt / proof of payment (URL)" required>
+            <UInput v-model="retForm.receiptUrl" class="w-full" placeholder="https://…" />
+          </UFormField>
+          <UFormField label="Note">
+            <UTextarea v-model="retForm.returnNote" :rows="2" class="w-full" />
+          </UFormField>
+          <p class="text-xs text-muted">This posts the actual spend to the project budget.</p>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton variant="ghost" color="neutral" label="Cancel" @click="retOpen = false" />
+          <UButton label="Submit return" :loading="busy" @click="submitReturn" />
+        </div>
+      </template>
+    </UModal>
+
     <UModal v-model:open="venOpen" title="Add vendor">
       <template #body>
         <div class="space-y-3">
@@ -1499,6 +2039,61 @@ const milestoneItems = computed(() => [
       ></template>
     </UModal>
 
+    <UModal v-model:open="editOpen" title="Edit project">
+      <template #body>
+        <div class="space-y-3">
+          <UFormField label="Name" required>
+            <UInput v-model="editForm.name" autofocus class="w-full" />
+          </UFormField>
+          <div class="grid grid-cols-2 gap-3">
+            <UFormField label="Code"><UInput v-model="editForm.code" class="w-full" /></UFormField>
+            <UFormField label="Currency"
+              ><UInput v-model="editForm.currency" maxlength="3" class="w-full"
+            /></UFormField>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <UFormField label="Start"
+              ><UInput v-model="editForm.startDate" type="date" class="w-full"
+            /></UFormField>
+            <UFormField label="End"
+              ><UInput v-model="editForm.endDate" type="date" class="w-full"
+            /></UFormField>
+          </div>
+          <UFormField label="Total budget">
+            <UInputNumber v-model="editForm.totalBudget" :min="0" class="w-full" />
+          </UFormField>
+          <UFormField label="Client / donor" hint="Who this engagement is delivered for">
+            <USelect
+              v-model="editForm.clientId"
+              :items="clientItems"
+              value-key="value"
+              class="w-full"
+            />
+          </UFormField>
+          <UFormField label="Linked proposal" hint="The won proposal this project delivers">
+            <USelect
+              v-model="editForm.proposalId"
+              :items="proposalItems"
+              value-key="value"
+              class="w-full"
+            />
+          </UFormField>
+          <UFormField label="Description">
+            <UTextarea v-model="editForm.description" :rows="2" class="w-full" />
+          </UFormField>
+          <UFormField label="Scope">
+            <UTextarea v-model="editForm.scope" :rows="2" class="w-full" />
+          </UFormField>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton variant="ghost" color="neutral" label="Cancel" @click="editOpen = false" />
+          <UButton label="Save changes" :loading="busy" @click="saveEdit" />
+        </div>
+      </template>
+    </UModal>
+
     <UModal v-model:open="closeOpen" title="Close project">
       <template #body>
         <div class="space-y-2">
@@ -1512,6 +2107,14 @@ const milestoneItems = computed(() => [
           >
             <UCheckbox v-model="checklist[item]" /> {{ item }}
           </label>
+          <UFormField label="Reason for closing" required class="pt-1">
+            <UTextarea
+              v-model="closeReason"
+              :rows="2"
+              class="w-full"
+              placeholder="e.g. All deliverables accepted and signed off by the client."
+            />
+          </UFormField>
         </div>
       </template>
       <template #footer

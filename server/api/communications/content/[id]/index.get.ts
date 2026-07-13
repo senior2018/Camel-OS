@@ -30,6 +30,11 @@ export default defineEventHandler(async (event) => {
         scheduledFor: contentItems.scheduledFor,
         campaignId: contentItems.campaignId,
         publishedAt: contentItems.publishedAt,
+        platform: contentItems.platform,
+        publishedUrl: contentItems.publishedUrl,
+        isPaid: contentItems.isPaid,
+        spend: contentItems.spend,
+        metrics: contentItems.metrics,
         createdAt: contentItems.createdAt,
         updatedAt: contentItems.updatedAt,
       })
