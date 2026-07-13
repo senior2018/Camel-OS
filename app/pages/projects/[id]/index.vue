@@ -525,22 +525,45 @@ watchEffect(() => {
 function addLine() {
   lines.value.push({ category: '', phase: '', originalAmount: 0, revisedAmount: null })
 }
+// ── Connected budget: expenses (actual) + vendors & approved requests
+// (committed) roll up to their budget category, so the plan reflects reality. ──
 const spentByLine = computed(() => {
   const m: Record<string, number> = {}
   for (const e of data.value?.expenses ?? [])
     m[e.category ?? ''] = (m[e.category ?? ''] ?? 0) + Number(e.amount)
   return m
 })
+const committedByLine = computed(() => {
+  const m: Record<string, number> = {}
+  // Approved (not yet returned) funds requests are committed against their category.
+  for (const r of data.value?.expenseRequests ?? [])
+    if (r.status === 'approved') m[r.category ?? ''] = (m[r.category ?? ''] ?? 0) + Number(r.amount)
+  // Vendor contracts are committed against their linked budget category.
+  for (const v of data.value?.vendors ?? [])
+    if (v.contractAmount != null)
+      m[v.budgetCategory ?? ''] = (m[v.budgetCategory ?? ''] ?? 0) + Number(v.contractAmount)
+  return m
+})
+const lineRemaining = (l: {
+  category: string
+  originalAmount: number
+  revisedAmount: number | null
+}) =>
+  Number(l.revisedAmount ?? l.originalAmount ?? 0) -
+  (spentByLine.value[l.category] ?? 0) -
+  (committedByLine.value[l.category] ?? 0)
 const budgetTotals = computed(() => {
   let original = 0
   let revised = 0
   let actual = 0
+  let committed = 0
   for (const l of lines.value) {
     original += Number(l.originalAmount || 0)
     revised += Number(l.revisedAmount ?? l.originalAmount ?? 0)
     actual += spentByLine.value[l.category] ?? 0
+    committed += committedByLine.value[l.category] ?? 0
   }
-  return { original, revised, actual }
+  return { original, revised, actual, committed, remaining: revised - actual - committed }
 })
 async function saveBudget() {
   await call(
@@ -571,29 +594,35 @@ const canRecordExpense = computed(
 )
 const expOpen = ref(false)
 const expForm = reactive({
+  id: null as string | null,
   amount: null as number | null,
-  category: '',
+  category: NONE_OPT as string,
   expenseDate: new Date().toISOString().slice(0, 10),
   description: '',
   receiptUrl: '',
 })
-async function addExpense() {
+function openExpense(e?: Expense) {
+  expForm.id = e?.id ?? null
+  expForm.amount = e ? Number(e.amount) : null
+  expForm.category = e?.category ?? NONE_OPT
+  expForm.expenseDate = e?.expenseDate ?? new Date().toISOString().slice(0, 10)
+  expForm.description = e?.description ?? ''
+  expForm.receiptUrl = ''
+  expOpen.value = true
+}
+async function saveExpense() {
   if (expForm.amount == null) return
-  if (
-    await call('POST', '/expenses', {
-      amount: expForm.amount,
-      category: expForm.category || null,
-      expenseDate: expForm.expenseDate,
-      description: expForm.description || null,
-      receiptUrl: expForm.receiptUrl || '',
-    })
-  ) {
-    expOpen.value = false
-    expForm.amount = null
-    expForm.category = ''
-    expForm.description = ''
-    expForm.receiptUrl = ''
+  const body = {
+    amount: expForm.amount,
+    category: expForm.category === NONE_OPT ? null : expForm.category,
+    expenseDate: expForm.expenseDate,
+    description: expForm.description || null,
+    receiptUrl: expForm.receiptUrl || '',
   }
+  const ok = expForm.id
+    ? await call('PATCH', `/expenses/${expForm.id}`, body, 'Expense updated')
+    : await call('POST', '/expenses', body)
+  if (ok) expOpen.value = false
 }
 
 // Budget categories for a budget-line picker (configured + already-used), with a
@@ -617,30 +646,34 @@ const lineCategoryItems = computed(() => {
 const canApproveExpense = computed(() => canViewBudget.value && !closed.value)
 const reqOpen = ref(false)
 const reqForm = reactive({
+  id: null as string | null,
   purpose: '',
   category: NONE_OPT as string,
   amount: null as number | null,
 })
+function openRequest(r?: ExpenseRequest) {
+  reqForm.id = r?.id ?? null
+  reqForm.purpose = r?.purpose ?? ''
+  reqForm.category = r?.category ?? NONE_OPT
+  reqForm.amount = r ? Number(r.amount) : null
+  reqOpen.value = true
+}
 async function submitRequest() {
   if (!reqForm.purpose.trim() || reqForm.amount == null) return
-  if (
-    await call(
-      'POST',
-      '/expense-requests',
-      {
-        purpose: reqForm.purpose.trim(),
-        category: reqForm.category === NONE_OPT ? null : reqForm.category,
-        amount: Number(reqForm.amount),
-      },
-      'Request submitted'
-    )
-  ) {
-    reqOpen.value = false
-    reqForm.purpose = ''
-    reqForm.category = NONE_OPT
-    reqForm.amount = null
+  const body = {
+    purpose: reqForm.purpose.trim(),
+    category: reqForm.category === NONE_OPT ? null : reqForm.category,
+    amount: Number(reqForm.amount),
   }
+  const ok = reqForm.id
+    ? await call('PATCH', `/expense-requests/${reqForm.id}`, body, 'Request updated')
+    : await call('POST', '/expense-requests', body, 'Request submitted')
+  if (ok) reqOpen.value = false
 }
+// In-flight requests (returned ones become recorded expenses, so are hidden here).
+const pendingRequests = computed(() =>
+  (data.value?.expenseRequests ?? []).filter((r) => r.status !== 'returned')
+)
 async function decideRequest(r: ExpenseRequest, approve: boolean) {
   await call(
     'POST',
@@ -689,6 +722,7 @@ const canReturn = (r: ExpenseRequest) =>
 // ── Vendors (PJ-08) — a vendor's contract can be linked to a budget line. ──
 const venOpen = ref(false)
 const venForm = reactive({
+  id: null as string | null,
   name: '',
   contactName: '',
   contactEmail: '',
@@ -696,8 +730,20 @@ const venForm = reactive({
   currency: 'USD',
   scope: '',
   paymentSchedule: '',
-  budgetCategory: NONE_OPT,
+  budgetCategory: NONE_OPT as string,
 })
+function openVendor(v?: Vendor) {
+  venForm.id = v?.id ?? null
+  venForm.name = v?.name ?? ''
+  venForm.contactName = v?.contactName ?? ''
+  venForm.contactEmail = ''
+  venForm.contractAmount = v?.contractAmount != null ? Number(v.contractAmount) : null
+  venForm.currency = v?.currency ?? 'USD'
+  venForm.scope = v?.scope ?? ''
+  venForm.paymentSchedule = v?.paymentSchedule ?? ''
+  venForm.budgetCategory = v?.budgetCategory ?? NONE_OPT
+  venOpen.value = true
+}
 // Budget categories to link a vendor against: the configured vocabulary plus
 // any categories already used on this project's budget lines.
 const budgetCategoryItems = computed(() => {
@@ -714,29 +760,22 @@ const budgetCategoryItems = computed(() => {
   }
   return items
 })
-async function addVendor() {
+async function saveVendor() {
   if (!venForm.name.trim()) return
-  if (
-    await call('POST', '/vendors', {
-      name: venForm.name,
-      contactName: venForm.contactName || null,
-      contactEmail: venForm.contactEmail || '',
-      contractAmount: venForm.contractAmount,
-      currency: venForm.currency || 'USD',
-      scope: venForm.scope || null,
-      paymentSchedule: venForm.paymentSchedule || null,
-      budgetCategory: venForm.budgetCategory === NONE_OPT ? null : venForm.budgetCategory,
-    })
-  ) {
-    venOpen.value = false
-    venForm.name = ''
-    venForm.contactName = ''
-    venForm.contactEmail = ''
-    venForm.contractAmount = null
-    venForm.scope = ''
-    venForm.paymentSchedule = ''
-    venForm.budgetCategory = NONE_OPT
+  const body = {
+    name: venForm.name,
+    contactName: venForm.contactName || null,
+    contactEmail: venForm.contactEmail || '',
+    contractAmount: venForm.contractAmount,
+    currency: venForm.currency || 'USD',
+    scope: venForm.scope || null,
+    paymentSchedule: venForm.paymentSchedule || null,
+    budgetCategory: venForm.budgetCategory === NONE_OPT ? null : venForm.budgetCategory,
   }
+  const ok = venForm.id
+    ? await call('PATCH', `/vendors/${venForm.id}`, body, 'Vendor updated')
+    : await call('POST', '/vendors', body)
+  if (ok) venOpen.value = false
 }
 
 // ── Reports (PJ-09 / P17) — free-form; open in a full-page editor. ──
@@ -1234,28 +1273,34 @@ function openActivity(a: Activity) {
 
     <!-- BUDGET (PJ-05/07/08, P8/P10) -->
     <div v-show="tab === 'budget' && canViewBudget" class="space-y-4">
-      <!-- P10 — running balance across budget, committed and actual spend. -->
+      <!-- P10 — live running balance: budget vs committed (vendors + approved
+           requests) vs actual (expenses). All figures react to edits below. -->
       <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div class="rounded-xl border border-default bg-default p-4 shadow-sm">
           <p class="text-xs uppercase tracking-wide text-muted">Budget</p>
-          <p class="mt-1 text-xl font-semibold text-default">
-            {{ money(data.summary.budgetTotal) }}
-          </p>
+          <p class="mt-1 text-xl font-semibold text-default">{{ money(budgetTotals.revised) }}</p>
+          <p class="text-xs text-muted">revised where set</p>
         </div>
         <div class="rounded-xl border border-default bg-default p-4 shadow-sm">
           <p class="text-xs uppercase tracking-wide text-muted">Committed</p>
-          <p class="mt-1 text-xl font-semibold text-default">{{ money(data.summary.committed) }}</p>
-          <p class="text-xs text-muted">approved, not returned</p>
+          <p class="mt-1 text-xl font-semibold text-default">{{ money(budgetTotals.committed) }}</p>
+          <p class="text-xs text-muted">vendors + approved requests</p>
         </div>
         <div class="rounded-xl border border-default bg-default p-4 shadow-sm">
           <p class="text-xs uppercase tracking-wide text-muted">Actual spent</p>
-          <p class="mt-1 text-xl font-semibold text-default">{{ money(data.summary.spent) }}</p>
-          <p class="text-xs text-muted">{{ data.summary.burnRate }}% of budget</p>
+          <p class="mt-1 text-xl font-semibold text-default">{{ money(budgetTotals.actual) }}</p>
+          <p class="text-xs text-muted">
+            {{
+              budgetTotals.revised
+                ? Math.round((budgetTotals.actual / budgetTotals.revised) * 100)
+                : 0
+            }}% of budget
+          </p>
         </div>
         <div
           class="rounded-xl border p-4 shadow-sm"
           :class="
-            data.summary.remaining < 0
+            budgetTotals.remaining < 0
               ? 'border-error/40 bg-error/5'
               : 'border-success/40 bg-success/5'
           "
@@ -1263,21 +1308,21 @@ function openActivity(a: Activity) {
           <p class="text-xs uppercase tracking-wide text-muted">Remaining</p>
           <p
             class="mt-1 text-xl font-semibold"
-            :class="data.summary.remaining < 0 ? 'text-error' : 'text-success'"
+            :class="budgetTotals.remaining < 0 ? 'text-error' : 'text-success'"
           >
-            {{ money(data.summary.remaining) }}
+            {{ money(budgetTotals.remaining) }}
           </p>
-          <p class="text-xs text-muted">budget − committed − spent</p>
+          <p class="text-xs text-muted">budget − committed − actual</p>
         </div>
       </div>
 
       <div
-        v-if="data.summary.overBudget"
+        v-if="budgetTotals.actual > budgetTotals.revised && budgetTotals.revised > 0"
         class="flex items-center gap-2 rounded-lg border border-error/40 bg-error/5 px-3 py-2 text-sm text-error"
       >
         <UIcon name="i-lucide-alert-triangle" class="size-4 shrink-0" />
         Actual spend has exceeded the budget by
-        {{ money(data.summary.spent - data.summary.budgetTotal) }}.
+        {{ money(budgetTotals.actual - budgetTotals.revised) }}.
       </div>
 
       <!-- PJ-05 — a revised budget must be signed off by a manager. -->
@@ -1316,7 +1361,7 @@ function openActivity(a: Activity) {
         <template #header>
           <div class="flex items-center justify-between">
             <h3 class="text-sm font-semibold text-default">
-              Budget — original vs revised vs actual
+              Budget by category — plan vs committed vs actual
             </h3>
             <UButton
               v-if="canEdit"
@@ -1336,7 +1381,11 @@ function openActivity(a: Activity) {
                 <th class="py-1.5 px-2 text-left font-medium">Phase</th>
                 <th class="py-1.5 px-2 text-right font-medium">Original</th>
                 <th class="py-1.5 px-2 text-right font-medium">Revised</th>
-                <th class="py-1.5 px-2 text-right font-medium">Actual</th>
+                <th class="py-1.5 px-2 text-right font-medium" title="Vendors + approved requests">
+                  Committed
+                </th>
+                <th class="py-1.5 px-2 text-right font-medium" title="Recorded expenses">Actual</th>
+                <th class="py-1.5 px-2 text-right font-medium">Remaining</th>
                 <th v-if="canEdit" class="w-8" />
               </tr>
             </thead>
@@ -1383,7 +1432,16 @@ function openActivity(a: Activity) {
                   }}</span>
                 </td>
                 <td class="py-1.5 px-2 text-right text-muted">
+                  {{ money(committedByLine[l.category] ?? 0) }}
+                </td>
+                <td class="py-1.5 px-2 text-right text-muted">
                   {{ money(spentByLine[l.category] ?? 0) }}
+                </td>
+                <td
+                  class="py-1.5 px-2 text-right font-medium"
+                  :class="lineRemaining(l) < 0 ? 'text-error' : 'text-default'"
+                >
+                  {{ money(lineRemaining(l)) }}
                 </td>
                 <td v-if="canEdit" class="text-right">
                   <UButton
@@ -1397,7 +1455,7 @@ function openActivity(a: Activity) {
                 </td>
               </tr>
               <tr v-if="!lines.length">
-                <td :colspan="canEdit ? 6 : 5" class="py-3 text-center text-muted">
+                <td :colspan="canEdit ? 8 : 7" class="py-3 text-center text-muted">
                   No budget lines yet.
                 </td>
               </tr>
@@ -1408,7 +1466,14 @@ function openActivity(a: Activity) {
                 <td />
                 <td class="px-2 py-2 text-right">{{ money(budgetTotals.original) }}</td>
                 <td class="px-2 py-2 text-right">{{ money(budgetTotals.revised) }}</td>
+                <td class="px-2 py-2 text-right">{{ money(budgetTotals.committed) }}</td>
                 <td class="px-2 py-2 text-right">{{ money(budgetTotals.actual) }}</td>
+                <td
+                  class="px-2 py-2 text-right"
+                  :class="budgetTotals.remaining < 0 ? 'text-error' : ''"
+                >
+                  {{ money(budgetTotals.remaining) }}
+                </td>
                 <td v-if="canEdit" />
               </tr>
             </tfoot>
@@ -1419,129 +1484,140 @@ function openActivity(a: Activity) {
         </div>
       </UCard>
 
-      <!-- P9 — expense requests → approval → return -->
+      <!-- P9 — Expenses: the request → approve → return flow AND the actual
+           ledger, in one place. Returned requests become recorded expenses. -->
       <UCard>
         <template #header>
-          <div class="flex items-center justify-between">
-            <h3 class="text-sm font-semibold text-default">Expense requests &amp; returns</h3>
-            <UButton
-              v-if="!closed"
-              size="xs"
-              variant="soft"
-              icon="i-lucide-hand-coins"
-              label="Request funds"
-              @click="reqOpen = true"
-            />
-          </div>
-        </template>
-        <ul v-if="data.expenseRequests.length" class="divide-y divide-default">
-          <li v-for="r in data.expenseRequests" :key="r.id" class="py-2.5">
-            <div class="flex flex-wrap items-start justify-between gap-2">
-              <div class="min-w-0">
-                <p class="text-sm font-medium text-default">{{ r.purpose }}</p>
-                <p class="text-xs text-muted">
-                  {{ r.requesterName || 'Someone' }} · requested {{ money(r.amount) }}
-                  <span v-if="r.category"> · {{ r.category }}</span>
-                  <span v-if="r.status === 'returned' && r.spentAmount">
-                    · spent {{ money(r.spentAmount) }}</span
-                  >
-                </p>
-                <p v-if="r.decisionNote" class="text-xs text-muted">Note: {{ r.decisionNote }}</p>
-                <a
-                  v-if="r.receiptUrl"
-                  :href="r.receiptUrl"
-                  target="_blank"
-                  rel="noopener"
-                  class="text-xs text-primary hover:underline"
-                  ><UIcon name="i-lucide-paperclip" class="inline size-3" /> Receipt</a
-                >
-              </div>
-              <div class="flex shrink-0 items-center gap-2">
-                <UBadge
-                  :color="EXPENSE_REQUEST_STATUS_COLOR[r.status]"
-                  variant="subtle"
-                  size="xs"
-                  :label="EXPENSE_REQUEST_STATUS_LABEL[r.status]"
-                />
-                <template v-if="r.status === 'requested' && canApproveExpense">
-                  <UButton
-                    size="xs"
-                    color="success"
-                    variant="soft"
-                    label="Approve"
-                    @click="decideRequest(r, true)"
-                  />
-                  <UButton
-                    size="xs"
-                    color="neutral"
-                    variant="outline"
-                    label="Reject"
-                    @click="decideRequest(r, false)"
-                  />
-                </template>
-                <UButton
-                  v-if="canReturn(r)"
-                  size="xs"
-                  variant="soft"
-                  icon="i-lucide-receipt"
-                  label="Return"
-                  @click="openReturn(r)"
-                />
-              </div>
-            </div>
-          </li>
-        </ul>
-        <p v-else class="text-sm text-muted">
-          No funds requested yet. Use “Request funds”, then reconcile with a receipt once paid.
-        </p>
-      </UCard>
-
-      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <UCard>
-          <template #header>
-            <div class="flex items-center justify-between">
-              <h3 class="text-sm font-semibold text-default">
-                Expenses · {{ money(data.summary.spent) }}
-              </h3>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h3 class="text-sm font-semibold text-default">
+              Expenses · {{ money(budgetTotals.actual) }}
+            </h3>
+            <div v-if="!closed" class="flex gap-2">
+              <UButton
+                size="xs"
+                variant="soft"
+                icon="i-lucide-hand-coins"
+                label="Request funds"
+                @click="openRequest()"
+              />
               <UButton
                 v-if="canRecordExpense"
                 size="xs"
-                variant="soft"
+                variant="outline"
                 icon="i-lucide-plus"
-                label="Add"
-                @click="expOpen = true"
+                label="Record expense"
+                @click="openExpense()"
               />
             </div>
-          </template>
-          <ul v-if="data.expenses.length" class="divide-y divide-default">
-            <li
-              v-for="e in data.expenses"
-              :key="e.id"
-              class="flex items-center justify-between gap-2 py-2 text-sm"
-            >
-              <div class="min-w-0">
-                <p class="truncate text-default">{{ e.description || e.category || 'Expense' }}</p>
-                <p class="text-xs text-muted">
-                  {{ fdate(e.expenseDate) }}<span v-if="e.category"> · {{ e.category }}</span>
-                </p>
-              </div>
-              <div class="flex items-center gap-2">
-                <span class="font-medium text-default">{{ money(e.amount) }}</span
-                ><UButton
-                  v-if="canRecordExpense"
-                  size="xs"
-                  variant="ghost"
-                  color="error"
-                  icon="i-lucide-x"
-                  aria-label="Delete"
-                  @click="call('DELETE', `/expenses/${e.id}`)"
-                />
+          </div>
+        </template>
+
+        <!-- Requests in flight (approved = committed; returned ones move below) -->
+        <div v-if="pendingRequests.length" class="mb-4">
+          <p class="mb-1 text-xs font-medium uppercase tracking-wide text-muted">
+            Requests &amp; returns
+          </p>
+          <ul class="divide-y divide-default">
+            <li v-for="r in pendingRequests" :key="r.id" class="py-2.5">
+              <div class="flex flex-wrap items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <p class="text-sm font-medium text-default">{{ r.purpose }}</p>
+                  <p class="text-xs text-muted">
+                    {{ r.requesterName || 'Someone' }} · requested {{ money(r.amount) }}
+                    <span v-if="r.category"> · {{ r.category }}</span>
+                  </p>
+                  <p v-if="r.decisionNote" class="text-xs text-muted">Note: {{ r.decisionNote }}</p>
+                </div>
+                <div class="flex shrink-0 items-center gap-1.5">
+                  <UBadge
+                    :color="EXPENSE_REQUEST_STATUS_COLOR[r.status]"
+                    variant="subtle"
+                    size="xs"
+                    :label="EXPENSE_REQUEST_STATUS_LABEL[r.status]"
+                  />
+                  <UButton
+                    v-if="
+                      r.status === 'requested' &&
+                      (canApproveExpense || r.requestedByUserId === myId)
+                    "
+                    size="xs"
+                    variant="ghost"
+                    color="neutral"
+                    icon="i-lucide-pencil"
+                    aria-label="Edit request"
+                    @click="openRequest(r)"
+                  />
+                  <template v-if="r.status === 'requested' && canApproveExpense">
+                    <UButton
+                      size="xs"
+                      color="success"
+                      variant="soft"
+                      label="Approve"
+                      @click="decideRequest(r, true)"
+                    />
+                    <UButton
+                      size="xs"
+                      color="neutral"
+                      variant="outline"
+                      label="Reject"
+                      @click="decideRequest(r, false)"
+                    />
+                  </template>
+                  <UButton
+                    v-if="canReturn(r)"
+                    size="xs"
+                    variant="soft"
+                    icon="i-lucide-receipt"
+                    label="Return"
+                    @click="openReturn(r)"
+                  />
+                </div>
               </div>
             </li>
           </ul>
-          <p v-else class="text-sm text-muted">No expenses recorded.</p>
-        </UCard>
+        </div>
 
+        <!-- Actual ledger (direct expenses + returned requests) -->
+        <p class="mb-1 text-xs font-medium uppercase tracking-wide text-muted">Recorded expenses</p>
+        <ul v-if="data.expenses.length" class="divide-y divide-default">
+          <li
+            v-for="e in data.expenses"
+            :key="e.id"
+            class="flex items-center justify-between gap-2 py-2 text-sm"
+          >
+            <div class="min-w-0">
+              <p class="truncate text-default">{{ e.description || e.category || 'Expense' }}</p>
+              <p class="text-xs text-muted">
+                {{ fdate(e.expenseDate) }}<span v-if="e.category"> · {{ e.category }}</span>
+              </p>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="font-medium text-default">{{ money(e.amount) }}</span>
+              <UButton
+                v-if="canRecordExpense"
+                size="xs"
+                variant="ghost"
+                color="neutral"
+                icon="i-lucide-pencil"
+                aria-label="Edit"
+                @click="openExpense(e)"
+              />
+              <UButton
+                v-if="canRecordExpense"
+                size="xs"
+                variant="ghost"
+                color="error"
+                icon="i-lucide-x"
+                aria-label="Delete"
+                @click="call('DELETE', `/expenses/${e.id}`)"
+              />
+            </div>
+          </li>
+        </ul>
+        <p v-else class="text-sm text-muted">No expenses recorded yet.</p>
+      </UCard>
+
+      <div class="grid grid-cols-1 gap-4">
         <UCard>
           <template #header>
             <div class="flex items-center justify-between">
@@ -1552,7 +1628,7 @@ function openActivity(a: Activity) {
                 variant="soft"
                 icon="i-lucide-plus"
                 label="Add"
-                @click="venOpen = true"
+                @click="openVendor()"
               />
             </div>
           </template>
@@ -1574,11 +1650,20 @@ function openActivity(a: Activity) {
                   :label="`Budget: ${v.budgetCategory}`"
                 />
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-1.5">
                 <span class="text-muted">{{
                   v.contractAmount ? money(v.contractAmount) : '—'
-                }}</span
-                ><UButton
+                }}</span>
+                <UButton
+                  v-if="canEdit"
+                  size="xs"
+                  variant="ghost"
+                  color="neutral"
+                  icon="i-lucide-pencil"
+                  aria-label="Edit"
+                  @click="openVendor(v)"
+                />
+                <UButton
                   v-if="canEdit"
                   size="xs"
                   variant="ghost"
@@ -1865,7 +1950,7 @@ function openActivity(a: Activity) {
       ></template>
     </UModal>
 
-    <UModal v-model:open="expOpen" title="Record expense">
+    <UModal v-model:open="expOpen" :title="expForm.id ? 'Edit expense' : 'Record expense'">
       <template #body>
         <div class="space-y-3">
           <div class="grid grid-cols-2 gap-3">
@@ -1873,15 +1958,25 @@ function openActivity(a: Activity) {
               ><UInputNumber v-model="expForm.amount" :min="0" class="w-full"
             /></UFormField>
             <UFormField label="Date"
-              ><UInput v-model="expForm.expenseDate" type="date"
+              ><UInput v-model="expForm.expenseDate" type="date" class="w-full"
             /></UFormField>
           </div>
-          <UFormField label="Category"
-            ><UInput v-model="expForm.category" placeholder="Match a budget category"
+          <UFormField label="Budget category" hint="Rolls up under this budget line's Actual">
+            <USelect
+              v-model="expForm.category"
+              :items="[
+                { label: 'Uncategorised', value: NONE_OPT },
+                ...lineCategoryItems.map((c) => ({ label: c, value: c })),
+              ]"
+              value-key="value"
+              class="w-full"
+            />
+          </UFormField>
+          <UFormField label="Description"
+            ><UInput v-model="expForm.description" class="w-full"
           /></UFormField>
-          <UFormField label="Description"><UInput v-model="expForm.description" /></UFormField>
           <UFormField label="Receipt URL"
-            ><UInput v-model="expForm.receiptUrl" placeholder="https://…"
+            ><UInput v-model="expForm.receiptUrl" placeholder="https://…" class="w-full"
           /></UFormField>
         </div>
       </template>
@@ -1892,11 +1987,15 @@ function openActivity(a: Activity) {
             color="neutral"
             label="Cancel"
             @click="expOpen = false"
-          /><UButton label="Record" :loading="busy" @click="addExpense" /></div
+          /><UButton
+            :label="expForm.id ? 'Save' : 'Record'"
+            :loading="busy"
+            @click="saveExpense"
+          /></div
       ></template>
     </UModal>
 
-    <UModal v-model:open="reqOpen" title="Request funds">
+    <UModal v-model:open="reqOpen" :title="reqForm.id ? 'Edit request' : 'Request funds'">
       <template #body>
         <div class="space-y-3">
           <UFormField label="Purpose" required>
@@ -1931,7 +2030,11 @@ function openActivity(a: Activity) {
       <template #footer>
         <div class="flex w-full justify-end gap-2">
           <UButton variant="ghost" color="neutral" label="Cancel" @click="reqOpen = false" />
-          <UButton label="Submit request" :loading="busy" @click="submitRequest" />
+          <UButton
+            :label="reqForm.id ? 'Save' : 'Submit request'"
+            :loading="busy"
+            @click="submitRequest"
+          />
         </div>
       </template>
     </UModal>
@@ -1962,10 +2065,12 @@ function openActivity(a: Activity) {
       </template>
     </UModal>
 
-    <UModal v-model:open="venOpen" title="Add vendor">
+    <UModal v-model:open="venOpen" :title="venForm.id ? 'Edit vendor' : 'Add vendor'">
       <template #body>
         <div class="space-y-3">
-          <UFormField label="Name" required><UInput v-model="venForm.name" autofocus /></UFormField>
+          <UFormField label="Name" required
+            ><UInput v-model="venForm.name" autofocus class="w-full"
+          /></UFormField>
           <div class="grid grid-cols-2 gap-3">
             <UFormField label="Contact"><UInput v-model="venForm.contactName" /></UFormField>
             <UFormField label="Email"><UInput v-model="venForm.contactEmail" /></UFormField>
@@ -2003,7 +2108,11 @@ function openActivity(a: Activity) {
             color="neutral"
             label="Cancel"
             @click="venOpen = false"
-          /><UButton label="Add" :loading="busy" @click="addVendor" /></div
+          /><UButton
+            :label="venForm.id ? 'Save' : 'Add'"
+            :loading="busy"
+            @click="saveVendor"
+          /></div
       ></template>
     </UModal>
 

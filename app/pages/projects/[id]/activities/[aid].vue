@@ -62,15 +62,6 @@ const fdate = (s: string | null) =>
   s
     ? new Date(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
     : '—'
-const when = (s: string) =>
-  new Date(s).toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-const commenterName = (c: { firstName: string | null; lastName: string | null }) =>
-  [c.firstName, c.lastName].filter(Boolean).join(' ') || 'User'
 
 // Milestones + users for the edit form pickers.
 const { data: detail } = useFetch<{
@@ -195,29 +186,6 @@ async function saveProgress() {
     busy.value = false
   }
 }
-
-const comment = ref('')
-const posting = ref(false)
-async function postComment() {
-  if (comment.value.trim().length < 1 || posting.value) return
-  posting.value = true
-  try {
-    await $fetch(`/api/projects/${id}/activities/${aid}/comments`, {
-      method: 'POST',
-      body: { body: comment.value.trim() },
-    })
-    comment.value = ''
-    await refresh()
-  } catch (err) {
-    toast.add({
-      title: 'Could not post comment',
-      description: (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Failed',
-      color: 'error',
-    })
-  } finally {
-    posting.value = false
-  }
-}
 </script>
 
 <template>
@@ -261,56 +229,27 @@ async function postComment() {
     </div>
 
     <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
-      <div class="space-y-4 lg:col-span-2">
-        <UCard v-if="data.activity.description">
-          <template #header><h3 class="text-sm font-semibold text-default">Details</h3></template>
-          <p class="whitespace-pre-wrap text-sm text-default">{{ data.activity.description }}</p>
-        </UCard>
-
-        <!-- Comments / progress thread (P16) -->
+      <div class="flex flex-col gap-4 lg:col-span-2">
         <UCard>
-          <template #header
-            ><h3 class="text-sm font-semibold text-default">Progress &amp; comments</h3></template
-          >
-          <ul v-if="data.comments.length" class="space-y-3">
-            <li v-for="c in data.comments" :key="c.id" class="flex gap-3">
-              <div
-                class="flex size-8 shrink-0 items-center justify-center rounded-full bg-elevated text-xs font-semibold text-muted"
-              >
-                {{ commenterName(c).charAt(0) }}
-              </div>
-              <div class="min-w-0 flex-1">
-                <p class="text-xs text-muted">
-                  <span class="font-medium text-default">{{ commenterName(c) }}</span> ·
-                  {{ when(c.createdAt) }}
-                </p>
-                <p class="whitespace-pre-wrap text-sm text-default">{{ c.body }}</p>
-              </div>
-            </li>
-          </ul>
-          <p v-else class="text-sm text-muted">No updates yet.</p>
-
-          <div
-            v-if="data.permissions.canComment"
-            class="mt-4 space-y-2 border-t border-default pt-3"
-          >
-            <UTextarea
-              v-model="comment"
-              :rows="2"
-              class="w-full"
-              placeholder="Share a progress update or leave a comment…"
-            />
-            <div class="flex justify-end">
-              <UButton
-                size="sm"
-                label="Post"
-                :loading="posting"
-                :disabled="!comment.trim()"
-                @click="postComment"
-              />
-            </div>
-          </div>
+          <template #header><h3 class="text-sm font-semibold text-default">Details</h3></template>
+          <p v-if="data.activity.description" class="whitespace-pre-wrap text-sm text-default">
+            {{ data.activity.description }}
+          </p>
+          <p v-else class="text-sm text-muted">
+            No description yet.<template v-if="canEditDetails">
+              Use <button class="text-primary hover:underline" @click="openEdit()">Edit</button> to
+              add one.</template
+            >
+          </p>
         </UCard>
+
+        <!-- P16 — conversation (progress updates + PM review comments) -->
+        <ProjectActivityConversation
+          :project-id="id"
+          :activity-id="aid"
+          :can-post="data.permissions.canComment"
+          class="min-h-0 flex-1"
+        />
       </div>
 
       <div class="space-y-4">
