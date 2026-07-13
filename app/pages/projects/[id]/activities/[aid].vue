@@ -72,6 +72,83 @@ const when = (s: string) =>
 const commenterName = (c: { firstName: string | null; lastName: string | null }) =>
   [c.firstName, c.lastName].filter(Boolean).join(' ') || 'User'
 
+// Milestones + users for the edit form pickers.
+const { data: detail } = useFetch<{
+  milestones: { id: string; name: string }[]
+}>(`/api/projects/${id}`, { key: `project-${id}`, default: () => ({ milestones: [] }) })
+const { data: usersData } = useFetch<{
+  users: { id: string; firstName: string | null; lastName: string | null; email: string }[]
+}>('/api/projects/assignable-users', { key: 'project-users', default: () => ({ users: [] }) })
+const NONE_OPT = '__none__'
+const milestoneItems = computed(() => [
+  { label: 'No milestone', value: NONE_OPT },
+  ...(detail.value?.milestones ?? []).map((m) => ({ label: m.name, value: m.id })),
+])
+const userItems = computed(() =>
+  (usersData.value?.users ?? []).map((u) => ({
+    label: [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email,
+    value: u.id,
+  }))
+)
+
+// ── Edit activity details (P21 — members; reassign is lead-only) ──
+const canEditDetails = computed(() => data.value?.permissions.canComment ?? false)
+const editOpen = ref(false)
+const editForm = reactive({
+  name: '',
+  description: '',
+  milestoneId: NONE_OPT as string,
+  assignedUserId: NONE_OPT as string,
+  startDate: '',
+  endDate: '',
+  plannedHours: null as number | null,
+})
+function openEdit() {
+  const a = data.value?.activity
+  if (!a) return
+  editForm.name = a.name
+  editForm.description = a.description ?? ''
+  editForm.milestoneId = a.milestoneId ?? NONE_OPT
+  editForm.assignedUserId = a.assignedUserId ?? NONE_OPT
+  editForm.startDate = a.startDate ?? ''
+  editForm.endDate = a.endDate ?? ''
+  editForm.plannedHours = a.plannedHours != null ? Number(a.plannedHours) : null
+  editOpen.value = true
+}
+const savingEdit = ref(false)
+async function saveEdit() {
+  if (!editForm.name.trim()) {
+    toast.add({ title: 'A name is required', color: 'warning' })
+    return
+  }
+  savingEdit.value = true
+  try {
+    const body: Record<string, unknown> = {
+      name: editForm.name.trim(),
+      description: editForm.description.trim() || null,
+      milestoneId: editForm.milestoneId === NONE_OPT ? null : editForm.milestoneId,
+      startDate: editForm.startDate || null,
+      endDate: editForm.endDate || null,
+      plannedHours: editForm.plannedHours != null ? Number(editForm.plannedHours) : null,
+    }
+    // Reassignment is only accepted server-side from a lead; send it only then.
+    if (data.value?.permissions.isLead)
+      body.assignedUserId = editForm.assignedUserId === NONE_OPT ? null : editForm.assignedUserId
+    await $fetch(`/api/projects/${id}/activities/${aid}`, { method: 'PATCH', body })
+    toast.add({ title: 'Activity updated', color: 'success' })
+    editOpen.value = false
+    await refresh()
+  } catch (err) {
+    toast.add({
+      title: 'Could not update',
+      description: (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Failed',
+      color: 'error',
+    })
+  } finally {
+    savingEdit.value = false
+  }
+}
+
 const busy = ref(false)
 async function setStatus(statusLabel: string) {
   if (busy.value) return
@@ -145,30 +222,42 @@ async function postComment() {
 
 <template>
   <div v-if="data" class="mx-auto max-w-3xl space-y-5">
-    <div class="border-b border-default/70 pb-5">
-      <UButton
-        variant="link"
-        color="neutral"
-        icon="i-lucide-arrow-left"
-        label="Back to project"
-        class="-ml-2"
-        @click="navigateTo(`/projects/${id}`)"
-      />
-      <div class="mt-1 flex flex-wrap items-center gap-3">
-        <h1 class="text-2xl font-semibold tracking-tight text-default">
-          {{ data.activity.name }}
-        </h1>
-        <UBadge
-          :color="catColor(data.activity.statusCategory)"
-          variant="subtle"
-          :label="data.activity.statusLabel"
+    <div class="flex flex-wrap items-start justify-between gap-3 border-b border-default/70 pb-5">
+      <div class="min-w-0">
+        <UButton
+          variant="link"
+          color="neutral"
+          icon="i-lucide-arrow-left"
+          label="Back to project"
+          class="-ml-2"
+          @click="navigateTo(`/projects/${id}`)"
         />
+        <div class="mt-1 flex flex-wrap items-center gap-3">
+          <h1 class="text-2xl font-semibold tracking-tight text-default">
+            {{ data.activity.name }}
+          </h1>
+          <UBadge
+            :color="catColor(data.activity.statusCategory)"
+            variant="subtle"
+            :label="data.activity.statusLabel"
+          />
+        </div>
+        <p class="mt-1 text-sm text-muted">
+          <span v-if="data.activity.milestoneName">{{ data.activity.milestoneName }} · </span>
+          Assigned to {{ data.activity.assigneeName || 'nobody' }}
+          <span v-if="data.activity.creatorName">
+            · created by {{ data.activity.creatorName }}</span
+          >
+        </p>
       </div>
-      <p class="mt-1 text-sm text-muted">
-        <span v-if="data.activity.milestoneName">{{ data.activity.milestoneName }} · </span>
-        Assigned to {{ data.activity.assigneeName || 'nobody' }}
-        <span v-if="data.activity.creatorName"> · created by {{ data.activity.creatorName }}</span>
-      </p>
+      <UButton
+        v-if="canEditDetails"
+        icon="i-lucide-pencil"
+        color="neutral"
+        variant="outline"
+        label="Edit"
+        @click="openEdit()"
+      />
     </div>
 
     <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -284,5 +373,55 @@ async function postComment() {
         </UCard>
       </div>
     </div>
+
+    <UModal v-model:open="editOpen" title="Edit activity">
+      <template #body>
+        <div class="space-y-3">
+          <UFormField label="Name" required>
+            <UInput v-model="editForm.name" autofocus class="w-full" />
+          </UFormField>
+          <UFormField label="Description">
+            <UTextarea v-model="editForm.description" :rows="3" class="w-full" />
+          </UFormField>
+          <UFormField label="Milestone">
+            <USelect
+              v-model="editForm.milestoneId"
+              :items="milestoneItems"
+              value-key="value"
+              class="w-full"
+            />
+          </UFormField>
+          <UFormField
+            v-if="data.permissions.isLead"
+            label="Assignee"
+            hint="Only the project manager can re-assign"
+          >
+            <USelect
+              v-model="editForm.assignedUserId"
+              :items="[{ label: 'Unassigned', value: NONE_OPT }, ...userItems]"
+              value-key="value"
+              class="w-full"
+            />
+          </UFormField>
+          <div class="grid grid-cols-2 gap-3">
+            <UFormField label="Start">
+              <UInput v-model="editForm.startDate" type="date" class="w-full" />
+            </UFormField>
+            <UFormField label="End">
+              <UInput v-model="editForm.endDate" type="date" class="w-full" />
+            </UFormField>
+          </div>
+          <UFormField label="Planned hours">
+            <UInputNumber v-model="editForm.plannedHours" :min="0" class="w-full" />
+          </UFormField>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton variant="ghost" color="neutral" label="Cancel" @click="editOpen = false" />
+          <UButton label="Save changes" :loading="savingEdit" @click="saveEdit" />
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>
