@@ -16,7 +16,7 @@ async function handleSubmit(policy: PasswordPolicy) {
   saving.value = false
 }
 
-// Email diagnostic (Brevo)
+// Email diagnostics (Brevo)
 const toast = useToast()
 const testTo = ref('')
 const testing = ref(false)

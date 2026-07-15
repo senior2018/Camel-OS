@@ -70,7 +70,7 @@ async function save() {
   }
 }
 
-// S7 — Admin password reset. Default mode is `email_link` (recommended): the
+// S7 Admin password reset. Default mode is `email_link` (recommended): the
 // user receives a one-time reset URL and chooses their own password — the admin
 // never sees it. The `auto` fallback generates a temp password to hand off in
 // person when email is unreliable.
@@ -300,3 +300,4 @@ const resetDone = computed(() => !!issuedTempPassword.value || !!sentToEmail.val
     </template>
   </UModal>
 </template>
+<!--  -->

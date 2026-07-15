@@ -71,7 +71,7 @@ export function useProposalReview(proposalId: Ref<string>) {
     }
   }
 
-  // Save one team group (writing or review); the other group is left intact.
+  // Save one team group (writing / review); the other group is left intact.
   async function saveTeam(
     group: ProposalTeamGroup,
     assignments: CreateProposalAssignmentPayload[]

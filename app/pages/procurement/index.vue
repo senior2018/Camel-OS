@@ -84,6 +84,13 @@ const projectItems = computed(() => [
   { label: 'No project', value: NONE },
   ...(projData.value?.items ?? []).map((p) => ({ label: p.name, value: p.id })),
 ])
+// Configured budget categories — a PO's category must match a project budget
+// line for its spend to roll up as "committed" on that project's budget.
+const { data: projSettings } = await useFetch<{ settings: { budgetCategories: string[] } }>(
+  '/api/projects/settings',
+  { key: 'proc-proj-settings', default: () => ({ settings: { budgetCategories: [] } }) }
+)
+const budgetCategoryItems = computed(() => projSettings.value?.settings.budgetCategories ?? [])
 
 // Dashboard
 const { data: dashData } = await useFetch<{
@@ -105,6 +112,7 @@ interface PO {
   status: PoStatus
   vendorName: string | null
   projectName: string | null
+  budgetCategory: string | null
   expectedDate: string | null
   lines: { description: string; quantity: string; unitPrice: string; amount: string }[]
   receipts: { receivedDate: string; complete: boolean }[]
@@ -169,6 +177,16 @@ async function setPoStatus(po: PO, status: PoStatus) {
   )
   await refreshPos()
 }
+async function delPo(po: PO) {
+  if (!confirm(`Delete PO ${po.poNumber}?`)) return
+  if (
+    await call(
+      () => $fetch(`/api/procurement/purchase-orders/${po.id}`, { method: 'DELETE' }),
+      'PO deleted'
+    )
+  )
+    await refreshPos()
+}
 const receiptOpen = ref(false)
 const receiptPo = ref<PO | null>(null)
 const receiptForm = reactive({
@@ -203,8 +221,18 @@ async function saveReceipt() {
 }
 
 // Vendors
+type Vendor = {
+  id: string
+  name: string
+  category: string | null
+  contactName: string | null
+  contactEmail: string | null
+  status: string
+  complianceDocUrl: string | null
+}
 const venOpen = ref(false)
 const venForm = reactive({
+  id: null as string | null,
   name: '',
   category: '',
   contactName: '',
@@ -214,28 +242,65 @@ const venForm = reactive({
   complianceDocUrl: '',
   notes: '',
 })
-async function createVendor() {
+function openVendor(v?: Vendor) {
+  venForm.id = v?.id ?? null
+  venForm.name = v?.name ?? ''
+  venForm.category = v?.category ?? ''
+  venForm.contactName = v?.contactName ?? ''
+  venForm.contactEmail = v?.contactEmail ?? ''
+  venForm.phone = ''
+  venForm.taxId = ''
+  venForm.complianceDocUrl = v?.complianceDocUrl ?? ''
+  venForm.notes = ''
+  venOpen.value = true
+}
+async function saveVendor() {
   if (!venForm.name.trim()) return
-  if (
-    await call(
-      () => $fetch('/api/procurement/vendors', { method: 'POST', body: { ...venForm } }),
-      'Vendor added'
-    )
-  ) {
+  const body = {
+    name: venForm.name,
+    category: venForm.category || null,
+    contactName: venForm.contactName || null,
+    contactEmail: venForm.contactEmail || null,
+    phone: venForm.phone || null,
+    taxId: venForm.taxId || null,
+    complianceDocUrl: venForm.complianceDocUrl || null,
+    notes: venForm.notes || null,
+  }
+  const ok = await call(
+    () =>
+      venForm.id
+        ? $fetch(`/api/procurement/vendors/${venForm.id}`, { method: 'PATCH', body })
+        : $fetch('/api/procurement/vendors', { method: 'POST', body }),
+    venForm.id ? 'Vendor updated' : 'Vendor added'
+  )
+  if (ok) {
     venOpen.value = false
-    Object.assign(venForm, {
-      name: '',
-      category: '',
-      contactName: '',
-      contactEmail: '',
-      phone: '',
-      taxId: '',
-      complianceDocUrl: '',
-      notes: '',
-    })
     await refreshVendors()
   }
 }
+async function delVendor(v: Vendor) {
+  if (!confirm(`Delete vendor "${v.name}"?`)) return
+  if (
+    await call(
+      () => $fetch(`/api/procurement/vendors/${v.id}`, { method: 'DELETE' }),
+      'Vendor deleted'
+    )
+  )
+    await refreshVendors()
+}
+// Vendor pagination (register can grow large).
+const venPage = ref(1)
+const venPageSize = 8
+const pagedVendors = computed(() =>
+  (vendorData.value?.items ?? []).slice(
+    (venPage.value - 1) * venPageSize,
+    venPage.value * venPageSize
+  )
+)
+watch(
+  () => vendorData.value?.items,
+  () => (venPage.value = 1)
+)
 
 // RFQs
 interface Rfq {
@@ -252,31 +317,50 @@ const { data: rfqData, refresh: refreshRfqs } = await useFetch<{ items: Rfq[] }>
   { key: 'proc-rfqs', default: () => ({ items: [] }) }
 )
 const rfqOpen = ref(false)
-const rfqForm = reactive({ title: '', description: '', dueDate: '', invited: '' })
-async function createRfq() {
+const rfqForm = reactive({
+  id: null as string | null,
+  title: '',
+  description: '',
+  dueDate: '',
+  invited: '',
+})
+function openRfq(r?: Rfq) {
+  rfqForm.id = r?.id ?? null
+  rfqForm.title = r?.title ?? ''
+  rfqForm.description = ''
+  rfqForm.dueDate = r?.dueDate ?? ''
+  rfqForm.invited = r?.invitedVendors.join(', ') ?? ''
+  rfqOpen.value = true
+}
+async function saveRfq() {
   if (!rfqForm.title.trim()) return
-  if (
-    await call(
-      () =>
-        $fetch('/api/procurement/rfqs', {
-          method: 'POST',
-          body: {
-            title: rfqForm.title,
-            description: rfqForm.description || null,
-            dueDate: rfqForm.dueDate || null,
-            invitedVendors: rfqForm.invited
-              .split(',')
-              .map((s) => s.trim())
-              .filter(Boolean),
-          },
-        }),
-      'RFQ issued'
-    )
-  ) {
+  const body = {
+    title: rfqForm.title,
+    description: rfqForm.description || null,
+    dueDate: rfqForm.dueDate || null,
+    invitedVendors: rfqForm.invited
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  }
+  const ok = await call(
+    () =>
+      rfqForm.id
+        ? $fetch(`/api/procurement/rfqs/${rfqForm.id}`, { method: 'PATCH', body })
+        : $fetch('/api/procurement/rfqs', { method: 'POST', body }),
+    rfqForm.id ? 'RFQ updated' : 'RFQ issued'
+  )
+  if (ok) {
     rfqOpen.value = false
-    Object.assign(rfqForm, { title: '', description: '', dueDate: '', invited: '' })
     await refreshRfqs()
   }
+}
+async function delRfq(r: Rfq) {
+  if (!confirm(`Delete RFQ "${r.title}"?`)) return
+  if (
+    await call(() => $fetch(`/api/procurement/rfqs/${r.id}`, { method: 'DELETE' }), 'RFQ deleted')
+  )
+    await refreshRfqs()
 }
 async function awardRfq(r: Rfq, vendor: string) {
   await call(
@@ -307,6 +391,7 @@ const { data: conData, refresh: refreshCon } = await useFetch<{ items: Contract[
 )
 const conOpen = ref(false)
 const conForm = reactive({
+  id: null as string | null,
   title: '',
   vendorId: NONE,
   vendorName: '',
@@ -316,42 +401,55 @@ const conForm = reactive({
   endDate: '',
   documentUrl: '',
 })
-async function createContract() {
+function openContract(c?: Contract) {
+  conForm.id = c?.id ?? null
+  conForm.title = c?.title ?? ''
+  conForm.vendorId = vendorData.value?.items.find((v) => v.name === c?.vendorName)?.id ?? NONE
+  conForm.vendorName = c?.vendorName ?? ''
+  conForm.value = c?.value != null ? Number(c.value) : null
+  conForm.currency = c?.currency ?? 'USD'
+  conForm.startDate = c?.startDate ?? ''
+  conForm.endDate = c?.endDate ?? ''
+  conForm.documentUrl = ''
+  conOpen.value = true
+}
+async function saveContract() {
   if (!conForm.title.trim()) return
   const vName =
     conForm.vendorId === NONE
       ? conForm.vendorName
       : vendorData.value?.items.find((v) => v.id === conForm.vendorId)?.name
-  if (
-    await call(
-      () =>
-        $fetch('/api/procurement/contracts', {
-          method: 'POST',
-          body: {
-            title: conForm.title,
-            vendorId: conForm.vendorId === NONE ? null : conForm.vendorId,
-            vendorName: vName || null,
-            value: conForm.value,
-            currency: conForm.currency || 'USD',
-            startDate: conForm.startDate || null,
-            endDate: conForm.endDate || null,
-            documentUrl: conForm.documentUrl || null,
-          },
-        }),
-      'Contract added'
-    )
-  ) {
+  const body = {
+    title: conForm.title,
+    vendorId: conForm.vendorId === NONE ? null : conForm.vendorId,
+    vendorName: vName || null,
+    value: conForm.value,
+    currency: conForm.currency || 'USD',
+    startDate: conForm.startDate || null,
+    endDate: conForm.endDate || null,
+    documentUrl: conForm.documentUrl || null,
+  }
+  const ok = await call(
+    () =>
+      conForm.id
+        ? $fetch(`/api/procurement/contracts/${conForm.id}`, { method: 'PATCH', body })
+        : $fetch('/api/procurement/contracts', { method: 'POST', body }),
+    conForm.id ? 'Contract updated' : 'Contract added'
+  )
+  if (ok) {
     conOpen.value = false
-    Object.assign(conForm, {
-      title: '',
-      vendorName: '',
-      value: null,
-      startDate: '',
-      endDate: '',
-      documentUrl: '',
-    })
     await refreshCon()
   }
+}
+async function delContract(c: Contract) {
+  if (!confirm(`Delete contract "${c.title}"?`)) return
+  if (
+    await call(
+      () => $fetch(`/api/procurement/contracts/${c.id}`, { method: 'DELETE' }),
+      'Contract deleted'
+    )
+  )
+    await refreshCon()
 }
 async function setContractStatus(c: Contract, status: ContractStatus) {
   await call(
@@ -360,6 +458,27 @@ async function setContractStatus(c: Contract, status: ContractStatus) {
   )
   await refreshCon()
 }
+
+// ── Dashboard analytics (client-computed from the loaded data) ──
+const PO_LIVE = new Set(['approved', 'committed', 'received', 'closed'])
+const spendByCategory = computed(() => {
+  const m: Record<string, number> = {}
+  for (const p of poData.value?.items ?? [])
+    if (PO_LIVE.has(p.status))
+      m[p.budgetCategory || 'Uncategorised'] =
+        (m[p.budgetCategory || 'Uncategorised'] ?? 0) + Number(p.amount)
+  return Object.entries(m)
+    .map(([category, value]) => ({ category, value }))
+    .sort((a, b) => b.value - a.value)
+})
+const maxCatSpend = computed(() => Math.max(1, ...spendByCategory.value.map((c) => c.value)))
+const recentPos = computed(() => (poData.value?.items ?? []).slice(0, 6))
+const expiringContracts = computed(() => {
+  const soon = new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10)
+  return (conData.value?.items ?? [])
+    .filter((c) => c.status === 'active' && c.endDate && c.endDate <= soon)
+    .sort((a, b) => (a.endDate ?? '').localeCompare(b.endDate ?? ''))
+})
 </script>
 
 <template>
@@ -415,6 +534,85 @@ async function setContractStatus(c: Contract, status: ContractStatus) {
           <p class="mt-1 text-xl font-semibold text-default">{{ s.count }}</p>
           <p class="text-xs text-muted">{{ money(s.value) }}</p>
         </div>
+      </div>
+
+      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <!-- Spend by budget category (PR-05 commitment accounting) -->
+        <UCard>
+          <template #header>
+            <h3 class="text-sm font-semibold text-default">Committed spend by category</h3>
+          </template>
+          <div v-if="spendByCategory.length" class="space-y-2.5">
+            <div v-for="c in spendByCategory" :key="c.category" class="text-sm">
+              <div class="flex justify-between">
+                <span class="text-default">{{ c.category }}</span>
+                <span class="font-medium text-default">{{ money(c.value) }}</span>
+              </div>
+              <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-elevated">
+                <div
+                  class="h-full rounded-full bg-primary"
+                  :style="{ width: `${(c.value / maxCatSpend) * 100}%` }"
+                />
+              </div>
+            </div>
+          </div>
+          <p v-else class="py-6 text-center text-sm text-muted">No committed POs yet.</p>
+        </UCard>
+
+        <!-- Contracts expiring within 90 days -->
+        <UCard>
+          <template #header>
+            <h3 class="text-sm font-semibold text-default">Contracts expiring soon</h3>
+          </template>
+          <ul v-if="expiringContracts.length" class="divide-y divide-default">
+            <li
+              v-for="c in expiringContracts"
+              :key="c.id"
+              class="flex items-center justify-between gap-2 py-2 text-sm"
+            >
+              <div class="min-w-0">
+                <p class="truncate text-default">{{ c.title }}</p>
+                <p class="text-xs text-muted">{{ c.vendorName || '—' }}</p>
+              </div>
+              <span class="shrink-0 text-xs text-warning">expires {{ fdate(c.endDate) }}</span>
+            </li>
+          </ul>
+          <p v-else class="py-6 text-center text-sm text-muted">
+            No contracts expiring in the next 90 days.
+          </p>
+        </UCard>
+
+        <!-- Recent purchase orders -->
+        <UCard class="lg:col-span-2">
+          <template #header>
+            <h3 class="text-sm font-semibold text-default">Recent purchase orders</h3>
+          </template>
+          <ul v-if="recentPos.length" class="divide-y divide-default">
+            <li
+              v-for="p in recentPos"
+              :key="p.id"
+              class="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"
+            >
+              <div class="min-w-0">
+                <p class="truncate font-medium text-default">{{ p.poNumber }} · {{ p.title }}</p>
+                <p class="text-xs text-muted">
+                  {{ p.vendorName || 'No vendor' }}
+                  <span v-if="p.projectName"> · {{ p.projectName }}</span>
+                </p>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-default">{{ money(p.amount, p.currency) }}</span>
+                <UBadge
+                  :color="PO_STATUS_COLOR[p.status]"
+                  variant="subtle"
+                  size="xs"
+                  :label="PO_STATUS_LABEL[p.status]"
+                />
+              </div>
+            </li>
+          </ul>
+          <p v-else class="py-6 text-center text-sm text-muted">No purchase orders yet.</p>
+        </UCard>
       </div>
     </div>
 
@@ -489,6 +687,15 @@ async function setContractStatus(c: Contract, status: ContractStatus) {
                     label="Close"
                     @click="setPoStatus(po, 'closed')"
                   />
+                  <UButton
+                    v-if="po.status === 'draft'"
+                    size="xs"
+                    variant="ghost"
+                    color="error"
+                    icon="i-lucide-trash-2"
+                    aria-label="Delete"
+                    @click="delPo(po)"
+                  />
                 </div>
               </td>
             </tr>
@@ -505,10 +712,10 @@ async function setContractStatus(c: Contract, status: ContractStatus) {
     <!-- VENDORS -->
     <div v-show="tab === 'vendors'" class="space-y-3">
       <div v-if="canManage" class="flex justify-end">
-        <UButton size="sm" icon="i-lucide-plus" label="Add vendor" @click="venOpen = true" />
+        <UButton size="sm" icon="i-lucide-plus" label="Add vendor" @click="openVendor()" />
       </div>
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <UCard v-for="v in vendorData?.items ?? []" :key="v.id">
+        <UCard v-for="v in pagedVendors" :key="v.id">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
               <p class="truncate font-medium text-default">{{ v.name }}</p>
@@ -532,17 +739,43 @@ async function setContractStatus(c: Contract, status: ContractStatus) {
           >
             <UIcon name="i-lucide-file-check" class="size-3" /> Compliance doc
           </a>
+          <div v-if="canManage" class="mt-3 flex justify-end gap-1 border-t border-default pt-2">
+            <UButton
+              size="xs"
+              variant="ghost"
+              color="neutral"
+              icon="i-lucide-pencil"
+              label="Edit"
+              @click="openVendor(v)"
+            />
+            <UButton
+              size="xs"
+              variant="ghost"
+              color="error"
+              icon="i-lucide-trash-2"
+              aria-label="Delete"
+              @click="delVendor(v)"
+            />
+          </div>
         </UCard>
         <p v-if="!(vendorData?.items ?? []).length" class="text-sm text-muted">
           No vendors registered.
         </p>
+      </div>
+      <div v-if="(vendorData?.items?.length ?? 0) > venPageSize" class="flex justify-center pt-1">
+        <UPagination
+          v-model:page="venPage"
+          :total="vendorData!.items.length"
+          :items-per-page="venPageSize"
+          :sibling-count="1"
+        />
       </div>
     </div>
 
     <!-- RFQs -->
     <div v-show="tab === 'rfqs'" class="space-y-3">
       <div v-if="canManage" class="flex justify-end">
-        <UButton size="sm" icon="i-lucide-plus" label="New RFQ" @click="rfqOpen = true" />
+        <UButton size="sm" icon="i-lucide-plus" label="New RFQ" @click="openRfq()" />
       </div>
       <div class="space-y-3">
         <UCard v-for="r in rfqData?.items ?? []" :key="r.id">
@@ -553,12 +786,32 @@ async function setContractStatus(c: Contract, status: ContractStatus) {
                 Due {{ fdate(r.dueDate) }} · {{ r.invitedVendors.length }} vendors invited
               </p>
             </div>
-            <UBadge
-              :color="RFQ_STATUS_COLOR[r.status]"
-              variant="subtle"
-              size="xs"
-              :label="r.status"
-            />
+            <div class="flex items-center gap-1">
+              <UBadge
+                :color="RFQ_STATUS_COLOR[r.status]"
+                variant="subtle"
+                size="xs"
+                :label="r.status"
+              />
+              <template v-if="canManage">
+                <UButton
+                  size="xs"
+                  variant="ghost"
+                  color="neutral"
+                  icon="i-lucide-pencil"
+                  aria-label="Edit"
+                  @click="openRfq(r)"
+                />
+                <UButton
+                  size="xs"
+                  variant="ghost"
+                  color="error"
+                  icon="i-lucide-trash-2"
+                  aria-label="Delete"
+                  @click="delRfq(r)"
+                />
+              </template>
+            </div>
           </div>
           <div v-if="r.invitedVendors.length" class="mt-2 flex flex-wrap gap-1">
             <UBadge
@@ -623,14 +876,32 @@ async function setContractStatus(c: Contract, status: ContractStatus) {
                 />
               </td>
               <td v-if="canManage" class="px-4 py-2.5 text-right">
-                <UButton
-                  v-if="c.status !== 'terminated'"
-                  size="xs"
-                  variant="ghost"
-                  color="error"
-                  label="Terminate"
-                  @click="setContractStatus(c, 'terminated')"
-                />
+                <div class="flex items-center justify-end gap-1">
+                  <UButton
+                    size="xs"
+                    variant="ghost"
+                    color="neutral"
+                    icon="i-lucide-pencil"
+                    aria-label="Edit"
+                    @click="openContract(c)"
+                  />
+                  <UButton
+                    v-if="c.status !== 'terminated'"
+                    size="xs"
+                    variant="ghost"
+                    color="warning"
+                    label="Terminate"
+                    @click="setContractStatus(c, 'terminated')"
+                  />
+                  <UButton
+                    size="xs"
+                    variant="ghost"
+                    color="error"
+                    icon="i-lucide-trash-2"
+                    aria-label="Delete"
+                    @click="delContract(c)"
+                  />
+                </div>
               </td>
             </tr>
             <tr v-if="!(conData?.items ?? []).length">
@@ -673,9 +944,16 @@ async function setContractStatus(c: Contract, status: ContractStatus) {
             /></UFormField>
           </div>
           <div class="grid grid-cols-2 gap-3">
-            <UFormField label="Budget category"
-              ><UInput v-model="poForm.budgetCategory" placeholder="Optional" class="w-full"
-            /></UFormField>
+            <UFormField label="Budget category" hint="Rolls up on the project's budget">
+              <USelectMenu
+                v-model="poForm.budgetCategory"
+                :items="budgetCategoryItems"
+                create-item
+                placeholder="Match a budget line"
+                class="w-full"
+                @create="(v: string) => (poForm.budgetCategory = v)"
+              />
+            </UFormField>
             <UFormField label="Expected date"
               ><UInput v-model="poForm.expectedDate" type="date" class="w-full"
             /></UFormField>
@@ -742,7 +1020,7 @@ async function setContractStatus(c: Contract, status: ContractStatus) {
     </UModal>
 
     <!-- Vendor modal -->
-    <UModal v-model:open="venOpen" title="Add vendor">
+    <UModal v-model:open="venOpen" :title="venForm.id ? 'Edit vendor' : 'Add vendor'">
       <template #body>
         <div class="space-y-3">
           <UFormField label="Name"><UInput v-model="venForm.name" class="w-full" /></UFormField>
@@ -770,13 +1048,13 @@ async function setContractStatus(c: Contract, status: ContractStatus) {
       <template #footer>
         <div class="flex w-full justify-end gap-2">
           <UButton variant="ghost" color="neutral" label="Cancel" @click="venOpen = false" />
-          <UButton label="Add" :loading="busy" @click="createVendor" />
+          <UButton :label="venForm.id ? 'Save' : 'Add'" :loading="busy" @click="saveVendor" />
         </div>
       </template>
     </UModal>
 
     <!-- RFQ modal -->
-    <UModal v-model:open="rfqOpen" title="New RFQ">
+    <UModal v-model:open="rfqOpen" :title="rfqForm.id ? 'Edit RFQ' : 'New RFQ'">
       <template #body>
         <div class="space-y-3">
           <UFormField label="Title"><UInput v-model="rfqForm.title" class="w-full" /></UFormField>
@@ -794,13 +1072,13 @@ async function setContractStatus(c: Contract, status: ContractStatus) {
       <template #footer>
         <div class="flex w-full justify-end gap-2">
           <UButton variant="ghost" color="neutral" label="Cancel" @click="rfqOpen = false" />
-          <UButton label="Issue" :loading="busy" @click="createRfq" />
+          <UButton :label="rfqForm.id ? 'Save' : 'Issue'" :loading="busy" @click="saveRfq" />
         </div>
       </template>
     </UModal>
 
     <!-- Contract modal -->
-    <UModal v-model:open="conOpen" title="Add contract">
+    <UModal v-model:open="conOpen" :title="conForm.id ? 'Edit contract' : 'Add contract'">
       <template #body>
         <div class="space-y-3">
           <UFormField label="Title"><UInput v-model="conForm.title" class="w-full" /></UFormField>
@@ -835,7 +1113,7 @@ async function setContractStatus(c: Contract, status: ContractStatus) {
       <template #footer>
         <div class="flex w-full justify-end gap-2">
           <UButton variant="ghost" color="neutral" label="Cancel" @click="conOpen = false" />
-          <UButton label="Add" :loading="busy" @click="createContract" />
+          <UButton :label="conForm.id ? 'Save' : 'Add'" :loading="busy" @click="saveContract" />
         </div>
       </template>
     </UModal>

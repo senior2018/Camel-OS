@@ -106,7 +106,7 @@ function csv() {
     >
       No employees with a personnel file.
     </p>
-    <div v-else class="overflow-x-auto rounded-xl border border-default">
+    <div v-else class="overflow-x-auto rounded-xl border border-default bg-default shadow-sm">
       <table class="w-full text-sm">
         <thead class="bg-elevated/40 text-left text-xs uppercase tracking-wide text-muted">
           <tr>

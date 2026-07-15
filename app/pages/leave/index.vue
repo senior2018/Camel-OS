@@ -126,9 +126,9 @@ function fdate(s: string) {
       <UIcon name="i-lucide-palmtree" class="size-10 text-muted" />
       <p class="mt-2 text-sm text-muted">No leave requests yet.</p>
     </div>
-    <div v-else class="overflow-hidden rounded-xl border border-default">
+    <div v-else class="overflow-hidden rounded-xl border border-default bg-default shadow-sm">
       <table class="w-full text-sm">
-        <thead class="bg-elevated/40 text-left text-xs uppercase tracking-wide text-muted">
+        <thead class="bg-elevated/60 text-left text-xs uppercase tracking-wide text-muted">
           <tr>
             <th class="px-4 py-2 font-medium">Type</th>
             <th class="px-4 py-2 font-medium">Dates</th>

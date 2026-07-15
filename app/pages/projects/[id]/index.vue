@@ -159,6 +159,14 @@ interface Detail {
   budgetLines: BudgetLine[]
   expenses: Expense[]
   vendors: Vendor[]
+  procurementPos: {
+    id: string
+    poNumber: string
+    title: string
+    budgetCategory: string | null
+    amount: string
+    status: string
+  }[]
   expenseRequests: ExpenseRequest[]
   reports: ReportRow[]
   timesheetByUser: { userId: string; name: string; hours: number }[]
@@ -542,6 +550,11 @@ const committedByLine = computed(() => {
   for (const v of data.value?.vendors ?? [])
     if (v.contractAmount != null)
       m[v.budgetCategory ?? ''] = (m[v.budgetCategory ?? ''] ?? 0) + Number(v.contractAmount)
+  // Procurement POs (past draft) commit against their budget category too.
+  const poCommitted = new Set(['approved', 'committed', 'received', 'closed'])
+  for (const p of data.value?.procurementPos ?? [])
+    if (poCommitted.has(p.status))
+      m[p.budgetCategory ?? ''] = (m[p.budgetCategory ?? ''] ?? 0) + Number(p.amount)
   return m
 })
 const lineRemaining = (l: {
@@ -1490,7 +1503,7 @@ function openActivity(a: Activity) {
         <template #header>
           <div class="flex flex-wrap items-center justify-between gap-2">
             <h3 class="text-sm font-semibold text-default">
-              Expenses · {{ money(budgetTotals.actual) }}
+              Expense requests &amp; returns · {{ money(budgetTotals.actual) }}
             </h3>
             <div v-if="!closed" class="flex gap-2">
               <UButton

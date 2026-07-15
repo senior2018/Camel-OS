@@ -28,12 +28,14 @@ interface Expert {
   sectors: string[]
 }
 
-const f = reactive({ q: '', skill: '', language: '', availability: '', maxRate: '', sector: '' })
+// Nuxt UI USelect can't take an empty-string value, so "any" uses a sentinel.
+const ANY = '__any__'
+const f = reactive({ q: '', skill: '', language: '', availability: ANY, maxRate: '', sector: '' })
 const query = computed(() => ({
   q: f.q || undefined,
   skill: f.skill || undefined,
   language: f.language || undefined,
-  availability: f.availability || undefined,
+  availability: f.availability && f.availability !== ANY ? f.availability : undefined,
   maxRate: f.maxRate || undefined,
   sector: f.sector || undefined,
 }))
@@ -46,12 +48,24 @@ const { data, status } = await useFetch<{
   default: () => ({ items: [], facets: { skills: [], sectors: [] } }),
 })
 const availItems = [
-  { label: 'Any availability', value: '' },
+  { label: 'Any availability', value: ANY },
   ...EXPERT_AVAILABILITIES.map((a) => ({
     label: EXPERT_AVAILABILITY_LABEL[a],
     value: a as string,
   })),
 ]
+// Client-side pagination for the results grid.
+const page = ref(1)
+const pageSize = 12
+const paged = computed(() =>
+  (data.value?.items ?? []).slice((page.value - 1) * pageSize, page.value * pageSize)
+)
+watch(
+  () => data.value?.items,
+  () => {
+    page.value = 1
+  }
+)
 const name = (e: Expert) => [e.firstName, e.lastName].filter(Boolean).join(' ') || 'Expert'
 function rate(e: Expert) {
   return e.dailyRate
@@ -63,7 +77,7 @@ function rate(e: Expert) {
     : null
 }
 function reset() {
-  Object.assign(f, { q: '', skill: '', language: '', availability: '', maxRate: '', sector: '' })
+  Object.assign(f, { q: '', skill: '', language: '', availability: ANY, maxRate: '', sector: '' })
 }
 </script>
 
@@ -133,7 +147,7 @@ function reset() {
     </div>
     <div v-else class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
       <button
-        v-for="e in data.items"
+        v-for="e in paged"
         :key="e.userId"
         type="button"
         class="rounded-xl border border-default bg-default p-4 text-left transition-colors hover:border-primary/50 hover:bg-elevated/30"
@@ -172,6 +186,15 @@ function reset() {
           </span>
         </div>
       </button>
+    </div>
+
+    <div v-if="(data.items?.length ?? 0) > pageSize" class="flex justify-center">
+      <UPagination
+        v-model:page="page"
+        :total="data.items.length"
+        :items-per-page="pageSize"
+        :sibling-count="1"
+      />
     </div>
   </div>
 </template>

@@ -42,7 +42,7 @@ interface OpportunitiesResponse {
 }
 
 /**
- * Owns the opportunities list state and every mutation. Toast feedback is wired
+ * Owns th opportunities list state and every mutation. Toast feedback is wired
  * here so pages stay focused on layout. Real authorization is server-side via
  * `requirePermission()`; the UI uses `can('opportunity', ...)` for visibility.
  */

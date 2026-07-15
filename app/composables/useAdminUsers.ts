@@ -33,7 +33,7 @@ interface AdminUsersResponse {
 /**
  * Owns all admin-side user management: the list fetch, invite, deactivate,
  * reactivate, and invitation revoke/resend actions. Toast feedback and refresh
- * are wired in here so the page component stays focused on layout.
+ * are wired in here so page component stays focused on layout.
  */
 export function useAdminUsers() {
   const toast = useToast()

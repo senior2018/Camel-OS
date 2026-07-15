@@ -216,7 +216,7 @@ function fdate(s: string) {
       >
         No leave scheduled this month.
       </p>
-      <div v-else class="overflow-hidden rounded-xl border border-default">
+      <div v-else class="overflow-hidden rounded-xl border border-default bg-default shadow-sm">
         <div
           v-for="row in calendarRows"
           :key="row.userId"

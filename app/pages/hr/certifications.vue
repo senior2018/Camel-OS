@@ -153,7 +153,7 @@ function fdate(s: string | null) {
       <UIcon name="i-lucide-award" class="size-10 text-muted" />
       <p class="mt-2 text-sm text-muted">Nothing to show.</p>
     </div>
-    <div v-else class="overflow-hidden rounded-xl border border-default">
+    <div v-else class="overflow-hidden rounded-xl border border-default bg-default shadow-sm">
       <table class="w-full text-sm">
         <thead class="bg-elevated/40 text-left text-xs uppercase tracking-wide text-muted">
           <tr>

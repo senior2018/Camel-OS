@@ -4,9 +4,11 @@ import { z } from 'zod'
 
 export type BadgeColor = 'neutral' | 'info' | 'warning' | 'success' | 'primary' | 'error'
 
+// Legacy fixed levels — kept only as the fallback vocabulary. Actual levels are
+// org-configurable (see DEFAULT_MEL_LEVELS in shared/schemas/project-settings).
 export const MEL_LEVELS = ['goal', 'outcome', 'output', 'indicator'] as const
 export type MelLevel = (typeof MEL_LEVELS)[number]
-export const MEL_LEVEL_LABEL: Record<MelLevel, string> = {
+export const MEL_LEVEL_LABEL: Record<string, string> = {
   goal: 'Goal',
   outcome: 'Outcome',
   output: 'Output',
@@ -34,9 +36,10 @@ export const EVALUATION_STATUS_COLOR: Record<EvaluationStatus, BadgeColor> = {
   closed: 'info',
 }
 
-// ME-01
+// ME-01 — level is a configurable label (validated as free text; the UI offers
+// the org's configured results-framework levels).
 export const indicatorSchema = z.object({
-  level: z.enum(MEL_LEVELS).default('indicator'),
+  level: z.string().trim().min(1).max(60).default('Indicator'),
   parentId: z.string().uuid().nullish(),
   name: z.string().trim().min(1).max(300),
   baseline: z.number().nullish(),

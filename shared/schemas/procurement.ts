@@ -85,6 +85,10 @@ export const createRfqSchema = z.object({
   invitedVendors: z.array(z.string().trim().min(1).max(200)).max(30).default([]),
 })
 export const updateRfqSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  description: z.string().trim().max(2000).nullish(),
+  dueDate: z.string().trim().nullish(),
+  invitedVendors: z.array(z.string().trim().min(1).max(200)).max(30).optional(),
   status: z.enum(RFQ_STATUSES).optional(),
   responses: z
     .array(
@@ -119,4 +123,6 @@ export const createContractSchema = z.object({
   documentUrl: z.string().trim().url().max(2000).nullish().or(z.literal('')),
   note: z.string().trim().max(1000).nullish(),
 })
-export const updateContractSchema = z.object({ status: z.enum(CONTRACT_STATUSES) })
+export const updateContractSchema = createContractSchema
+  .partial()
+  .extend({ status: z.enum(CONTRACT_STATUSES).optional() })

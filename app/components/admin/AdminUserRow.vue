@@ -35,7 +35,7 @@ const badge = computed<{ color: 'success' | 'warning' | 'neutral' | 'error'; lab
   }
 )
 
-// S5b — hide the "System Administrator" role pill on the super admin row;
+// S5b hide the "System Administrator" role pill on the super admin row;
 // the single "Super Administrator" badge next to the name replaces both.
 const displayRoles = computed(() =>
   props.user.isSuperAdmin

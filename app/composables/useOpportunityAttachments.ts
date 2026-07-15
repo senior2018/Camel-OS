@@ -17,7 +17,7 @@ interface AttachmentsResponse {
 /**
  * Owns the attachments list for a single opportunity. Tracks `uploading` state
  * so the UI can disable the upload button mid-flight, and wraps download in a
- * sign-URL fetch then a programmatic anchor click (Supabase signed URLs are
+ * sign-URL fetch then programmatic anchor click (Supabase signed URLs are
  * one-shot per click).
  *
  * Uses `$fetch` + a watcher rather than `useFetch` so we can re-fetch cleanly

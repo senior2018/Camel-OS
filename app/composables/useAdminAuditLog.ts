@@ -21,7 +21,7 @@ interface AuditLogResponse {
 }
 
 /**
- * Loads a filtered, paginated slice of the audit log and exposes a `downloadCsv`
+ * Loads a filtered, paginated slice of  audit log and exposes a `downloadCsv`
  * helper that re-uses the same filters server-side.
  */
 export function useAdminAuditLog(filters: Ref<Partial<AuditLogFilters>>) {

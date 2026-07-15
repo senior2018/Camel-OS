@@ -3,6 +3,7 @@ import { consola } from 'consola'
 import { orgBudgets } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
+import { pgErrorCode } from '@@/server/utils/db-error'
 import { createBudgetSchema } from '@@/shared/schemas/finance'
 
 /** FN-01 — create an annual organisational budget. */
@@ -23,10 +24,10 @@ export default defineEventHandler(async (event) => {
     return { success: true, budget: created }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
-    if ((error as { code?: string })?.code === '23505') {
+    if (pgErrorCode(error) === '23505') {
       throw createError({
         statusCode: 409,
-        statusMessage: 'A budget for that fiscal year already exists.',
+        statusMessage: 'A budget for that fiscal year already exists — edit the existing one.',
       })
     }
     consola.error('Error creating budget', error)

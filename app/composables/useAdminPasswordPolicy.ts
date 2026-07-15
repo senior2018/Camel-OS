@@ -1,7 +1,7 @@
 import type { PasswordPolicy } from '@@/shared/schemas/password-policy'
 
 /**
- * Loads + persists the org's password policy. The PUT endpoint validates the
+ * Loads and persists the org's password policy. The PUT endpoint validates the
  * payload server-side; the UI binds directly to the returned policy object.
  */
 export function useAdminPasswordPolicy() {

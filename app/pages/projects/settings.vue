@@ -41,6 +41,7 @@ watchEffect(() => {
     form.teamRoles = [...s.teamRoles]
     form.activityStatuses = s.activityStatuses.map((x) => ({ ...x }))
     form.lifecycleLabels = { ...s.lifecycleLabels }
+    form.melLevels = [...s.melLevels]
     form.requireBudgetRevisionApproval = s.requireBudgetRevisionApproval
   }
 })
@@ -83,6 +84,12 @@ const lists = [
     help: 'Roles offered when adding a member to a project team.',
     placeholder: 'e.g. Field Officer',
   },
+  {
+    key: 'melLevels' as const,
+    title: 'Results-framework levels',
+    help: 'M&E hierarchy, top to bottom (e.g. Goal → Outcome → Output → Indicator). Add in order.',
+    placeholder: 'e.g. Impact',
+  },
 ]
 
 const drafts = reactive<Record<string, string>>({
@@ -90,6 +97,7 @@ const drafts = reactive<Record<string, string>>({
   closeChecklist: '',
   budgetCategories: '',
   teamRoles: '',
+  melLevels: '',
 })
 function addItem(key: keyof ProjectSettings) {
   const v = drafts[key]?.trim()
@@ -115,6 +123,7 @@ async function save() {
         teamRoles: form.teamRoles,
         activityStatuses: form.activityStatuses,
         lifecycleLabels: form.lifecycleLabels,
+        melLevels: form.melLevels,
         requireBudgetRevisionApproval: form.requireBudgetRevisionApproval,
       } satisfies UpdateProjectSettingsPayload,
     })

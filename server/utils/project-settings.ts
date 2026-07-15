@@ -85,6 +85,7 @@ export async function resolveOrgProjectSettings(organizationId: string): Promise
       ? row.activityStatuses
       : DEFAULT_PROJECT_SETTINGS.activityStatuses,
     lifecycleLabels: row.lifecycleLabels ?? DEFAULT_PROJECT_SETTINGS.lifecycleLabels,
+    melLevels: row.melLevels?.length ? row.melLevels : DEFAULT_PROJECT_SETTINGS.melLevels,
     requireBudgetRevisionApproval: row.requireBudgetRevisionApproval,
   }
 }

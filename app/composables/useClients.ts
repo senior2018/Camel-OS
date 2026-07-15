@@ -61,7 +61,7 @@ export function clientHealth(lastInteractionAt: string | null): ClientHealth {
 }
 
 /**
- * Owns the clients list state and every mutation. Toast feedback lives here so
+ * Owns th clients list state and every mutation. Toast feedback lives here so
  * pages stay focused on layout. Duplicate detection on create returns the
  * existing matches so the modal can offer "open existing".
  */

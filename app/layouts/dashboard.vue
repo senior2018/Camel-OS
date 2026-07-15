@@ -7,7 +7,7 @@ const { data: perms, can } = await usePermissions()
 // Modules registered here as they ship. Each entry declares its required permission
 // so users only see what they can actually access. `Overview` is unconditional —
 // every authenticated user can see their own dashboard.
-// ── Temporary nav feature flags ──────────────────────────────────────────────
+// ── Temporary nav feature flags ────────────────
 // Hide modules still under internal testing from the sidebar WITHOUT touching
 // their code or routes. Set back to `true` to restore them in the UI.
 // (UI-only: the pages/permissions are untouched and ship as soon as flipped.)

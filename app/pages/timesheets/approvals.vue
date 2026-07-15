@@ -23,7 +23,12 @@ const { data, refresh } = await useFetch<{ items: Group[] }>('/api/hr/timesheets
   default: () => ({ items: [] }),
 })
 
-const expanded = ref<string | null>(null)
+const detailOpen = ref(false)
+const detailGroup = ref<Group | null>(null)
+function openGroup(g: Group) {
+  detailGroup.value = g
+  detailOpen.value = true
+}
 async function decide(g: Group, status: 'approved' | 'rejected') {
   if (!canDecide.value) return
   let note: string | null = null
@@ -37,6 +42,7 @@ async function decide(g: Group, status: 'approved' | 'rejected') {
       title: `Timesheet ${status === 'approved' ? 'approved' : 'returned'}`,
       color: 'success',
     })
+    detailOpen.value = false
     await refresh()
   } catch {
     toast.add({ title: 'Action failed', color: 'error' })
@@ -92,31 +98,22 @@ function fday(s: string) {
     <div
       v-for="g in data.items"
       :key="`${g.userId}-${g.weekStart}`"
-      class="rounded-xl border border-default bg-default"
+      class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-default bg-default p-4 shadow-sm"
     >
-      <div class="flex flex-wrap items-center justify-between gap-3 p-4">
-        <button
-          type="button"
-          class="flex items-center gap-2 text-left"
-          @click="
-            expanded =
-              expanded === `${g.userId}-${g.weekStart}` ? null : `${g.userId}-${g.weekStart}`
-          "
-        >
-          <UIcon
-            :name="
-              expanded === `${g.userId}-${g.weekStart}`
-                ? 'i-lucide-chevron-down'
-                : 'i-lucide-chevron-right'
-            "
-            class="size-4 text-muted"
-          />
-          <div>
-            <p class="font-medium text-default">{{ g.name }}</p>
-            <p class="text-xs text-muted">Week of {{ wlabel(g.weekStart) }} · {{ g.total }} h</p>
-          </div>
-        </button>
-        <div v-if="canDecide" class="flex gap-2">
+      <div class="min-w-0">
+        <p class="font-medium text-default">{{ g.name }}</p>
+        <p class="text-xs text-muted">Week of {{ wlabel(g.weekStart) }} · {{ g.total }} h</p>
+      </div>
+      <div class="flex gap-2">
+        <UButton
+          size="sm"
+          variant="outline"
+          color="neutral"
+          icon="i-lucide-eye"
+          label="View"
+          @click="openGroup(g)"
+        />
+        <template v-if="canDecide">
           <UButton
             size="sm"
             color="error"
@@ -125,25 +122,64 @@ function fday(s: string) {
             @click="decide(g, 'rejected')"
           />
           <UButton size="sm" color="success" label="Approve" @click="decide(g, 'approved')" />
-        </div>
-      </div>
-      <div
-        v-if="expanded === `${g.userId}-${g.weekStart}`"
-        class="border-t border-default px-4 py-2"
-      >
-        <table class="w-full text-sm">
-          <tbody class="divide-y divide-default">
-            <tr v-for="(e, i) in g.entries" :key="i">
-              <td class="py-1.5 pr-3 text-muted">{{ fday(e.entryDate) }}</td>
-              <td class="py-1.5 pr-3 text-default">
-                {{ e.label
-                }}<span v-if="e.note" class="block text-xs text-muted">{{ e.note }}</span>
-              </td>
-              <td class="py-1.5 text-right font-medium text-default">{{ e.hours }} h</td>
-            </tr>
-          </tbody>
-        </table>
+        </template>
       </div>
     </div>
+
+    <!-- Detail modal -->
+    <UModal
+      v-model:open="detailOpen"
+      :title="detailGroup ? `${detailGroup.name} · ${wlabel(detailGroup.weekStart)}` : 'Timesheet'"
+    >
+      <template #body>
+        <div v-if="detailGroup" class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="text-left text-xs uppercase tracking-wide text-muted">
+              <tr>
+                <th class="py-1.5 pr-3 font-medium">Day</th>
+                <th class="py-1.5 pr-3 font-medium">Project / task</th>
+                <th class="py-1.5 text-right font-medium">Hours</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-default">
+              <tr v-for="(e, i) in detailGroup.entries" :key="i">
+                <td class="whitespace-nowrap py-1.5 pr-3 text-muted">{{ fday(e.entryDate) }}</td>
+                <td class="py-1.5 pr-3 text-default">
+                  <p>{{ e.label }}</p>
+                  <p v-if="e.note" class="whitespace-pre-wrap wrap-break-word text-xs text-muted">
+                    {{ e.note }}
+                  </p>
+                </td>
+                <td class="whitespace-nowrap py-1.5 text-right font-medium text-default">
+                  {{ e.hours }} h
+                </td>
+              </tr>
+            </tbody>
+            <tfoot class="border-t border-default">
+              <tr>
+                <td class="py-2 text-xs uppercase text-muted" colspan="2">Total</td>
+                <td class="py-2 text-right font-semibold text-default">
+                  {{ detailGroup.total }} h
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </template>
+      <template #footer>
+        <div v-if="detailGroup" class="flex w-full justify-end gap-2">
+          <UButton variant="ghost" color="neutral" label="Close" @click="detailOpen = false" />
+          <template v-if="canDecide">
+            <UButton
+              color="error"
+              variant="soft"
+              label="Return"
+              @click="decide(detailGroup, 'rejected')"
+            />
+            <UButton color="success" label="Approve" @click="decide(detailGroup, 'approved')" />
+          </template>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>

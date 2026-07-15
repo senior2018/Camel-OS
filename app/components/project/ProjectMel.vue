@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { MEL_LEVEL_LABEL, MEL_LEVELS, type BadgeColor, type MelLevel } from '@@/shared/schemas/mel'
+import type { BadgeColor } from '@@/shared/schemas/mel'
+import {
+  DEFAULT_MEL_LEVELS,
+  DEFAULT_PROJECT_SETTINGS,
+  type ProjectSettings,
+} from '@@/shared/schemas/project-settings'
 
 const props = defineProps<{ projectId: string; canEdit: boolean; portalToken: string | null }>()
 const emit = defineEmits<{ portalChanged: [] }>()
@@ -8,7 +13,7 @@ const toast = useToast()
 interface Indicator {
   id: string
   parentId: string | null
-  level: MelLevel
+  level: string
   name: string
   baseline: string | null
   target: string | null
@@ -29,6 +34,31 @@ const { data, refresh } = await useFetch<{ indicators: Indicator[]; dataPoints: 
   `/api/projects/${props.projectId}/mel`,
   { key: `mel-${props.projectId}` }
 )
+
+// Org-configurable results-framework levels (top → bottom).
+const { data: settingsData } = useFetch<{ settings: ProjectSettings }>('/api/projects/settings', {
+  key: 'project-settings',
+  default: () => ({ settings: { ...DEFAULT_PROJECT_SETTINGS } }),
+})
+const melLevels = computed(() =>
+  settingsData.value?.settings.melLevels?.length
+    ? settingsData.value.settings.melLevels
+    : DEFAULT_MEL_LEVELS
+)
+const levelItems = computed(() => melLevels.value.map((l) => ({ label: l, value: l })))
+// Depth of a level in the configured hierarchy — drives indentation + accent.
+function levelIndex(level: string): number {
+  const i = melLevels.value.findIndex((l) => l.toLowerCase() === level.toLowerCase())
+  return i === -1 ? melLevels.value.length : i
+}
+const LEVEL_COLORS: BadgeColor[] = ['primary', 'info', 'warning', 'success', 'neutral']
+function levelColorOf(level: string): BadgeColor {
+  return LEVEL_COLORS[levelIndex(level) % LEVEL_COLORS.length] ?? 'neutral'
+}
+function levelLabel(level: string): string {
+  // Show the configured label as-is; title-case legacy lowercase values.
+  return level.charAt(0).toUpperCase() + level.slice(1)
+}
 
 const pointsByIndicator = computed(() => {
   const m: Record<string, DataPoint[]> = {}
@@ -67,17 +97,11 @@ function spark(indId: string): string {
     )
     .join(' ')
 }
-const levelColor: Record<MelLevel, BadgeColor> = {
-  goal: 'primary',
-  outcome: 'info',
-  output: 'neutral',
-  indicator: 'success',
-}
-
-// ── Add indicator (ME-01) ──
+// ── Add / edit indicator (ME-01) ──
 const indOpen = ref(false)
 const indForm = reactive({
-  level: 'indicator' as MelLevel,
+  id: null as string | null,
+  level: 'Indicator' as string,
   name: '',
   baseline: null as number | null,
   target: null as number | null,
@@ -85,36 +109,49 @@ const indForm = reactive({
   frequency: '',
   dataSource: '',
 })
-const levelItems = MEL_LEVELS.map((l) => ({ label: MEL_LEVEL_LABEL[l], value: l as string }))
 const freqItems = ['Monthly', 'Quarterly', 'Bi-annual', 'Annual', 'Once'].map((f) => ({
   label: f,
   value: f,
 }))
-async function addIndicator() {
+function openIndicator(ind?: Indicator) {
+  indForm.id = ind?.id ?? null
+  indForm.level = ind?.level ?? melLevels.value[melLevels.value.length - 1] ?? 'Indicator'
+  indForm.name = ind?.name ?? ''
+  indForm.baseline = ind?.baseline != null ? Number(ind.baseline) : null
+  indForm.target = ind?.target != null ? Number(ind.target) : null
+  indForm.unit = ind?.unit ?? ''
+  indForm.frequency = ind?.frequency ?? ''
+  indForm.dataSource = ind?.dataSource ?? ''
+  indOpen.value = true
+}
+const savingInd = ref(false)
+async function saveIndicator() {
   if (!indForm.name.trim()) return
+  savingInd.value = true
+  const body = {
+    level: indForm.level,
+    name: indForm.name.trim(),
+    baseline: indForm.baseline,
+    target: indForm.target,
+    unit: indForm.unit || null,
+    frequency: indForm.frequency || null,
+    dataSource: indForm.dataSource || null,
+  }
   try {
-    await $fetch(`/api/projects/${props.projectId}/mel/indicators`, {
-      method: 'POST',
-      body: {
-        level: indForm.level,
-        name: indForm.name,
-        baseline: indForm.baseline,
-        target: indForm.target,
-        unit: indForm.unit || null,
-        frequency: indForm.frequency || null,
-        dataSource: indForm.dataSource || null,
-      },
-    })
+    if (indForm.id) {
+      await $fetch(`/api/projects/${props.projectId}/mel/indicators/${indForm.id}`, {
+        method: 'PATCH',
+        body,
+      })
+    } else {
+      await $fetch(`/api/projects/${props.projectId}/mel/indicators`, { method: 'POST', body })
+    }
     indOpen.value = false
-    indForm.name = ''
-    indForm.baseline = null
-    indForm.target = null
-    indForm.unit = ''
-    indForm.frequency = ''
-    indForm.dataSource = ''
     await refresh()
   } catch {
-    toast.add({ title: 'Could not add indicator', color: 'error' })
+    toast.add({ title: 'Could not save indicator', color: 'error' })
+  } finally {
+    savingInd.value = false
   }
 }
 async function delIndicator(ind: Indicator) {
@@ -131,10 +168,13 @@ const dataForm = reactive({
   note: '',
   evidenceUrl: '',
 })
+// Any measurable row (one with a target) can carry data — not just a fixed level.
+const measurable = computed(() => (data.value?.indicators ?? []).filter((i) => i.target != null))
 const indicatorItems = computed(() =>
-  (data.value?.indicators ?? [])
-    .filter((i) => i.level === 'indicator')
-    .map((i) => ({ label: i.name, value: i.id }))
+  (measurable.value.length ? measurable.value : (data.value?.indicators ?? [])).map((i) => ({
+    label: i.name,
+    value: i.id,
+  }))
 )
 function openData(indId?: string) {
   dataForm.indicatorId = indId ?? indicatorItems.value[0]?.value ?? ''
@@ -194,9 +234,16 @@ function copyLink() {
 }
 
 function exportCsv() {
-  const rows = [['Indicator', 'Baseline', 'Target', 'Latest', 'Unit']]
-  for (const i of (data.value?.indicators ?? []).filter((x) => x.level === 'indicator')) {
-    rows.push([i.name, i.baseline ?? '', i.target ?? '', String(latest(i.id) ?? ''), i.unit ?? ''])
+  const rows = [['Level', 'Result / Indicator', 'Baseline', 'Target', 'Latest', 'Unit']]
+  for (const i of data.value?.indicators ?? []) {
+    rows.push([
+      levelLabel(i.level),
+      i.name,
+      i.baseline ?? '',
+      i.target ?? '',
+      String(latest(i.id) ?? ''),
+      i.unit ?? '',
+    ])
   }
   const csv = rows
     .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
@@ -227,7 +274,7 @@ function exportCsv() {
         variant="outline"
         icon="i-lucide-plus"
         label="Indicator"
-        @click="indOpen = true"
+        @click="openIndicator()"
       />
       <UButton
         v-if="canEdit && indicatorItems.length"
@@ -265,15 +312,13 @@ function exportCsv() {
               <td class="py-2 pr-2">
                 <div
                   class="flex items-center gap-2"
-                  :style="{
-                    paddingLeft: `${{ goal: 0, outcome: 12, output: 24, indicator: 36 }[ind.level] ?? 0}px`,
-                  }"
+                  :style="{ paddingLeft: `${levelIndex(ind.level) * 14}px` }"
                 >
                   <UBadge
-                    :color="levelColor[ind.level]"
+                    :color="levelColorOf(ind.level)"
                     variant="subtle"
                     size="xs"
-                    :label="MEL_LEVEL_LABEL[ind.level]"
+                    :label="levelLabel(ind.level)"
                   />
                   <span class="text-default">{{ ind.name }}</span>
                   <span v-if="ind.unit" class="text-xs text-dimmed">({{ ind.unit }})</span>
@@ -298,19 +343,27 @@ function exportCsv() {
               </td>
               <td class="py-2 px-2">
                 <span
-                  v-if="ind.level === 'indicator'"
+                  v-if="ind.target != null"
                   class="inline-block size-2.5 rounded-full"
                   :class="dotClass[statusOf(ind)]"
                 />
               </td>
-              <td v-if="canEdit" class="text-right">
+              <td v-if="canEdit" class="text-right whitespace-nowrap">
                 <UButton
-                  v-if="ind.level === 'indicator'"
+                  v-if="ind.target != null"
                   size="xs"
                   variant="ghost"
                   icon="i-lucide-pen-line"
-                  aria-label="Record"
+                  aria-label="Record data"
                   @click="openData(ind.id)"
+                />
+                <UButton
+                  size="xs"
+                  variant="ghost"
+                  color="neutral"
+                  icon="i-lucide-pencil"
+                  aria-label="Edit"
+                  @click="openIndicator(ind)"
                 />
                 <UButton
                   size="xs"
@@ -361,8 +414,11 @@ function exportCsv() {
       </div>
     </UCard>
 
-    <!-- Add indicator modal -->
-    <UModal v-model:open="indOpen" title="Add to results framework">
+    <!-- Add / edit indicator modal -->
+    <UModal
+      v-model:open="indOpen"
+      :title="indForm.id ? 'Edit result / indicator' : 'Add to results framework'"
+    >
       <template #body>
         <div class="space-y-3">
           <UFormField label="Level"
@@ -372,33 +428,38 @@ function exportCsv() {
             ><UInput
               v-model="indForm.name"
               autofocus
+              class="w-full"
               placeholder="e.g. % of farmers adopting practice"
           /></UFormField>
-          <template v-if="indForm.level === 'indicator'">
-            <div class="grid grid-cols-3 gap-2">
-              <UFormField label="Baseline"
-                ><UInputNumber v-model="indForm.baseline" class="w-full"
-              /></UFormField>
-              <UFormField label="Target"
-                ><UInputNumber v-model="indForm.target" class="w-full"
-              /></UFormField>
-              <UFormField label="Unit"
-                ><UInput v-model="indForm.unit" placeholder="%"
-              /></UFormField>
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <UFormField label="Frequency"
-                ><USelect
-                  v-model="indForm.frequency"
-                  :items="freqItems"
-                  value-key="value"
-                  class="w-full"
-              /></UFormField>
-              <UFormField label="Data source"
-                ><UInput v-model="indForm.dataSource" placeholder="Survey, MIS…"
-              /></UFormField>
-            </div>
-          </template>
+          <!-- Measurable fields available at every level: set a target on any
+               result to track it, not only on the bottom level. -->
+          <div class="grid grid-cols-3 gap-2">
+            <UFormField label="Baseline"
+              ><UInputNumber v-model="indForm.baseline" class="w-full"
+            /></UFormField>
+            <UFormField label="Target"
+              ><UInputNumber v-model="indForm.target" class="w-full"
+            /></UFormField>
+            <UFormField label="Unit"
+              ><UInput v-model="indForm.unit" placeholder="%" class="w-full"
+            /></UFormField>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <UFormField label="Frequency"
+              ><USelect
+                v-model="indForm.frequency"
+                :items="freqItems"
+                value-key="value"
+                class="w-full"
+            /></UFormField>
+            <UFormField label="Data source"
+              ><UInput v-model="indForm.dataSource" placeholder="Survey, MIS…" class="w-full"
+            /></UFormField>
+          </div>
+          <p class="text-xs text-muted">
+            Leave the target blank for a narrative result (Goal / Outcome); set it to make the row
+            measurable with status &amp; trend.
+          </p>
         </div>
       </template>
       <template #footer
@@ -408,7 +469,11 @@ function exportCsv() {
             color="neutral"
             label="Cancel"
             @click="indOpen = false"
-          /><UButton label="Add" @click="addIndicator" /></div
+          /><UButton
+            :label="indForm.id ? 'Save' : 'Add'"
+            :loading="savingInd"
+            @click="saveIndicator"
+          /></div
       ></template>
     </UModal>
 

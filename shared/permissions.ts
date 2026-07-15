@@ -167,7 +167,8 @@ export const DEFAULT_ROLES: readonly DefaultRoleDefinition[] = [
       mel: ['read', 'update'],
       hr: ['read'],
       timesheet: ['read', 'update'],
-      strategy: ['read', 'update'],
+      // Managers own the strategy cycle — full CRUD on objectives/KPIs/goals.
+      strategy: ['read', 'create', 'update', 'delete'],
       finance: ['read'],
       procurement: ['read'],
       knowledge: ['read', 'create', 'update'],

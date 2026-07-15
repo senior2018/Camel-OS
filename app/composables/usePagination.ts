@@ -3,7 +3,7 @@ import type { Ref, ComputedRef } from 'vue'
 /**
  * Client-side pagination over an already-loaded (and usually already-filtered)
  * list. Right-sized for the current data volumes — the list endpoints return the
- * full set, filters run in the browser, and this just windows the result for
+ * full set, filters run in browser, and this just windows the result for
  * display. Swap to server-side paging here if a table ever outgrows a few
  * thousand rows.
  *

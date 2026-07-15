@@ -16,7 +16,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: PermissionTuple[]]
 }>()
 
-// S5b — hide the wildcard `admin` action from the matrix; it duplicates what
+// S5b  hide the wildcard `admin` action from the matrix; it duplicates what
 // the "All" column already does for the user. Admin stays in the underlying
 // data model (the System Administrator role still has it via the seed), but
 // admins editing other roles only see the four explicit actions.

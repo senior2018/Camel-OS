@@ -77,9 +77,12 @@ useHead(() => ({ title: `${fullName.value} — Camel OS` }))
 
 const { data: staff } = useFetch<{
   items: { userId: string; firstName: string | null; lastName: string | null; email: string }[]
-}>('/api/hr/employees', { key: 'hr-employees', default: () => ({ items: [] }) })
+}>('/api/hr/employees', { key: 'hr-employees-picker', default: () => ({ items: [] }) })
+// Nuxt UI v4 forbids an empty-string option value, so "None" uses a sentinel
+// that we map back to null on save. (An empty value silently breaks the menu.)
+const NONE = '__none__'
 const managerItems = computed(() => [
-  { label: '— None —', value: '' },
+  { label: '— None —', value: NONE },
   ...(staff.value?.items ?? [])
     .filter((s) => s.userId !== id)
     .map((s) => ({
@@ -87,6 +90,11 @@ const managerItems = computed(() => [
       value: s.userId,
     })),
 ])
+const managerName = computed(() => {
+  if (!form.managerUserId || form.managerUserId === NONE) return '— None —'
+  const m = staff.value?.items.find((s) => s.userId === form.managerUserId)
+  return m ? [m.firstName, m.lastName].filter(Boolean).join(' ') || m.email : '—'
+})
 
 // ── Editable form (string-typed for inputs; nulls coerced on load) ──
 const form = reactive({
@@ -95,7 +103,7 @@ const form = reactive({
   department: '',
   employmentType: 'full_time' as EmploymentType,
   status: 'active' as EmployeeStatus,
-  managerUserId: '',
+  managerUserId: '__none__',
   startDate: '',
   endDate: '',
   dateOfBirth: '',
@@ -117,7 +125,7 @@ watchEffect(() => {
   form.department = p.department ?? ''
   form.employmentType = p.employmentType
   form.status = p.status
-  form.managerUserId = p.managerUserId ?? ''
+  form.managerUserId = p.managerUserId ?? NONE
   form.startDate = p.startDate ?? ''
   form.endDate = p.endDate ?? ''
   form.dateOfBirth = p.dateOfBirth ?? ''
@@ -148,12 +156,13 @@ async function save() {
       method: 'PUT',
       body: {
         ...form,
-        managerUserId: form.managerUserId || null,
+        managerUserId: form.managerUserId === NONE ? null : form.managerUserId || null,
         baseSalary: form.baseSalary === '' ? null : Number(form.baseSalary),
         annualLeaveEntitlement: Number(form.annualLeaveEntitlement),
       },
     })
     toast.add({ title: 'Personnel file saved', color: 'success' })
+    editing.value = false
     await refresh()
   } catch {
     toast.add({ title: 'Could not save', color: 'error' })
@@ -165,6 +174,7 @@ async function save() {
 // ── Certifications ──
 const certOpen = ref(false)
 const certForm = reactive({
+  id: null as string | null,
   name: '',
   issuer: '',
   kind: 'certification',
@@ -172,25 +182,48 @@ const certForm = reactive({
   expiryDate: '',
   credentialId: '',
 })
-async function addCert() {
-  const parsed = certificationSchema.safeParse({ ...certForm, userId: id })
+function openCert(c?: Cert) {
+  certForm.id = c?.id ?? null
+  certForm.name = c?.name ?? ''
+  certForm.issuer = c?.issuer ?? ''
+  certForm.kind = c?.kind ?? 'certification'
+  certForm.issuedDate = c?.issuedDate ?? ''
+  certForm.expiryDate = c?.expiryDate ?? ''
+  certForm.credentialId = c?.credentialId ?? ''
+  certOpen.value = true
+}
+async function saveCert() {
+  const parsed = certificationSchema.safeParse({
+    userId: id,
+    name: certForm.name,
+    issuer: certForm.issuer || null,
+    kind: certForm.kind,
+    issuedDate: certForm.issuedDate || null,
+    expiryDate: certForm.expiryDate || null,
+    credentialId: certForm.credentialId || null,
+  })
   if (!parsed.success) {
     toast.add({ title: 'Name is required', color: 'warning' })
     return
   }
-  await $fetch('/api/hr/certifications', { method: 'POST', body: parsed.data })
-  certOpen.value = false
-  Object.assign(certForm, {
-    name: '',
-    issuer: '',
-    kind: 'certification',
-    issuedDate: '',
-    expiryDate: '',
-    credentialId: '',
-  })
-  await refresh()
+  try {
+    if (certForm.id) {
+      await $fetch(`/api/hr/certifications/${certForm.id}`, { method: 'PATCH', body: parsed.data })
+    } else {
+      await $fetch('/api/hr/certifications', { method: 'POST', body: parsed.data })
+    }
+    toast.add({
+      title: certForm.id ? 'Certification updated' : 'Certification added',
+      color: 'success',
+    })
+    certOpen.value = false
+    await refresh()
+  } catch {
+    toast.add({ title: 'Could not save', color: 'error' })
+  }
 }
 async function delCert(c: Cert) {
+  if (!confirm(`Remove "${c.name}"?`)) return
   await $fetch(`/api/hr/certifications/${c.id}`, { method: 'DELETE' })
   await refresh()
 }
@@ -201,6 +234,43 @@ function fdate(s: string | null) {
     ? new Date(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
     : '—'
 }
+
+// After saving we return to a clean read-only preview; editing opens the form.
+// A brand-new file (no profile yet) opens straight into the form to fill in.
+const hasProfile = computed(() => !!data.value?.profile)
+const editing = ref(false)
+watchEffect(() => {
+  if (!hasProfile.value && canEdit.value) editing.value = true
+})
+const money = (v: string | null) =>
+  v == null || v === ''
+    ? '—'
+    : new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency: form.currency || 'USD',
+        maximumFractionDigits: 0,
+      }).format(Number(v))
+// Read-only preview rows for the personnel file.
+const employmentRows = computed(() => [
+  { label: 'Employee number', value: form.employeeNumber || '—' },
+  { label: 'Job title', value: form.jobTitle || '—' },
+  { label: 'Department', value: form.department || '—' },
+  { label: 'Employment type', value: EMPLOYMENT_TYPE_LABEL[form.employmentType] },
+  { label: 'Status', value: EMPLOYEE_STATUS_LABEL[form.status] },
+  { label: 'Line manager', value: managerName.value },
+  { label: 'Start date', value: fdate(form.startDate || null) },
+  { label: 'End date', value: fdate(form.endDate || null) },
+  { label: 'Annual leave (days)', value: form.annualLeaveEntitlement || '—' },
+  { label: `Base salary (${form.currency})`, value: money(form.baseSalary) },
+])
+const personalRows = computed(() => [
+  { label: 'Date of birth', value: fdate(form.dateOfBirth || null) },
+  { label: 'National ID', value: form.nationalId || '—' },
+  { label: 'Phone', value: form.phone || '—' },
+  { label: 'Address', value: form.address || '—' },
+  { label: 'Emergency contact name', value: form.emergencyContactName || '—' },
+  { label: 'Emergency contact phone', value: form.emergencyContactPhone || '—' },
+])
 </script>
 
 <template>
@@ -238,87 +308,124 @@ function fdate(s: string | null) {
       >
         No personnel file yet.
       </div>
-      <UCard>
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <UFormField label="Employee number"
-            ><UInput v-model="form.employeeNumber" :disabled="!canEdit"
-          /></UFormField>
-          <UFormField label="Job title"
-            ><UInput v-model="form.jobTitle" :disabled="!canEdit"
-          /></UFormField>
-          <UFormField label="Department"
-            ><UInput v-model="form.department" :disabled="!canEdit"
-          /></UFormField>
-          <UFormField label="Employment type"
-            ><USelect
-              v-model="form.employmentType"
-              :items="typeItems"
-              value-key="value"
-              :disabled="!canEdit"
-              class="w-full"
-          /></UFormField>
-          <UFormField label="Status"
-            ><USelect
-              v-model="form.status"
-              :items="statusItems"
-              value-key="value"
-              :disabled="!canEdit"
-              class="w-full"
-          /></UFormField>
-          <UFormField label="Line manager"
-            ><USelect
-              v-model="form.managerUserId"
-              :items="managerItems"
-              value-key="value"
-              :disabled="!canEdit"
-              class="w-full"
-          /></UFormField>
-          <UFormField label="Start date"
-            ><UInput v-model="form.startDate" type="date" :disabled="!canEdit"
-          /></UFormField>
-          <UFormField label="End date"
-            ><UInput v-model="form.endDate" type="date" :disabled="!canEdit"
-          /></UFormField>
-          <UFormField label="Annual leave (days)"
-            ><UInput v-model="form.annualLeaveEntitlement" type="number" :disabled="!canEdit"
-          /></UFormField>
-          <UFormField label="Base salary"
-            ><UInput
-              v-model="form.baseSalary"
-              type="number"
-              :disabled="!canEdit"
-              :placeholder="form.currency"
-          /></UFormField>
+
+      <!-- Read-only preview (default once a file exists) -->
+      <template v-if="hasProfile && !editing">
+        <div class="flex justify-end">
+          <UButton
+            v-if="canEdit"
+            icon="i-lucide-pencil"
+            color="neutral"
+            variant="outline"
+            label="Edit"
+            @click="editing = true"
+          />
         </div>
-      </UCard>
-      <UCard>
-        <template #header
-          ><h3 class="text-sm font-semibold text-default">Personal & emergency</h3></template
-        >
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <UFormField label="Date of birth"
-            ><UInput v-model="form.dateOfBirth" type="date" :disabled="!canEdit"
-          /></UFormField>
-          <UFormField label="National ID"
-            ><UInput v-model="form.nationalId" :disabled="!canEdit"
-          /></UFormField>
-          <UFormField label="Phone"
-            ><UInput v-model="form.phone" :disabled="!canEdit"
-          /></UFormField>
-          <UFormField label="Address"
-            ><UInput v-model="form.address" :disabled="!canEdit"
-          /></UFormField>
-          <UFormField label="Emergency contact"
-            ><UInput v-model="form.emergencyContactName" :disabled="!canEdit"
-          /></UFormField>
-          <UFormField label="Emergency phone"
-            ><UInput v-model="form.emergencyContactPhone" :disabled="!canEdit"
-          /></UFormField>
+        <UCard>
+          <template #header
+            ><h3 class="text-sm font-semibold text-default">Employment</h3></template
+          >
+          <dl class="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
+            <div v-for="row in employmentRows" :key="row.label" class="flex flex-col">
+              <dt class="text-xs uppercase tracking-wide text-muted">{{ row.label }}</dt>
+              <dd class="mt-0.5 text-sm font-medium text-default">{{ row.value }}</dd>
+            </div>
+          </dl>
+        </UCard>
+        <UCard>
+          <template #header
+            ><h3 class="text-sm font-semibold text-default">Personal &amp; emergency</h3></template
+          >
+          <dl class="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
+            <div v-for="row in personalRows" :key="row.label" class="flex flex-col">
+              <dt class="text-xs uppercase tracking-wide text-muted">{{ row.label }}</dt>
+              <dd class="mt-0.5 text-sm font-medium text-default">{{ row.value }}</dd>
+            </div>
+          </dl>
+        </UCard>
+      </template>
+
+      <!-- Editable form -->
+      <template v-else>
+        <UCard>
+          <template #header
+            ><h3 class="text-sm font-semibold text-default">Employment</h3></template
+          >
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <UFormField label="Employee number"
+              ><UInput v-model="form.employeeNumber" class="w-full"
+            /></UFormField>
+            <UFormField label="Job title"
+              ><UInput v-model="form.jobTitle" class="w-full"
+            /></UFormField>
+            <UFormField label="Department"
+              ><UInput v-model="form.department" class="w-full"
+            /></UFormField>
+            <UFormField label="Employment type"
+              ><USelect
+                v-model="form.employmentType"
+                :items="typeItems"
+                value-key="value"
+                class="w-full"
+            /></UFormField>
+            <UFormField label="Status"
+              ><USelect v-model="form.status" :items="statusItems" value-key="value" class="w-full"
+            /></UFormField>
+            <UFormField label="Line manager"
+              ><USelect
+                v-model="form.managerUserId"
+                :items="managerItems"
+                value-key="value"
+                class="w-full"
+            /></UFormField>
+            <UFormField label="Start date"
+              ><UInput v-model="form.startDate" type="date" class="w-full"
+            /></UFormField>
+            <UFormField label="End date"
+              ><UInput v-model="form.endDate" type="date" class="w-full"
+            /></UFormField>
+            <UFormField label="Annual leave (days)"
+              ><UInput v-model="form.annualLeaveEntitlement" type="number" class="w-full"
+            /></UFormField>
+            <UFormField :label="`Base salary (${form.currency})`"
+              ><UInput v-model="form.baseSalary" type="number" class="w-full" placeholder="0"
+            /></UFormField>
+          </div>
+        </UCard>
+        <UCard>
+          <template #header
+            ><h3 class="text-sm font-semibold text-default">Personal &amp; emergency</h3></template
+          >
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <UFormField label="Date of birth"
+              ><UInput v-model="form.dateOfBirth" type="date" class="w-full"
+            /></UFormField>
+            <UFormField label="National ID"
+              ><UInput v-model="form.nationalId" class="w-full"
+            /></UFormField>
+            <UFormField label="Phone"><UInput v-model="form.phone" class="w-full" /></UFormField>
+            <UFormField label="Address"
+              ><UInput v-model="form.address" class="w-full"
+            /></UFormField>
+            <UFormField label="Emergency contact name"
+              ><UInput v-model="form.emergencyContactName" class="w-full"
+            /></UFormField>
+            <UFormField label="Emergency contact phone"
+              ><UInput v-model="form.emergencyContactPhone" class="w-full"
+            /></UFormField>
+          </div>
+        </UCard>
+        <div v-if="canEdit" class="flex justify-end gap-2">
+          <UButton
+            v-if="hasProfile"
+            variant="ghost"
+            color="neutral"
+            label="Cancel"
+            @click="editing = false"
+          />
+          <UButton label="Save personnel file" :loading="saving" @click="save" />
         </div>
-      </UCard>
-      <div v-if="canEdit" class="flex justify-end">
-        <UButton label="Save personnel file" :loading="saving" @click="save" />
-      </div>
+      </template>
     </div>
 
     <!-- Leave history -->
@@ -329,7 +436,7 @@ function fdate(s: string | null) {
       >
         No leave on record.
       </p>
-      <div v-else class="overflow-hidden rounded-xl border border-default">
+      <div v-else class="overflow-hidden rounded-xl border border-default bg-default shadow-sm">
         <table class="w-full text-sm">
           <thead class="bg-elevated/40 text-left text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -368,7 +475,7 @@ function fdate(s: string | null) {
           size="sm"
           icon="i-lucide-plus"
           label="Add certification"
-          @click="certOpen = true"
+          @click="openCert()"
         />
       </div>
       <p
@@ -380,9 +487,9 @@ function fdate(s: string | null) {
       <div
         v-for="c in data.certifications"
         :key="c.id"
-        class="flex items-center justify-between rounded-lg border border-default bg-default p-3"
+        class="flex items-start justify-between gap-3 rounded-lg border border-default bg-default p-3 shadow-sm"
       >
-        <div>
+        <div class="min-w-0">
           <p class="font-medium text-default">
             {{ c.name }}
             <UBadge
@@ -394,30 +501,46 @@ function fdate(s: string | null) {
             />
           </p>
           <p class="text-xs text-muted">
-            {{ c.issuer ?? '—'
-            }}<span v-if="c.expiryDate"> · expires {{ fdate(c.expiryDate) }}</span>
+            {{ c.issuer ?? '—' }}
+            <span v-if="c.issuedDate"> · issued {{ fdate(c.issuedDate) }}</span>
+            <span v-if="c.expiryDate"> · expires {{ fdate(c.expiryDate) }}</span>
+            <span v-if="c.credentialId"> · ID {{ c.credentialId }}</span>
           </p>
         </div>
-        <UButton
-          v-if="canEdit"
-          size="xs"
-          variant="ghost"
-          color="error"
-          icon="i-lucide-trash-2"
-          aria-label="Remove"
-          @click="delCert(c)"
-        />
+        <div v-if="canEdit" class="flex shrink-0 items-center gap-1">
+          <UButton
+            size="xs"
+            variant="ghost"
+            color="neutral"
+            icon="i-lucide-pencil"
+            aria-label="Edit"
+            @click="openCert(c)"
+          />
+          <UButton
+            size="xs"
+            variant="ghost"
+            color="error"
+            icon="i-lucide-trash-2"
+            aria-label="Remove"
+            @click="delCert(c)"
+          />
+        </div>
       </div>
     </div>
 
-    <UModal v-model:open="certOpen" title="Add certification / training">
+    <UModal
+      v-model:open="certOpen"
+      :title="certForm.id ? 'Edit certification' : 'Add certification / training'"
+    >
       <template #body>
         <div class="space-y-3">
           <UFormField label="Name" required
-            ><UInput v-model="certForm.name" autofocus
+            ><UInput v-model="certForm.name" autofocus class="w-full"
           /></UFormField>
           <div class="grid grid-cols-2 gap-3">
-            <UFormField label="Issuer"><UInput v-model="certForm.issuer" /></UFormField>
+            <UFormField label="Issuer"
+              ><UInput v-model="certForm.issuer" class="w-full"
+            /></UFormField>
             <UFormField label="Kind"
               ><USelect
                 v-model="certForm.kind"
@@ -429,13 +552,15 @@ function fdate(s: string | null) {
                 class="w-full"
             /></UFormField>
             <UFormField label="Issued"
-              ><UInput v-model="certForm.issuedDate" type="date"
+              ><UInput v-model="certForm.issuedDate" type="date" class="w-full"
             /></UFormField>
             <UFormField label="Expires"
-              ><UInput v-model="certForm.expiryDate" type="date"
+              ><UInput v-model="certForm.expiryDate" type="date" class="w-full"
             /></UFormField>
           </div>
-          <UFormField label="Credential ID"><UInput v-model="certForm.credentialId" /></UFormField>
+          <UFormField label="Credential ID"
+            ><UInput v-model="certForm.credentialId" class="w-full"
+          /></UFormField>
         </div>
       </template>
       <template #footer
@@ -445,7 +570,7 @@ function fdate(s: string | null) {
             color="neutral"
             label="Cancel"
             @click="certOpen = false"
-          /><UButton label="Add" @click="addCert" /></div
+          /><UButton :label="certForm.id ? 'Save' : 'Add'" @click="saveCert" /></div
       ></template>
     </UModal>
   </div>

@@ -33,6 +33,17 @@ const { data, status } = await useFetch<{ items: Row[] }>('/api/hr/employees', {
   default: () => ({ items: [] }),
 })
 
+// Action-card badges: how many items in each area need attention.
+const { data: summary } = await useFetch<{
+  pendingLeave: number
+  expiringCerts: number
+  openVacancies: number
+  activeReviews: number
+}>('/api/hr/summary', {
+  key: 'hr-summary',
+  default: () => ({ pendingLeave: 0, expiringCerts: 0, openVacancies: 0, activeReviews: 0 }),
+})
+
 const search = ref('')
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
@@ -45,6 +56,16 @@ const filtered = computed(() => {
 })
 const name = (r: Row) => [r.firstName, r.lastName].filter(Boolean).join(' ') || r.email
 const withFiles = computed(() => (data.value?.items ?? []).filter((r) => r.profileId).length)
+
+// Client-side pagination — the roster can grow large.
+const page = ref(1)
+const pageSize = 12
+const paged = computed(() =>
+  filtered.value.slice((page.value - 1) * pageSize, page.value * pageSize)
+)
+watch(filtered, () => {
+  page.value = 1
+})
 </script>
 
 <template>
@@ -57,34 +78,62 @@ const withFiles = computed(() => (data.value?.items ?? []).filter((r) => r.profi
         </p>
       </div>
       <div class="flex flex-wrap gap-2">
-        <UButton
-          to="/hr/leave"
-          icon="i-lucide-calendar-check"
-          color="neutral"
-          variant="outline"
-          label="Leave"
-        />
-        <UButton
-          to="/hr/certifications"
-          icon="i-lucide-award"
-          color="neutral"
-          variant="outline"
-          label="Certifications"
-        />
-        <UButton
-          to="/hr/recruitment"
-          icon="i-lucide-user-search"
-          color="neutral"
-          variant="outline"
-          label="Recruitment"
-        />
-        <UButton
-          to="/hr/reviews"
-          icon="i-lucide-clipboard-check"
-          color="neutral"
-          variant="outline"
-          label="Reviews"
-        />
+        <UChip
+          :text="summary.pendingLeave"
+          :show="summary.pendingLeave > 0"
+          color="warning"
+          size="2xl"
+        >
+          <UButton
+            to="/hr/leave"
+            icon="i-lucide-calendar-check"
+            color="neutral"
+            variant="outline"
+            label="Leave"
+          />
+        </UChip>
+        <UChip
+          :text="summary.expiringCerts"
+          :show="summary.expiringCerts > 0"
+          color="warning"
+          size="2xl"
+        >
+          <UButton
+            to="/hr/certifications"
+            icon="i-lucide-award"
+            color="neutral"
+            variant="outline"
+            label="Certifications"
+          />
+        </UChip>
+        <UChip
+          :text="summary.openVacancies"
+          :show="summary.openVacancies > 0"
+          color="info"
+          size="2xl"
+        >
+          <UButton
+            to="/hr/recruitment"
+            icon="i-lucide-user-search"
+            color="neutral"
+            variant="outline"
+            label="Recruitment"
+          />
+        </UChip>
+        <UChip
+          :text="summary.activeReviews"
+          :show="summary.activeReviews > 0"
+          color="info"
+          size="2xl"
+        >
+          <UButton
+            to="/hr/reviews"
+            icon="i-lucide-clipboard-check"
+            color="neutral"
+            variant="outline"
+            label="Reviews"
+          />
+        </UChip>
         <UButton
           v-if="can('hr', 'admin')"
           to="/hr/payroll"
@@ -113,9 +162,9 @@ const withFiles = computed(() => (data.value?.items ?? []).filter((r) => r.profi
     <div v-if="status === 'pending'" class="flex justify-center py-16">
       <UIcon name="i-lucide-loader-circle" class="size-8 animate-spin text-muted" />
     </div>
-    <div v-else class="overflow-hidden rounded-xl border border-default">
+    <div v-else class="overflow-hidden rounded-xl border border-default bg-default shadow-sm">
       <table class="w-full text-sm">
-        <thead class="bg-elevated/40 text-left text-xs uppercase tracking-wide text-muted">
+        <thead class="bg-elevated/60 text-left text-xs uppercase tracking-wide text-muted">
           <tr>
             <th class="px-4 py-2 font-medium">Name</th>
             <th class="hidden px-4 py-2 font-medium sm:table-cell">Role</th>
@@ -126,7 +175,7 @@ const withFiles = computed(() => (data.value?.items ?? []).filter((r) => r.profi
         </thead>
         <tbody class="divide-y divide-default">
           <tr
-            v-for="r in filtered"
+            v-for="r in paged"
             :key="r.userId"
             class="cursor-pointer hover:bg-elevated/40"
             @click="navigateTo(`/hr/${r.userId}`)"
@@ -153,6 +202,15 @@ const withFiles = computed(() => (data.value?.items ?? []).filter((r) => r.profi
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div v-if="filtered.length > pageSize" class="flex justify-center">
+      <UPagination
+        v-model:page="page"
+        :total="filtered.length"
+        :items-per-page="pageSize"
+        :sibling-count="1"
+      />
     </div>
   </div>
 </template>

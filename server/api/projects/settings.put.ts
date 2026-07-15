@@ -43,6 +43,7 @@ export default defineEventHandler(async (event) => {
       teamRoles: dedupe(payload.teamRoles),
       activityStatuses,
       lifecycleLabels: payload.lifecycleLabels,
+      melLevels: dedupe(payload.melLevels),
       requireBudgetRevisionApproval: payload.requireBudgetRevisionApproval,
       updatedAt: new Date(),
     }

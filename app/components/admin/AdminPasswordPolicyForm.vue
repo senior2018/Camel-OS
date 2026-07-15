@@ -12,7 +12,7 @@ const emit = defineEmits<{
   submit: [value: PasswordPolicy]
 }>()
 
-// Local form state; expiry/history use sentinel "off" toggles so admins can set
+// Localform state; expiry/history use sentinel "off" toggles so admins can set
 // "no expiry" / "no reuse check" without typing 0.
 const state = reactive({
   minLength: props.policy.minLength,

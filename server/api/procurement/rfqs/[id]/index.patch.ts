@@ -13,6 +13,10 @@ export default defineEventHandler(async (event) => {
     if (!id) throw createError({ statusCode: 400, statusMessage: 'Id required' })
     const b = await readValidatedBody(event, updateRfqSchema.parse)
     const set: Record<string, unknown> = {}
+    if (b.title !== undefined) set.title = b.title
+    if (b.description !== undefined) set.description = b.description ?? null
+    if (b.dueDate !== undefined) set.dueDate = b.dueDate || null
+    if (b.invitedVendors !== undefined) set.invitedVendors = b.invitedVendors
     if (b.status !== undefined) set.status = b.status
     if (b.responses !== undefined) set.responses = b.responses
     if (b.awardedVendor !== undefined) set.awardedVendor = b.awardedVendor ?? null

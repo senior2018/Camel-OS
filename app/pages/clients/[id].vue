@@ -453,7 +453,6 @@ function healthColor(level: ReturnType<typeof clientHealth>): 'success' | 'warni
             @update="(id: string, p: UpdateGrantPayload) => updateGrant(id, p)"
             @remove="(id: string) => removeGrant(id)"
           />
-
           <ClientFundedProjectsCard
             v-if="data.client.type === 'donor'"
             :funded-projects="data.fundedProjects"

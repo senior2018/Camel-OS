@@ -26,7 +26,7 @@ export interface AdminRoleDetail {
 }
 
 /**
- * Owns the role list state and all CRUD actions. The role-editor modal pulls the
+ * Owns the roles list state and all CRUD actions. The role-editor modal pulls the
  * detailed `getRole` for an existing role; create/update use the same payload shape.
  */
 export function useAdminRoles() {

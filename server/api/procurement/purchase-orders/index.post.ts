@@ -2,6 +2,7 @@ import { consola } from 'consola'
 import { purchaseOrderLines, purchaseOrders } from '@@/server/database/schema'
 import { useDrizzle } from '@@/server/utils/drizzle'
 import { requirePermission } from '@@/server/utils/permission-guard'
+import { pgErrorCode } from '@@/server/utils/db-error'
 import { createPoSchema } from '@@/shared/schemas/procurement'
 
 /** PR-01 — raise a purchase order with line items. */
@@ -41,7 +42,7 @@ export default defineEventHandler(async (event) => {
     return { success: true, po }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'statusCode' in error) throw error
-    if ((error as { code?: string })?.code === '23505')
+    if (pgErrorCode(error) === '23505')
       throw createError({ statusCode: 409, statusMessage: 'That PO number already exists.' })
     consola.error('Error creating PO', error)
     throw createError({ statusCode: 500, statusMessage: 'Internal server error' })

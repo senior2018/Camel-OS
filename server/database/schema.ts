@@ -1780,6 +1780,11 @@ export const organizationProjectSettings = pgTable('organization_project_setting
     .$type<{ notStarted: string; inProgress: string; done: string }>()
     .notNull()
     .default({ notStarted: 'Not started', inProgress: 'In progress', done: 'Completed' }),
+  // ME-01 — configurable results-framework levels (top → bottom).
+  melLevels: jsonb('mel_levels')
+    .$type<string[]>()
+    .notNull()
+    .default(['Goal', 'Outcome', 'Output', 'Indicator']),
   requireBudgetRevisionApproval: boolean('require_budget_revision_approval')
     .notNull()
     .default(true),
@@ -2385,7 +2390,8 @@ export const melIndicators = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: 'cascade' }),
     parentId: uuid('parent_id'),
-    level: melLevelEnum().notNull().default('indicator'),
+    // Configurable results-framework level label (org-defined, not hard-coded).
+    level: text().notNull().default('Indicator'),
     name: text().notNull(),
     baseline: numeric({ precision: 14, scale: 2 }),
     target: numeric({ precision: 14, scale: 2 }),

@@ -24,7 +24,6 @@ const canCreate = computed(() => can.value('crm', 'create'))
 const canDelete = computed(() => can.value('crm', 'delete'))
 
 const { data, status, createClient, deleteClient } = useClients()
-
 const search = ref('')
 const typeFilter = ref<'all' | 'client' | 'prospect' | 'donor' | 'partner'>('all')
 const healthFilter = ref<'all' | ClientHealth>('all')

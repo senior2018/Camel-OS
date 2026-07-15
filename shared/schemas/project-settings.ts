@@ -35,6 +35,9 @@ export const DEFAULT_PROJECT_TEAM_ROLES = [
   'M&E',
   'Coordinator',
 ]
+// ME-01 — results-framework levels, top → bottom. Org-configurable so a logframe,
+// theory-of-change, or custom hierarchy all fit without code changes.
+export const DEFAULT_MEL_LEVELS = ['Goal', 'Outcome', 'Output', 'Indicator']
 
 // ── Configurable statuses (P6/P7/P14) ────────────────────────────────────────
 // Every status LABEL is org-configurable; each maps to a hidden CATEGORY that
@@ -93,6 +96,7 @@ export interface ProjectSettings {
   teamRoles: string[]
   activityStatuses: ActivityStatusOption[]
   lifecycleLabels: LifecycleLabels
+  melLevels: string[]
   requireBudgetRevisionApproval: boolean
 }
 
@@ -103,6 +107,7 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   teamRoles: [...DEFAULT_PROJECT_TEAM_ROLES],
   activityStatuses: DEFAULT_ACTIVITY_STATUSES.map((s) => ({ ...s })),
   lifecycleLabels: { ...DEFAULT_LIFECYCLE_LABELS },
+  melLevels: [...DEFAULT_MEL_LEVELS],
   requireBudgetRevisionApproval: true,
 }
 
@@ -130,6 +135,7 @@ export const updateProjectSettingsSchema = z.object({
     inProgress: z.string().trim().min(1).max(60),
     done: z.string().trim().min(1).max(60),
   }),
+  melLevels: stringList.min(1, 'Keep at least one results-framework level'),
   requireBudgetRevisionApproval: z.boolean(),
 })
 export type UpdateProjectSettingsPayload = z.output<typeof updateProjectSettingsSchema>

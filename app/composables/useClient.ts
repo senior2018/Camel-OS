@@ -158,7 +158,7 @@ export interface ClientDetailResponse {
 }
 
 /**
- * Detail-page composable: one bundle fetch + a mutation API for every related
+ * Detail page composable: one bundle fetch + a mutation API for every related
  * resource (contacts, interactions, opportunity links, reminders). Each mutation
  * refreshes the bundle so the UI always reflects DB truth.
  */

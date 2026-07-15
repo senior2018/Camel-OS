@@ -1,5 +1,5 @@
 // Internal platform: only auth-related pages are public. The root (`/`)
-// is handled below — it always redirects, never renders.
+// is handled below it always redirects, never renders.
 const PUBLIC_ROUTES = new Set([
   '/login',
   '/forgot-password',

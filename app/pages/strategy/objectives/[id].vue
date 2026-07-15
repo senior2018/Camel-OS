@@ -6,6 +6,7 @@ import {
   checkinSchema,
   goalSchema,
   individualObjectiveSchema,
+  individualObjectiveUpdateSchema,
   kpiSchema,
   type StrategyStatus,
 } from '@@/shared/schemas/strategy'
@@ -79,14 +80,18 @@ const { data: people } = await useFetch<{ items: { id: string; name: string }[] 
   '/api/strategy/people',
   { key: 'strategy-people', default: () => ({ items: [] }) }
 )
+// Nuxt UI USelect can't take an empty-string value — use a sentinel for "none".
+const NONE = '__none__'
 const peopleItems = computed(() => [
-  { label: '— Unassigned —', value: '' },
+  { label: '— Unassigned —', value: NONE },
   ...(people.value?.items ?? []).map((p) => ({ label: p.name, value: p.id })),
 ])
 const statusItems = STRATEGY_STATUSES.map((s) => ({
   label: STRATEGY_STATUS_LABEL[s],
   value: s as string,
 }))
+const AUTO = '__auto__'
+const objectiveStatusItems = [{ label: 'Auto (from KPIs)', value: AUTO }, ...statusItems]
 
 async function patchObjective(body: Record<string, unknown>) {
   const endpoint: string = `/api/strategy/objectives/${id}`
@@ -99,9 +104,57 @@ async function del() {
   await navigateTo('/strategy')
 }
 
-// ── KPIs ──
+// ── Edit the objective's own details ──
+const editObjOpen = ref(false)
+const editObjForm = reactive({
+  title: '',
+  theme: '',
+  description: '',
+  ownerUserId: NONE,
+  year: 2026,
+})
+function openEditObj() {
+  const o = data.value?.objective
+  if (!o) return
+  editObjForm.title = o.title
+  editObjForm.theme = o.theme ?? ''
+  editObjForm.description = o.description ?? ''
+  editObjForm.year = o.year
+  editObjForm.ownerUserId = people.value?.items.find((p) => p.name === o.owner)?.id ?? NONE
+  editObjOpen.value = true
+}
+const savingObj = ref(false)
+async function saveObjective() {
+  if (!editObjForm.title.trim()) {
+    toast.add({ title: 'A title is required', color: 'warning' })
+    return
+  }
+  savingObj.value = true
+  try {
+    await patchObjective({
+      title: editObjForm.title.trim(),
+      theme: editObjForm.theme.trim() || null,
+      description: editObjForm.description.trim() || null,
+      year: editObjForm.year,
+      ownerUserId: editObjForm.ownerUserId === NONE ? null : editObjForm.ownerUserId,
+    })
+    editObjOpen.value = false
+  } catch {
+    toast.add({ title: 'Could not save', color: 'error' })
+  } finally {
+    savingObj.value = false
+  }
+}
+
+const directionItems = [
+  { label: 'Increase', value: 'increase' },
+  { label: 'Decrease', value: 'decrease' },
+]
+
+// ── KPIs: full edit modal + a quick "update actual" modal (ST-03) ──
 const kpiOpen = ref(false)
 const kpiForm = reactive({
+  id: null as string | null,
   name: '',
   unit: '',
   baseline: '0',
@@ -109,108 +162,194 @@ const kpiForm = reactive({
   current: '0',
   direction: 'increase',
 })
-async function addKpi() {
-  const parsed = kpiSchema.safeParse(kpiForm)
+function openKpi(k?: Kpi) {
+  kpiForm.id = k?.id ?? null
+  kpiForm.name = k?.name ?? ''
+  kpiForm.unit = k?.unit ?? ''
+  kpiForm.baseline = k ? String(Number(k.baseline)) : '0'
+  kpiForm.target = k?.target != null ? String(Number(k.target)) : ''
+  kpiForm.current = k ? String(Number(k.current)) : '0'
+  kpiForm.direction = k?.direction ?? 'increase'
+  kpiOpen.value = true
+}
+const savingKpi = ref(false)
+async function saveKpi() {
+  const parsed = kpiSchema.safeParse({ ...kpiForm })
   if (!parsed.success) {
     toast.add({ title: 'KPI name required', color: 'warning' })
     return
   }
-  await $fetch(`/api/strategy/objectives/${id}/kpis`, { method: 'POST', body: parsed.data })
-  kpiOpen.value = false
-  Object.assign(kpiForm, {
-    name: '',
-    unit: '',
-    baseline: '0',
-    target: '',
-    current: '0',
-    direction: 'increase',
-  })
-  await refresh()
+  savingKpi.value = true
+  try {
+    if (kpiForm.id) {
+      await $fetch(`/api/strategy/kpis/${kpiForm.id}`, { method: 'PATCH', body: parsed.data })
+    } else {
+      await $fetch(`/api/strategy/objectives/${id}/kpis`, { method: 'POST', body: parsed.data })
+    }
+    kpiOpen.value = false
+    await refresh()
+  } catch {
+    toast.add({ title: 'Could not save KPI', color: 'error' })
+  } finally {
+    savingKpi.value = false
+  }
 }
-async function updateKpiCurrent(k: Kpi) {
-  const v = window.prompt(
-    `Update current value for "${k.name}"${k.unit ? ` (${k.unit})` : ''}:`,
-    k.current
-  )
-  if (v === null) return
-  const endpoint: string = `/api/strategy/kpis/${k.id}`
-  await $fetch(endpoint, { method: 'PATCH', body: { current: Number(v) } })
-  await refresh()
+// Quick "log actual" — the check-in action from ST-03, as a modal (not a prompt).
+const kpiValueOpen = ref(false)
+const kpiValueTarget = ref<Kpi | null>(null)
+const kpiValue = ref<number | null>(null)
+const savingKpiValue = ref(false)
+function openKpiValue(k: Kpi) {
+  kpiValueTarget.value = k
+  kpiValue.value = Number(k.current)
+  kpiValueOpen.value = true
+}
+async function saveKpiValue() {
+  if (!kpiValueTarget.value || kpiValue.value == null) return
+  savingKpiValue.value = true
+  try {
+    await $fetch(`/api/strategy/kpis/${kpiValueTarget.value.id}`, {
+      method: 'PATCH',
+      body: { current: Number(kpiValue.value) },
+    })
+    kpiValueOpen.value = false
+    await refresh()
+  } catch {
+    toast.add({ title: 'Could not update', color: 'error' })
+  } finally {
+    savingKpiValue.value = false
+  }
 }
 async function delKpi(k: Kpi) {
-  const endpoint: string = `/api/strategy/kpis/${k.id}`
-  await $fetch(endpoint, { method: 'DELETE' })
+  if (!confirm(`Delete KPI "${k.name}"?`)) return
+  await $fetch(`/api/strategy/kpis/${k.id}`, { method: 'DELETE' })
   await refresh()
 }
 
-// ── Goals ──
+// ── Goals: full edit modal ──
 const goalOpen = ref(false)
-const goalForm = reactive({ title: '', department: '', ownerUserId: '', dueDate: '' })
-async function addGoal() {
-  const parsed = goalSchema.safeParse({
-    ...goalForm,
-    objectiveId: id,
-    ownerUserId: goalForm.ownerUserId || null,
-  })
+const goalForm = reactive({
+  id: null as string | null,
+  title: '',
+  department: '',
+  ownerUserId: NONE,
+  dueDate: '',
+  progressPct: 0,
+  status: 'not_started' as StrategyStatus,
+})
+function openGoal(g?: Goal) {
+  goalForm.id = g?.id ?? null
+  goalForm.title = g?.title ?? ''
+  goalForm.department = g?.department ?? ''
+  goalForm.ownerUserId = people.value?.items.find((p) => p.name === g?.owner)?.id ?? NONE
+  goalForm.dueDate = g?.dueDate ?? ''
+  goalForm.progressPct = g?.progressPct ?? 0
+  goalForm.status = g?.status ?? 'not_started'
+  goalOpen.value = true
+}
+const savingGoal = ref(false)
+async function saveGoal() {
+  const payload = {
+    title: goalForm.title,
+    department: goalForm.department || null,
+    dueDate: goalForm.dueDate || null,
+    progressPct: goalForm.progressPct,
+    status: goalForm.status,
+    ownerUserId: goalForm.ownerUserId === NONE ? null : goalForm.ownerUserId,
+    ...(goalForm.id ? {} : { objectiveId: id }),
+  }
+  const parsed = (goalForm.id ? goalSchema.partial() : goalSchema).safeParse(payload)
   if (!parsed.success) {
     toast.add({ title: 'Goal title required', color: 'warning' })
     return
   }
-  await $fetch('/api/strategy/goals', { method: 'POST', body: parsed.data })
-  goalOpen.value = false
-  Object.assign(goalForm, { title: '', department: '', ownerUserId: '', dueDate: '' })
-  await refresh()
+  savingGoal.value = true
+  try {
+    if (goalForm.id) {
+      await $fetch(`/api/strategy/goals/${goalForm.id}`, { method: 'PATCH', body: parsed.data })
+    } else {
+      await $fetch('/api/strategy/goals', { method: 'POST', body: parsed.data })
+    }
+    goalOpen.value = false
+    await refresh()
+  } catch {
+    toast.add({ title: 'Could not save goal', color: 'error' })
+  } finally {
+    savingGoal.value = false
+  }
 }
-async function updateGoal(g: Goal, body: Record<string, unknown>) {
-  const endpoint: string = `/api/strategy/goals/${g.id}`
-  await $fetch(endpoint, { method: 'PATCH', body })
+async function updateGoalStatus(g: Goal, status: string) {
+  await $fetch(`/api/strategy/goals/${g.id}`, { method: 'PATCH', body: { status } })
   await refresh()
-}
-function editGoalProgress(g: Goal) {
-  const v = window.prompt('Progress %', String(g.progressPct))
-  if (v !== null) updateGoal(g, { progressPct: Math.max(0, Math.min(100, Number(v))) })
 }
 async function delGoal(g: Goal) {
   if (!confirm('Delete this goal and its individual objectives?')) return
-  const endpoint: string = `/api/strategy/goals/${g.id}`
-  await $fetch(endpoint, { method: 'DELETE' })
+  await $fetch(`/api/strategy/goals/${g.id}`, { method: 'DELETE' })
   await refresh()
 }
 
-// ── Individual objectives ──
+// ── Individual objectives: full edit modal ──
 const indivOpen = ref(false)
 const indivGoalId = ref('')
-const indivForm = reactive({ userId: '', title: '' })
-function openIndiv(goalId: string) {
+const indivForm = reactive({
+  id: null as string | null,
+  userId: NONE,
+  title: '',
+  progressPct: 0,
+  status: 'not_started' as StrategyStatus,
+})
+function openIndiv(goalId: string, i?: Individual) {
   indivGoalId.value = goalId
-  Object.assign(indivForm, { userId: '', title: '' })
+  indivForm.id = i?.id ?? null
+  indivForm.userId = i?.userId ?? NONE
+  indivForm.title = i?.title ?? ''
+  indivForm.progressPct = i?.progressPct ?? 0
+  indivForm.status = i?.status ?? 'not_started'
   indivOpen.value = true
 }
-async function addIndiv() {
-  const parsed = individualObjectiveSchema.safeParse({ ...indivForm, goalId: indivGoalId.value })
-  if (!parsed.success) {
-    toast.add({ title: 'Pick a person and title', color: 'warning' })
-    return
+const savingIndiv = ref(false)
+async function saveIndiv() {
+  savingIndiv.value = true
+  try {
+    if (indivForm.id) {
+      const parsed = individualObjectiveUpdateSchema.safeParse({
+        title: indivForm.title,
+        progressPct: indivForm.progressPct,
+        status: indivForm.status,
+      })
+      if (!parsed.success) {
+        toast.add({ title: 'A title is required', color: 'warning' })
+        return
+      }
+      await $fetch(`/api/strategy/individuals/${indivForm.id}`, {
+        method: 'PATCH',
+        body: parsed.data,
+      })
+    } else {
+      const parsed = individualObjectiveSchema.safeParse({
+        goalId: indivGoalId.value,
+        userId: indivForm.userId === NONE ? undefined : indivForm.userId,
+        title: indivForm.title,
+      })
+      if (!parsed.success) {
+        toast.add({ title: 'Pick a person and title', color: 'warning' })
+        return
+      }
+      await $fetch(`/api/strategy/goals/${indivGoalId.value}/individuals`, {
+        method: 'POST',
+        body: parsed.data,
+      })
+    }
+    indivOpen.value = false
+    await refresh()
+  } catch {
+    toast.add({ title: 'Could not save', color: 'error' })
+  } finally {
+    savingIndiv.value = false
   }
-  await $fetch(`/api/strategy/goals/${indivGoalId.value}/individuals`, {
-    method: 'POST',
-    body: parsed.data,
-  })
-  indivOpen.value = false
-  await refresh()
-}
-async function updateIndiv(i: Individual, body: Record<string, unknown>) {
-  const endpoint: string = `/api/strategy/individuals/${i.id}`
-  await $fetch(endpoint, { method: 'PATCH', body })
-  await refresh()
-}
-function editIndivProgress(i: Individual) {
-  const v = window.prompt('Progress %', String(i.progressPct))
-  if (v !== null) updateIndiv(i, { progressPct: Math.max(0, Math.min(100, Number(v))) })
 }
 async function delIndiv(i: Individual) {
-  const endpoint: string = `/api/strategy/individuals/${i.id}`
-  await $fetch(endpoint, { method: 'DELETE' })
+  await $fetch(`/api/strategy/individuals/${i.id}`, { method: 'DELETE' })
   await refresh()
 }
 
@@ -277,11 +416,20 @@ function fdt(s: string) {
       </div>
       <div v-if="canEdit" class="flex items-center gap-2">
         <USelect
-          :model-value="data.objective.manualStatus ?? ''"
-          :items="[{ label: 'Auto (from KPIs)', value: '' }, ...statusItems]"
+          :model-value="data.objective.manualStatus ?? AUTO"
+          :items="objectiveStatusItems"
           value-key="value"
           class="w-44"
-          @update:model-value="(v: string) => patchObjective({ manualStatus: v || null })"
+          @update:model-value="
+            (v: string) => patchObjective({ manualStatus: v === AUTO ? null : v })
+          "
+        />
+        <UButton
+          icon="i-lucide-pencil"
+          variant="outline"
+          color="neutral"
+          label="Edit"
+          @click="openEditObj"
         />
         <UButton
           icon="i-lucide-trash-2"
@@ -309,7 +457,7 @@ function fdt(s: string) {
           variant="soft"
           icon="i-lucide-plus"
           label="Add KPI"
-          @click="kpiOpen = true"
+          @click="openKpi()"
         />
       </div>
       <p
@@ -342,11 +490,19 @@ function fdt(s: string) {
             <template v-if="canEdit">
               <UButton
                 size="xs"
+                variant="soft"
+                color="primary"
+                icon="i-lucide-trending-up"
+                label="Log value"
+                @click="openKpiValue(k)"
+              />
+              <UButton
+                size="xs"
                 variant="ghost"
                 color="neutral"
-                icon="i-lucide-pencil-line"
-                aria-label="Update"
-                @click="updateKpiCurrent(k)"
+                icon="i-lucide-pencil"
+                aria-label="Edit KPI"
+                @click="openKpi(k)"
               />
               <UButton
                 size="xs"
@@ -384,7 +540,7 @@ function fdt(s: string) {
           variant="soft"
           icon="i-lucide-plus"
           label="Add goal"
-          @click="goalOpen = true"
+          @click="openGoal()"
         />
       </div>
       <p
@@ -413,7 +569,7 @@ function fdt(s: string) {
               value-key="value"
               size="xs"
               class="w-32"
-              @update:model-value="(s: string) => updateGoal(g, { status: s })"
+              @update:model-value="(s: string) => updateGoalStatus(g, s)"
             />
             <UBadge
               v-else
@@ -421,6 +577,15 @@ function fdt(s: string) {
               variant="subtle"
               size="xs"
               :label="STRATEGY_STATUS_LABEL[g.status]"
+            />
+            <UButton
+              v-if="canEdit"
+              size="xs"
+              variant="ghost"
+              color="neutral"
+              icon="i-lucide-pencil"
+              aria-label="Edit goal"
+              @click="openGoal(g)"
             />
             <UButton
               v-if="canEdit"
@@ -438,15 +603,6 @@ function fdt(s: string) {
             <div class="h-full rounded-full bg-primary" :style="{ width: `${g.progressPct}%` }" />
           </div>
           <span class="text-xs text-muted">{{ g.progressPct }}%</span>
-          <UButton
-            v-if="canEdit"
-            size="xs"
-            variant="ghost"
-            color="neutral"
-            icon="i-lucide-pencil-line"
-            aria-label="Set progress"
-            @click="editGoalProgress(g)"
-          />
         </div>
         <!-- Individuals -->
         <div class="mt-3 space-y-1.5 border-t border-default pt-3">
@@ -466,9 +622,9 @@ function fdt(s: string) {
               size="xs"
               variant="ghost"
               color="neutral"
-              icon="i-lucide-pencil-line"
-              aria-label="Update"
-              @click="editIndivProgress(i)"
+              icon="i-lucide-pencil"
+              aria-label="Edit"
+              @click="openIndiv(g.id, i)"
             />
             <UButton
               v-if="canEdit"
@@ -532,106 +688,202 @@ function fdt(s: string) {
     </section>
 
     <!-- Modals -->
-    <UModal v-model:open="kpiOpen" title="Add KPI">
+    <UModal v-model:open="editObjOpen" title="Edit objective">
       <template #body>
         <div class="space-y-3">
-          <UFormField label="Name" required
-            ><UInput v-model="kpiForm.name" autofocus placeholder="e.g. Consulting revenue"
-          /></UFormField>
+          <UFormField label="Title" required>
+            <UInput v-model="editObjForm.title" autofocus class="w-full" />
+          </UFormField>
           <div class="grid grid-cols-2 gap-3">
-            <UFormField label="Unit"
-              ><UInput v-model="kpiForm.unit" placeholder="USD, %, count"
+            <UFormField label="Theme"
+              ><UInput v-model="editObjForm.theme" class="w-full"
             /></UFormField>
-            <UFormField label="Direction"
-              ><USelect
+            <UFormField label="Year">
+              <UInputNumber v-model="editObjForm.year" :min="2000" :max="2100" class="w-full" />
+            </UFormField>
+          </div>
+          <UFormField label="Owner">
+            <USelect
+              v-model="editObjForm.ownerUserId"
+              :items="peopleItems"
+              value-key="value"
+              class="w-full"
+            />
+          </UFormField>
+          <UFormField label="Description">
+            <UTextarea v-model="editObjForm.description" :rows="3" class="w-full" />
+          </UFormField>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton variant="ghost" color="neutral" label="Cancel" @click="editObjOpen = false" />
+          <UButton label="Save" :loading="savingObj" @click="saveObjective" />
+        </div>
+      </template>
+    </UModal>
+
+    <!-- KPI full edit -->
+    <UModal v-model:open="kpiOpen" :title="kpiForm.id ? 'Edit KPI' : 'Add KPI'">
+      <template #body>
+        <div class="space-y-3">
+          <UFormField label="Name" required>
+            <UInput
+              v-model="kpiForm.name"
+              autofocus
+              class="w-full"
+              placeholder="e.g. Consulting revenue"
+            />
+          </UFormField>
+          <div class="grid grid-cols-2 gap-3">
+            <UFormField label="Unit">
+              <UInput v-model="kpiForm.unit" placeholder="USD, %, count" class="w-full" />
+            </UFormField>
+            <UFormField label="Direction">
+              <USelect
                 v-model="kpiForm.direction"
-                :items="[
-                  { label: 'Increase', value: 'increase' },
-                  { label: 'Decrease', value: 'decrease' },
-                ]"
+                :items="directionItems"
                 value-key="value"
                 class="w-full"
-            /></UFormField>
-            <UFormField label="Baseline"
-              ><UInput v-model="kpiForm.baseline" type="number"
-            /></UFormField>
-            <UFormField label="Target"
-              ><UInput v-model="kpiForm.target" type="number"
-            /></UFormField>
-            <UFormField label="Current"
-              ><UInput v-model="kpiForm.current" type="number"
-            /></UFormField>
+              />
+            </UFormField>
+            <UFormField label="Baseline">
+              <UInput v-model="kpiForm.baseline" type="number" class="w-full" />
+            </UFormField>
+            <UFormField label="Annual target">
+              <UInput v-model="kpiForm.target" type="number" class="w-full" />
+            </UFormField>
+            <UFormField label="Current value">
+              <UInput v-model="kpiForm.current" type="number" class="w-full" />
+            </UFormField>
           </div>
         </div>
       </template>
-      <template #footer
-        ><div class="flex w-full justify-end gap-2">
-          <UButton
-            variant="ghost"
-            color="neutral"
-            label="Cancel"
-            @click="kpiOpen = false"
-          /><UButton label="Add KPI" @click="addKpi" /></div
-      ></template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton variant="ghost" color="neutral" label="Cancel" @click="kpiOpen = false" />
+          <UButton :label="kpiForm.id ? 'Save' : 'Add KPI'" :loading="savingKpi" @click="saveKpi" />
+        </div>
+      </template>
     </UModal>
 
-    <UModal v-model:open="goalOpen" title="Add departmental goal">
+    <!-- KPI quick "log actual" (ST-03 check-in update) -->
+    <UModal v-model:open="kpiValueOpen" title="Log KPI actual">
+      <template #body>
+        <div v-if="kpiValueTarget" class="space-y-3">
+          <p class="text-sm text-muted">
+            {{ kpiValueTarget.name }} — baseline {{ Number(kpiValueTarget.baseline) }} → target
+            {{ kpiValueTarget.target != null ? Number(kpiValueTarget.target) : '—' }}
+            {{ kpiValueTarget.unit ?? '' }}
+          </p>
+          <UFormField
+            :label="`Current value${kpiValueTarget.unit ? ` (${kpiValueTarget.unit})` : ''}`"
+            required
+          >
+            <UInputNumber v-model="kpiValue" class="w-full" />
+          </UFormField>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton variant="ghost" color="neutral" label="Cancel" @click="kpiValueOpen = false" />
+          <UButton label="Save" :loading="savingKpiValue" @click="saveKpiValue" />
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Goal full edit -->
+    <UModal v-model:open="goalOpen" :title="goalForm.id ? 'Edit goal' : 'Add departmental goal'">
       <template #body>
         <div class="space-y-3">
-          <UFormField label="Title" required
-            ><UInput v-model="goalForm.title" autofocus
-          /></UFormField>
+          <UFormField label="Title" required>
+            <UInput v-model="goalForm.title" autofocus class="w-full" />
+          </UFormField>
           <div class="grid grid-cols-2 gap-3">
-            <UFormField label="Department"><UInput v-model="goalForm.department" /></UFormField>
-            <UFormField label="Owner"
-              ><USelect
+            <UFormField label="Department">
+              <UInput v-model="goalForm.department" class="w-full" />
+            </UFormField>
+            <UFormField label="Owner">
+              <USelect
                 v-model="goalForm.ownerUserId"
                 :items="peopleItems"
                 value-key="value"
                 class="w-full"
-            /></UFormField>
+              />
+            </UFormField>
+            <UFormField label="Due date">
+              <UInput v-model="goalForm.dueDate" type="date" class="w-full" />
+            </UFormField>
+            <UFormField label="Status">
+              <USelect
+                v-model="goalForm.status"
+                :items="statusItems"
+                value-key="value"
+                class="w-full"
+              />
+            </UFormField>
           </div>
-          <UFormField label="Due date"
-            ><UInput v-model="goalForm.dueDate" type="date"
-          /></UFormField>
+          <UFormField :label="`Progress — ${goalForm.progressPct}%`">
+            <UInputNumber v-model="goalForm.progressPct" :min="0" :max="100" class="w-full" />
+          </UFormField>
         </div>
       </template>
-      <template #footer
-        ><div class="flex w-full justify-end gap-2">
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton variant="ghost" color="neutral" label="Cancel" @click="goalOpen = false" />
           <UButton
-            variant="ghost"
-            color="neutral"
-            label="Cancel"
-            @click="goalOpen = false"
-          /><UButton label="Add goal" @click="addGoal" /></div
-      ></template>
+            :label="goalForm.id ? 'Save' : 'Add goal'"
+            :loading="savingGoal"
+            @click="saveGoal"
+          />
+        </div>
+      </template>
     </UModal>
 
-    <UModal v-model:open="indivOpen" title="Link individual objective">
+    <!-- Individual objective (create + edit) -->
+    <UModal
+      v-model:open="indivOpen"
+      :title="indivForm.id ? 'Edit individual objective' : 'Link individual objective'"
+    >
       <template #body>
         <div class="space-y-3">
-          <UFormField label="Staff member" required
-            ><USelect
+          <UFormField v-if="!indivForm.id" label="Staff member" required>
+            <USelect
               v-model="indivForm.userId"
               :items="peopleItems"
               value-key="value"
               class="w-full"
               placeholder="Select…"
-          /></UFormField>
-          <UFormField label="Objective" required
-            ><UInput v-model="indivForm.title" autofocus
-          /></UFormField>
+            />
+          </UFormField>
+          <UFormField label="Objective" required>
+            <UInput v-model="indivForm.title" autofocus class="w-full" />
+          </UFormField>
+          <template v-if="indivForm.id">
+            <UFormField label="Status">
+              <USelect
+                v-model="indivForm.status"
+                :items="statusItems"
+                value-key="value"
+                class="w-full"
+              />
+            </UFormField>
+            <UFormField :label="`Progress — ${indivForm.progressPct}%`">
+              <UInputNumber v-model="indivForm.progressPct" :min="0" :max="100" class="w-full" />
+            </UFormField>
+          </template>
         </div>
       </template>
-      <template #footer
-        ><div class="flex w-full justify-end gap-2">
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton variant="ghost" color="neutral" label="Cancel" @click="indivOpen = false" />
           <UButton
-            variant="ghost"
-            color="neutral"
-            label="Cancel"
-            @click="indivOpen = false"
-          /><UButton label="Link" @click="addIndiv" /></div
-      ></template>
+            :label="indivForm.id ? 'Save' : 'Link'"
+            :loading="savingIndiv"
+            @click="saveIndiv"
+          />
+        </div>
+      </template>
     </UModal>
 
     <UModal v-model:open="checkinOpen" title="New review check-in">

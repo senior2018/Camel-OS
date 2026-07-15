@@ -26,6 +26,7 @@ if (!isContentTeam.value) {
     fatal: true,
   })
 }
+
 const canCreate = computed(() => can.value('communications', 'create'))
 
 interface ContentRow {

@@ -68,47 +68,54 @@ const weekLabel = computed(() => {
   return `${fmt(s)} – ${fmt(e)}`
 })
 
-// Add-entry modal
+// Nuxt UI USelect forbids an empty-string value → sentinels for "internal" /
+// "no activity" that map back to null on save.
+const INTERNAL = '__internal__'
+const NO_ACT = '__none__'
+
+// Add / edit-entry modal
 const open = ref(false)
 const saving = ref(false)
 const form = reactive({
+  id: null as string | null,
   entryDate: weekStart.value,
-  projectId: '',
-  activityId: '',
+  projectId: INTERNAL,
+  activityId: NO_ACT,
   taskLabel: '',
   hours: '',
   note: '',
 })
-watch(open, (v) => {
-  if (v)
-    Object.assign(form, {
-      entryDate: weekStart.value,
-      projectId: '',
-      activityId: '',
-      taskLabel: '',
-      hours: '',
-      note: '',
-    })
-})
+function openEntry(e?: Entry) {
+  form.id = e?.id ?? null
+  form.entryDate = e?.entryDate ?? weekStart.value
+  form.projectId = e?.projectId ?? INTERNAL
+  form.activityId = e?.activityId ?? NO_ACT
+  form.taskLabel = e?.taskLabel ?? ''
+  form.hours = e ? String(Number(e.hours)) : ''
+  form.note = e?.note ?? ''
+  detailOpen.value = false
+  open.value = true
+}
 const projectItems = computed(() => [
-  { label: '🗂 Internal task (no project)', value: '' },
+  { label: '🗂 Internal task (no project)', value: INTERNAL },
   ...(options.value?.projects ?? []).map((p) => ({ label: p.name, value: p.id })),
 ])
 const activityItems = computed(() => {
   const proj = options.value?.projects.find((p) => p.id === form.projectId)
   return [
-    { label: '— No specific activity —', value: '' },
+    { label: '— No specific activity —', value: NO_ACT },
     ...(proj?.activities ?? []).map((a) => ({ label: a.name, value: a.id })),
   ]
 })
 
-async function add() {
+async function save() {
+  const isInternal = form.projectId === INTERNAL
   const parsed = timesheetEntrySchema.safeParse({
     entryDate: form.entryDate,
     hours: form.hours,
-    projectId: form.projectId || null,
-    activityId: form.activityId || null,
-    taskLabel: form.taskLabel || null,
+    projectId: isInternal ? null : form.projectId,
+    activityId: isInternal || form.activityId === NO_ACT ? null : form.activityId,
+    taskLabel: isInternal ? form.taskLabel || null : null,
     note: form.note || null,
   })
   if (!parsed.success) {
@@ -117,12 +124,16 @@ async function add() {
   }
   saving.value = true
   try {
-    await $fetch('/api/timesheets', { method: 'POST', body: parsed.data })
+    if (form.id) {
+      await $fetch(`/api/timesheets/${form.id}`, { method: 'PATCH', body: parsed.data })
+    } else {
+      await $fetch('/api/timesheets', { method: 'POST', body: parsed.data })
+    }
     open.value = false
     await refresh()
   } catch (err) {
     const msg = (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Failed'
-    toast.add({ title: 'Could not log time', description: msg, color: 'error' })
+    toast.add({ title: 'Could not save entry', description: msg, color: 'error' })
   } finally {
     saving.value = false
   }
@@ -130,7 +141,16 @@ async function add() {
 async function del(e: Entry) {
   const endpoint: string = `/api/timesheets/${e.id}`
   await $fetch(endpoint, { method: 'DELETE' })
+  detailOpen.value = false
   await refresh()
+}
+
+// Detail modal (clean list → click a row → full details).
+const detailOpen = ref(false)
+const detailEntry = ref<Entry | null>(null)
+function openDetail(e: Entry) {
+  detailEntry.value = e
+  detailOpen.value = true
 }
 async function submitWeek() {
   try {
@@ -169,7 +189,7 @@ function label(e: Entry) {
           icon="i-lucide-check-check"
           label="Approvals"
         />
-        <UButton v-if="!data.locked" icon="i-lucide-plus" label="Log time" @click="open = true" />
+        <UButton v-if="!data.locked" icon="i-lucide-plus" label="Log time" @click="openEntry()" />
       </div>
     </header>
 
@@ -216,7 +236,7 @@ function label(e: Entry) {
       <UIcon name="i-lucide-clock" class="size-10 text-muted" />
       <p class="mt-2 text-sm text-muted">No time logged this week.</p>
     </div>
-    <div v-else class="overflow-hidden rounded-xl border border-default">
+    <div v-else class="overflow-hidden rounded-xl border border-default bg-default shadow-sm">
       <table class="w-full text-sm">
         <thead class="bg-elevated/40 text-left text-xs uppercase tracking-wide text-muted">
           <tr>
@@ -227,23 +247,22 @@ function label(e: Entry) {
           </tr>
         </thead>
         <tbody class="divide-y divide-default">
-          <tr v-for="e in data.entries" :key="e.id">
-            <td class="px-4 py-2.5 text-muted">{{ fday(e.entryDate) }}</td>
-            <td class="px-4 py-2.5 text-default">
-              {{ label(e) }}
-              <span v-if="e.note" class="block text-xs text-muted">{{ e.note }}</span>
+          <tr
+            v-for="e in data.entries"
+            :key="e.id"
+            class="cursor-pointer transition-colors hover:bg-elevated/40"
+            @click="openDetail(e)"
+          >
+            <td class="whitespace-nowrap px-4 py-2.5 text-muted">{{ fday(e.entryDate) }}</td>
+            <td class="max-w-0 px-4 py-2.5">
+              <p class="truncate font-medium text-default">{{ label(e) }}</p>
+              <p v-if="e.note" class="truncate text-xs text-muted">{{ e.note }}</p>
             </td>
-            <td class="px-4 py-2.5 font-medium text-default">{{ Number(e.hours) }}</td>
+            <td class="whitespace-nowrap px-4 py-2.5 font-medium text-default">
+              {{ Number(e.hours) }}
+            </td>
             <td class="px-4 py-2.5 text-right">
-              <UButton
-                v-if="!data.locked"
-                size="xs"
-                variant="ghost"
-                color="error"
-                icon="i-lucide-trash-2"
-                aria-label="Delete"
-                @click="del(e)"
-              />
+              <UIcon name="i-lucide-chevron-right" class="size-4 text-muted" />
             </td>
           </tr>
         </tbody>
@@ -266,16 +285,21 @@ function label(e: Entry) {
       Approved ✓
     </p>
 
-    <!-- Add modal -->
-    <UModal v-model:open="open" title="Log time">
+    <!-- Add / edit modal -->
+    <UModal v-model:open="open" :title="form.id ? 'Edit entry' : 'Log time'">
       <template #body>
         <div class="space-y-3">
           <div class="grid grid-cols-2 gap-3">
             <UFormField label="Date" required
-              ><UInput v-model="form.entryDate" type="date"
+              ><UInput v-model="form.entryDate" type="date" class="w-full"
             /></UFormField>
             <UFormField label="Hours" required
-              ><UInput v-model="form.hours" type="number" step="0.25" placeholder="e.g. 4"
+              ><UInput
+                v-model="form.hours"
+                type="number"
+                step="0.25"
+                placeholder="e.g. 4"
+                class="w-full"
             /></UFormField>
           </div>
           <UFormField label="Project"
@@ -285,7 +309,7 @@ function label(e: Entry) {
               value-key="value"
               class="w-full"
           /></UFormField>
-          <UFormField v-if="form.projectId" label="Activity"
+          <UFormField v-if="form.projectId !== INTERNAL" label="Activity"
             ><USelect
               v-model="form.activityId"
               :items="activityItems"
@@ -293,7 +317,10 @@ function label(e: Entry) {
               class="w-full"
           /></UFormField>
           <UFormField v-else label="Internal task" required
-            ><UInput v-model="form.taskLabel" placeholder="e.g. Admin, business development"
+            ><UInput
+              v-model="form.taskLabel"
+              class="w-full"
+              placeholder="e.g. Admin, business development"
           /></UFormField>
           <UFormField label="Note"
             ><UTextarea v-model="form.note" :rows="2" class="w-full"
@@ -303,11 +330,73 @@ function label(e: Entry) {
       <template #footer
         ><div class="flex w-full justify-end gap-2">
           <UButton variant="ghost" color="neutral" label="Cancel" @click="open = false" /><UButton
-            label="Add"
+            :label="form.id ? 'Save' : 'Add'"
             :loading="saving"
-            @click="add"
+            @click="save"
           /></div
       ></template>
+    </UModal>
+
+    <!-- Detail modal -->
+    <UModal v-model:open="detailOpen" title="Time entry">
+      <template #body>
+        <dl v-if="detailEntry" class="space-y-3 text-sm">
+          <div class="flex justify-between gap-4">
+            <dt class="text-muted">Date</dt>
+            <dd class="text-default">
+              {{ new Date(`${detailEntry.entryDate}T00:00:00`).toLocaleDateString() }}
+            </dd>
+          </div>
+          <div class="flex justify-between gap-4">
+            <dt class="text-muted">Hours</dt>
+            <dd class="font-medium text-default">{{ Number(detailEntry.hours) }}</dd>
+          </div>
+          <div class="flex justify-between gap-4">
+            <dt class="text-muted">Project / task</dt>
+            <dd class="text-right text-default">{{ label(detailEntry) }}</dd>
+          </div>
+          <div v-if="detailEntry.note">
+            <dt class="text-muted">Note</dt>
+            <dd
+              class="mt-1 whitespace-pre-wrap wrap-break-word rounded-lg bg-muted p-3 text-default"
+            >
+              {{ detailEntry.note }}
+            </dd>
+          </div>
+          <div class="flex justify-between gap-4">
+            <dt class="text-muted">Status</dt>
+            <dd>
+              <UBadge
+                :color="TIMESHEET_STATUS_COLOR[detailEntry.status]"
+                variant="subtle"
+                size="xs"
+                :label="TIMESHEET_STATUS_LABEL[detailEntry.status]"
+              />
+            </dd>
+          </div>
+        </dl>
+      </template>
+      <template #footer>
+        <div class="flex w-full items-center justify-between gap-2">
+          <UButton
+            v-if="!data.locked && detailEntry"
+            variant="ghost"
+            color="error"
+            icon="i-lucide-trash-2"
+            label="Delete"
+            @click="del(detailEntry)"
+          />
+          <div class="ml-auto flex gap-2">
+            <UButton variant="ghost" color="neutral" label="Close" @click="detailOpen = false" />
+            <UButton
+              v-if="!data.locked && detailEntry"
+              icon="i-lucide-pencil"
+              label="Edit"
+              @click="openEntry(detailEntry)"
+            />
+          </div>
+        </div>
+      </template>
     </UModal>
   </div>
 </template>

@@ -12,7 +12,7 @@ import {
  * human sentence ("Moved 'Test Tender' from Discovery → Qualifying") plus an
  * optional set of `field: value` pairs for the expanded view.
  *
- * Add a new branch here whenever a module starts logging a new audit action —
+ * Add new branch here whenever a module starts logging a new audit action —
  * the viewer stays a single template, the formatter is the one place to update.
  */
 export interface FormattedAudit {

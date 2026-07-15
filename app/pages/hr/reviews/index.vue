@@ -91,7 +91,7 @@ const subjectName = (r: Review) => [r.firstName, r.lastName].filter(Boolean).joi
     >
       No reviews yet.
     </p>
-    <div v-else class="overflow-hidden rounded-xl border border-default">
+    <div v-else class="overflow-hidden rounded-xl border border-default bg-default shadow-sm">
       <table class="w-full text-sm">
         <thead class="bg-elevated/40 text-left text-xs uppercase tracking-wide text-muted">
           <tr>

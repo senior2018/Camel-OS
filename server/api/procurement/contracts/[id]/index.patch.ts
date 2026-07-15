@@ -12,9 +12,19 @@ export default defineEventHandler(async (event) => {
     const id = getRouterParam(event, 'id')
     if (!id) throw createError({ statusCode: 400, statusMessage: 'Id required' })
     const b = await readValidatedBody(event, updateContractSchema.parse)
+    const u: Record<string, unknown> = {}
+    if (b.status !== undefined) u.status = b.status
+    if (b.title !== undefined) u.title = b.title
+    if (b.vendorId !== undefined) u.vendorId = b.vendorId ?? null
+    if (b.vendorName !== undefined) u.vendorName = b.vendorName ?? null
+    if (b.value !== undefined) u.value = b.value != null ? String(b.value) : null
+    if (b.currency !== undefined) u.currency = b.currency
+    if (b.startDate !== undefined) u.startDate = b.startDate || null
+    if (b.endDate !== undefined) u.endDate = b.endDate || null
+    if (b.documentUrl !== undefined) u.documentUrl = b.documentUrl || null
     const [updated] = await useDrizzle()
       .update(procurementContracts)
-      .set({ status: b.status })
+      .set(u)
       .where(
         and(
           eq(procurementContracts.id, id),

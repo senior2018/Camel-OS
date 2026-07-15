@@ -12,6 +12,7 @@ import {
   projectReports,
   projectVendors,
   projects,
+  purchaseOrders,
   timesheetEntries,
   users,
 } from '@@/server/database/schema'
@@ -144,6 +145,22 @@ export default defineEventHandler(async (event) => {
       .where(eq(projectVendors.projectId, id))
       .orderBy(asc(projectVendors.createdAt))
 
+    // PR — procurement POs linked to this project. Any PO past draft is a real
+    // commitment against its budget category, so it rolls into the project budget.
+    const procurementPos = await db
+      .select({
+        id: purchaseOrders.id,
+        poNumber: purchaseOrders.poNumber,
+        title: purchaseOrders.title,
+        budgetCategory: purchaseOrders.budgetCategory,
+        amount: purchaseOrders.amount,
+        status: purchaseOrders.status,
+      })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.projectId, id))
+      .orderBy(desc(purchaseOrders.createdAt))
+    const PO_COMMITTED = new Set(['approved', 'committed', 'received', 'closed'])
+
     // P9 — expense requests (request → approve → return).
     const expenseRequests = await db
       .select({
@@ -206,10 +223,14 @@ export default defineEventHandler(async (event) => {
     const totalBudget = budgetPlanned || Number(project.totalBudget ?? 0)
     const spent = expenses.reduce((s, e) => s + Number(e.amount), 0)
     const burnRate = totalBudget ? Math.round((spent / totalBudget) * 100) : 0
-    // P10 — committed = approved requests not yet returned; remaining balance.
-    const committed = expenseRequests
+    // P10 — committed = approved requests not yet returned + committed vendor POs.
+    const requestsCommitted = expenseRequests
       .filter((r) => r.request.status === 'approved')
       .reduce((s, r) => s + Number(r.request.amount), 0)
+    const posCommitted = procurementPos
+      .filter((p) => PO_COMMITTED.has(p.status))
+      .reduce((s, p) => s + Number(p.amount), 0)
+    const committed = requestsCommitted + posCommitted
     const remaining = totalBudget - spent - committed
     const overBudget = totalBudget > 0 && spent > totalBudget
     const milestonesDone = milestones.filter((m) => m.statusCategory === 'done').length
@@ -267,6 +288,7 @@ export default defineEventHandler(async (event) => {
       budgetLines: canViewBudget ? budgetLines : [],
       expenses: canViewBudget ? expenses : [],
       vendors: canViewBudget ? vendors : [],
+      procurementPos: canViewBudget ? procurementPos : [],
       expenseRequests: canViewBudget
         ? expenseRequests.map((r) => ({
             ...r.request,

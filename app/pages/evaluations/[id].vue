@@ -71,6 +71,67 @@ const typeItems = QUESTION_TYPES.map((t) => ({ label: QUESTION_TYPE_LABEL[t], va
 function addQuestion() {
   questions.value.push({ type: 'text', prompt: '', options: [], required: false })
 }
+// Proper multiple-choice option management (add/remove rows, not free-text lines).
+function onTypeChange(q: { type: QuestionType; options: string[] }) {
+  if (q.type === 'multiple_choice' && !q.options.length) q.options = ['', '']
+}
+function addOption(q: { options: string[] }) {
+  q.options.push('')
+}
+function removeOption(q: { options: string[] }, i: number) {
+  q.options.splice(i, 1)
+}
+
+// ── Edit details + delete the evaluation ──
+const editOpen = ref(false)
+const editForm = reactive({ title: '', description: '' })
+function openEdit() {
+  editForm.title = data.value?.evaluation.title ?? ''
+  editForm.description = data.value?.evaluation.description ?? ''
+  editOpen.value = true
+}
+const savingEdit = ref(false)
+async function saveDetails() {
+  if (!editForm.title.trim()) {
+    toast.add({ title: 'A title is required', color: 'warning' })
+    return
+  }
+  savingEdit.value = true
+  try {
+    await $fetch(`/api/mel/evaluations/${id}`, {
+      method: 'PATCH',
+      body: { title: editForm.title.trim(), description: editForm.description.trim() || null },
+    })
+    toast.add({ title: 'Evaluation updated', color: 'success' })
+    editOpen.value = false
+    await refresh()
+  } catch {
+    toast.add({ title: 'Could not update', color: 'error' })
+  } finally {
+    savingEdit.value = false
+  }
+}
+async function removeEvaluation() {
+  if (!confirm('Delete this evaluation and all its responses? This cannot be undone.')) return
+  try {
+    await $fetch(`/api/mel/evaluations/${id}`, { method: 'DELETE' })
+    toast.add({ title: 'Evaluation deleted', color: 'success' })
+    await navigateTo('/evaluations')
+  } catch {
+    toast.add({ title: 'Could not delete', color: 'error' })
+  }
+}
+const actionItems = computed(() => [
+  [
+    { label: 'Edit details', icon: 'i-lucide-pencil', onSelect: () => openEdit() },
+    {
+      label: 'Delete evaluation',
+      icon: 'i-lucide-trash-2',
+      color: 'error' as const,
+      onSelect: () => removeEvaluation(),
+    },
+  ],
+])
 const savingQ = ref(false)
 async function saveQuestions() {
   savingQ.value = true
@@ -167,6 +228,9 @@ const tab = ref<'build' | 'responses'>('build')
           label="Close"
           @click="setStatus('closed')"
         />
+        <UDropdownMenu v-if="canEdit" :items="actionItems">
+          <UButton icon="i-lucide-ellipsis-vertical" color="neutral" variant="ghost" square />
+        </UDropdownMenu>
       </div>
     </div>
 
@@ -217,6 +281,7 @@ const tab = ref<'build' | 'responses'>('build')
               value-key="value"
               :disabled="!canEdit"
               class="w-40"
+              @update:model-value="() => onTypeChange(q)"
             />
             <UButton
               v-if="canEdit"
@@ -228,15 +293,38 @@ const tab = ref<'build' | 'responses'>('build')
               @click="questions.splice(i, 1)"
             />
           </div>
-          <div v-if="q.type === 'multiple_choice'" class="pl-2">
-            <UTextarea
-              :model-value="q.options.join('\n')"
-              :disabled="!canEdit"
-              :rows="3"
-              class="w-full"
-              placeholder="One option per line"
-              @update:model-value="(v: string) => (q.options = v.split('\n'))"
+          <!-- Real option rows for multiple choice (add / remove each answer) -->
+          <div v-if="q.type === 'multiple_choice'" class="space-y-2 pl-2">
+            <p class="text-xs font-medium uppercase tracking-wide text-muted">Answer options</p>
+            <div v-for="(_, oi) in q.options" :key="oi" class="flex items-center gap-2">
+              <span class="text-xs text-muted">{{ oi + 1 }}.</span>
+              <UInput
+                v-model="q.options[oi]"
+                :disabled="!canEdit"
+                placeholder="Answer option"
+                class="flex-1"
+              />
+              <UButton
+                v-if="canEdit"
+                size="xs"
+                variant="ghost"
+                color="error"
+                icon="i-lucide-x"
+                aria-label="Remove option"
+                @click="removeOption(q, oi)"
+              />
+            </div>
+            <UButton
+              v-if="canEdit"
+              size="xs"
+              variant="soft"
+              icon="i-lucide-plus"
+              label="Add option"
+              @click="addOption(q)"
             />
+          </div>
+          <div v-else-if="q.type === 'scale'" class="pl-2 text-xs text-muted">
+            Respondents pick a rating from 1 to 5.
           </div>
           <label class="flex items-center gap-2 text-xs text-muted"
             ><UCheckbox v-model="q.required" :disabled="!canEdit" /> Required</label
@@ -306,5 +394,24 @@ const tab = ref<'build' | 'responses'>('build')
         </ul>
       </UCard>
     </div>
+
+    <UModal v-model:open="editOpen" title="Edit evaluation">
+      <template #body>
+        <div class="space-y-3">
+          <UFormField label="Title" required>
+            <UInput v-model="editForm.title" autofocus class="w-full" />
+          </UFormField>
+          <UFormField label="Description">
+            <UTextarea v-model="editForm.description" :rows="3" class="w-full" />
+          </UFormField>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton variant="ghost" color="neutral" label="Cancel" @click="editOpen = false" />
+          <UButton label="Save" :loading="savingEdit" @click="saveDetails" />
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>

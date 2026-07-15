@@ -31,6 +31,7 @@ interface BudgetLine {
   plannedAmount: string | number
   actualAmount: string | number
 }
+
 interface Campaign {
   id: string
   name: string

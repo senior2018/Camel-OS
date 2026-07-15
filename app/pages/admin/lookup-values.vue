@@ -23,7 +23,6 @@ interface LookupValue {
 }
 
 const toast = useToast()
-
 const { data, refresh, status } = useFetch<{ items: LookupValue[] }>('/api/admin/lookup-values', {
   key: 'admin-lookup-values',
   default: () => ({ items: [] }),
