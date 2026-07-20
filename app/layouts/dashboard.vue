@@ -247,6 +247,12 @@ const adminItems = computed(() => {
       icon: 'i-lucide-sliders-horizontal',
       active: route.path.startsWith('/admin/proposal-settings'),
     },
+    {
+      label: 'API keys',
+      to: '/admin/api-keys',
+      icon: 'i-lucide-key-round',
+      active: route.path.startsWith('/admin/api-keys'),
+    },
   ]
 })
 

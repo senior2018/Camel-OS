@@ -90,6 +90,13 @@ onMounted(() => {
           </li>
         </ul>
         <p v-else class="px-3 py-8 text-center text-sm text-muted">You're all caught up.</p>
+        <NuxtLink
+          to="/notifications"
+          class="block border-t border-default px-3 py-2 text-center text-xs font-medium text-primary hover:bg-elevated/40"
+          @click="open = false"
+        >
+          View all & preferences
+        </NuxtLink>
       </div>
     </template>
   </UPopover>
