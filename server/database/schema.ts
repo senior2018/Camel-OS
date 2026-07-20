@@ -3322,3 +3322,68 @@ export const procurementContracts = pgTable(
   },
   (table) => [index('procurement_contracts_org_idx').on(table.organizationId)]
 )
+
+// ─── Knowledge Management + Help (S24, KM-01..07 / HD-01..02) ─────────────────
+export const knowledgeStatusEnum = pgEnum('knowledge_status', ['draft', 'published', 'archived'])
+export const knowledgeVisibilityEnum = pgEnum('knowledge_visibility', ['everyone', 'restricted'])
+export const knowledgeKindEnum = pgEnum('knowledge_kind', ['article', 'help'])
+
+// One table powers both the internal knowledge base (playbooks, SOPs, templates)
+// and in-product help. `kind` separates them; `contextKeys` lets a help doc be
+// surfaced by the contextual panel on matching routes/modules (HD-02); access is
+// org-wide or restricted to specific roles (KM-03).
+export const knowledgeArticles = pgTable(
+  'knowledge_articles',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    kind: knowledgeKindEnum().notNull().default('article'),
+    title: text().notNull(),
+    excerpt: text(),
+    body: text(), // rich-text HTML
+    // HD-03 — optional training video for help docs.
+    videoUrl: text('video_url'),
+    category: text(),
+    tags: jsonb().$type<string[]>().notNull().default([]),
+    // HD-02 — module/route keys this help doc is relevant to (e.g. 'projects').
+    contextKeys: jsonb('context_keys').$type<string[]>().notNull().default([]),
+    visibility: knowledgeVisibilityEnum().notNull().default('everyone'),
+    allowedRoleIds: jsonb('allowed_role_ids').$type<string[]>().notNull().default([]),
+    status: knowledgeStatusEnum().notNull().default('draft'),
+    helpfulCount: integer('helpful_count').notNull().default(0),
+    notHelpfulCount: integer('not_helpful_count').notNull().default(0),
+    viewCount: integer('view_count').notNull().default(0),
+    authorUserId: uuid('author_user_id').references(() => users.id, { onDelete: 'set null' }),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('knowledge_articles_org_idx').on(table.organizationId),
+    index('knowledge_articles_kind_idx').on(table.kind),
+  ]
+)
+
+// KM-05 — per-user feedback so ratings can't be gamed and analytics are real.
+export const knowledgeFeedback = pgTable(
+  'knowledge_feedback',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    articleId: uuid('article_id')
+      .notNull()
+      .references(() => knowledgeArticles.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    helpful: boolean().notNull(),
+    comment: text(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [unique('knowledge_feedback_article_user_uq').on(table.articleId, table.userId)]
+)
+
