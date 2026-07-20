@@ -3370,6 +3370,24 @@ export const knowledgeArticles = pgTable(
   ]
 )
 
+// KM-02 — managed, multi-level category taxonomy maintained by the Knowledge
+// Manager. Self-referencing parentId gives the hierarchy; articles reference a
+// category by its full path string (kept for findability + backward compat).
+export const knowledgeCategories = pgTable(
+  'knowledge_categories',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    name: text().notNull(),
+    parentId: uuid('parent_id'),
+    orderIndex: integer('order_index').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('knowledge_categories_org_idx').on(table.organizationId)]
+)
+
 // KM-01 — uploaded documents attached to a knowledge item (the "or upload
 // documents" half of the story). Files live in the knowledge-documents bucket.
 export const knowledgeAttachments = pgTable(
@@ -3435,6 +3453,26 @@ export const releaseNotes = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [index('release_notes_org_idx').on(table.organizationId)]
+)
+
+// NT-02 — org-level policy: which roles receive which notification categories.
+// A row = that role receives that category. If a category has NO rows, everyone
+// receives it (default-on, backward compatible). Per-user prefs refine on top.
+export const notificationRolePolicy = pgTable(
+  'notification_role_policy',
+  {
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    category: text().notNull(),
+    roleId: uuid('role_id')
+      .notNull()
+      .references(() => roles.id, { onDelete: 'cascade' }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.organizationId, table.category, table.roleId] }),
+    index('notification_role_policy_org_idx').on(table.organizationId),
+  ]
 )
 
 // ─── Notification preferences + API access (S26, NT-01..04 / UM) ─────────────

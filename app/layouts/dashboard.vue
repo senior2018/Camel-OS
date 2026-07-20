@@ -248,6 +248,12 @@ const adminItems = computed(() => {
       active: route.path.startsWith('/admin/proposal-settings'),
     },
     {
+      label: 'Notifications',
+      to: '/admin/notifications',
+      icon: 'i-lucide-bell-ring',
+      active: route.path.startsWith('/admin/notifications'),
+    },
+    {
       label: 'API keys',
       to: '/admin/api-keys',
       icon: 'i-lucide-key-round',

@@ -83,6 +83,21 @@ const roleItems = computed(() =>
   (rolesData.value?.items ?? []).map((r) => ({ label: r.name, value: r.id }))
 )
 const contextItems = CONTEXT_KEYS.map((k) => ({ label: k, value: k as string }))
+// KM-02 — managed category taxonomy (paths). Creatable so a manager can add on the fly.
+const { data: catsData } = await useFetch<{ items: { id: string; path: string }[] }>(
+  '/api/knowledge/categories',
+  { key: 'knowledge-categories', default: () => ({ items: [] }) }
+)
+const categoryPathItems = computed(() => (catsData.value?.items ?? []).map((c) => c.path))
+async function onCreateCategory(name: string) {
+  meta.category = name
+  try {
+    await $fetch('/api/knowledge/categories', { method: 'POST', body: { name } })
+    await refreshNuxtData('knowledge-categories')
+  } catch {
+    // non-blocking — the free-typed value is still saved on the article
+  }
+}
 
 const editing = ref(false)
 const editor = shallowRef<Editor>()
@@ -304,9 +319,16 @@ const fmtSize = (b: number) =>
             <UFormField label="Excerpt"
               ><UTextarea v-model="meta.excerpt" :rows="2" class="w-full"
             /></UFormField>
-            <UFormField label="Category"
-              ><UInput v-model="meta.category" placeholder="e.g. Delivery" class="w-full"
-            /></UFormField>
+            <UFormField label="Category" hint="Managed taxonomy — type to add a new one">
+              <USelectMenu
+                v-model="meta.category"
+                :items="categoryPathItems"
+                create-item
+                placeholder="e.g. Delivery › Onboarding"
+                class="w-full"
+                @create="onCreateCategory($event)"
+              />
+            </UFormField>
             <UFormField
               label="Next review date"
               hint="Managers are alerted as it approaches (KM-06)"

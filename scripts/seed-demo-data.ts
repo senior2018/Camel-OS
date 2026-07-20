@@ -51,8 +51,10 @@ import {
   donorProjects,
   apiKeys,
   knowledgeArticles,
+  knowledgeCategories,
   knowledgeFeedback,
   notificationPreferences,
+  notificationRolePolicy,
   releaseNotes,
   feedbackItems,
   launchTasks,
@@ -375,6 +377,8 @@ async function run() {
     strategicObjectives,
     knowledgeFeedback,
     knowledgeArticles,
+    knowledgeCategories,
+    notificationRolePolicy,
     releaseNotes,
     notificationPreferences,
     apiKeys,
@@ -2773,7 +2777,9 @@ async function run() {
           // KM-06 — stagger review dates so some articles are due/overdue for the demo.
           nextReviewDate:
             a.kind === 'article' && published
-              ? daysAgo(-15 + i * 20).toISOString().slice(0, 10)
+              ? daysAgo(-15 + i * 20)
+                  .toISOString()
+                  .slice(0, 10)
               : null,
           publishedAt: published ? daysAgo(a.days) : null,
           createdAt: daysAgo(a.days + 2),
@@ -2781,6 +2787,44 @@ async function run() {
         })
         .returning()
       if (row) articleIdByTitle.set(a.title, row.id)
+    }
+
+    // KM-02 — a managed, nested category taxonomy the knowledge manager maintains.
+    const taxonomy: { name: string; children?: string[] }[] = [
+      { name: 'Proposals', children: ['Bidding', 'Review'] },
+      { name: 'Delivery', children: ['Onboarding', 'Milestones'] },
+      { name: 'Finance', children: ['Expenses', 'Budgets'] },
+      { name: 'CRM' },
+      { name: 'Timesheets' },
+    ]
+    for (const [ti, t] of taxonomy.entries()) {
+      const [parent] = await db
+        .insert(knowledgeCategories)
+        .values({ organizationId: orgId, name: t.name, orderIndex: ti })
+        .returning()
+      for (const [ci, child] of (t.children ?? []).entries()) {
+        await db.insert(knowledgeCategories).values({
+          organizationId: orgId,
+          name: child,
+          parentId: parent!.id,
+          orderIndex: ci,
+        })
+      }
+    }
+
+    // NT-02 — a sample role-level policy: finance notifications go only to
+    // Finance Officer + Manager + System Administrator. Every other category
+    // stays unrestricted (everyone).
+    const financeRoleIds = ['Finance Officer', 'Manager', 'System Administrator']
+      .map((n) => roleId(n))
+      .filter((id): id is string => !!id)
+    if (financeRoleIds.length) {
+      await db
+        .insert(notificationRolePolicy)
+        .values(
+          financeRoleIds.map((rid) => ({ organizationId: orgId, category: 'finance', roleId: rid }))
+        )
+        .onConflictDoNothing()
     }
 
     // Per-user helpful/not-helpful ratings (KM-05) on a couple of popular docs.

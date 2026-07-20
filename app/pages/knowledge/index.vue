@@ -64,6 +64,53 @@ async function newArticle() {
     creating.value = false
   }
 }
+// KM-02 — managed category taxonomy
+interface Cat {
+  id: string
+  name: string
+  parentId: string | null
+  path: string
+}
+const catOpen = ref(false)
+const { data: cats, refresh: refreshCats } = await useFetch<{ items: Cat[] }>(
+  '/api/knowledge/categories',
+  { key: 'knowledge-categories', default: () => ({ items: [] }) }
+)
+const newCatName = ref('')
+const newCatParent = ref('__top__')
+const parentItems = computed(() => [
+  { label: '— Top level —', value: '__top__' },
+  ...(cats.value?.items ?? []).map((c) => ({ label: c.path, value: c.id })),
+])
+const savingCat = ref(false)
+async function addCategory() {
+  const name = newCatName.value.trim()
+  if (!name || savingCat.value) return
+  savingCat.value = true
+  try {
+    await $fetch('/api/knowledge/categories', {
+      method: 'POST',
+      body: { name, parentId: newCatParent.value === '__top__' ? null : newCatParent.value },
+    })
+    newCatName.value = ''
+    newCatParent.value = '__top__'
+    await refreshCats()
+    toast.add({ title: 'Category added', color: 'success' })
+  } catch {
+    toast.add({ title: 'Could not add category', color: 'error' })
+  } finally {
+    savingCat.value = false
+  }
+}
+async function deleteCategory(id: string) {
+  try {
+    await $fetch(`/api/knowledge/categories/${id}`, { method: 'DELETE' })
+    await refreshCats()
+  } catch {
+    toast.add({ title: 'Could not delete', color: 'error' })
+  }
+}
+
 const author = (a: Article) =>
   [a.authorFirstName, a.authorLastName].filter(Boolean).join(' ') || 'Team'
 const when = (s: string) =>
@@ -81,14 +128,61 @@ const when = (s: string) =>
           Playbooks, SOPs, templates, and institutional know-how — searchable and curated.
         </p>
       </div>
-      <UButton
-        v-if="data?.canManage"
-        icon="i-lucide-plus"
-        label="New article"
-        :loading="creating"
-        @click="newArticle"
-      />
+      <div v-if="data?.canManage" class="flex gap-2">
+        <UButton
+          icon="i-lucide-folder-tree"
+          label="Categories"
+          color="neutral"
+          variant="outline"
+          @click="catOpen = true"
+        />
+        <UButton icon="i-lucide-plus" label="New article" :loading="creating" @click="newArticle" />
+      </div>
     </header>
+
+    <UModal v-model:open="catOpen" title="Manage categories">
+      <template #body>
+        <div class="space-y-4">
+          <p class="text-sm text-muted">
+            Organise the knowledge base into a nested taxonomy. Deleting a parent promotes its
+            children to the top level.
+          </p>
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <UFormField label="Name" class="flex-1">
+              <UInput
+                v-model="newCatName"
+                placeholder="e.g. Onboarding"
+                class="w-full"
+                @keydown.enter="addCategory"
+              />
+            </UFormField>
+            <UFormField label="Parent" class="sm:w-48">
+              <USelect v-model="newCatParent" :items="parentItems" class="w-full" />
+            </UFormField>
+            <UButton label="Add" :loading="savingCat" @click="addCategory" />
+          </div>
+          <div class="max-h-72 space-y-1 overflow-y-auto">
+            <div
+              v-for="c in cats?.items ?? []"
+              :key="c.id"
+              class="flex items-center justify-between rounded-lg border border-default px-3 py-2 text-sm"
+            >
+              <span class="truncate">{{ c.path }}</span>
+              <UButton
+                icon="i-lucide-trash-2"
+                color="error"
+                variant="ghost"
+                size="xs"
+                @click="deleteCategory(c.id)"
+              />
+            </div>
+            <p v-if="!(cats?.items ?? []).length" class="py-6 text-center text-sm text-muted">
+              No categories yet.
+            </p>
+          </div>
+        </div>
+      </template>
+    </UModal>
 
     <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
       <UInput
