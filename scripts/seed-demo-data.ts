@@ -2749,7 +2749,7 @@ async function run() {
     ]
 
     const articleIdByTitle = new Map<string, string>()
-    for (const a of articles) {
+    for (const [i, a] of articles.entries()) {
       const published = a.status === 'published'
       const [row] = await db
         .insert(knowledgeArticles)
@@ -2770,6 +2770,11 @@ async function run() {
           notHelpfulCount: a.notHelpful ?? 0,
           viewCount: a.views ?? 0,
           authorUserId: u(a.author),
+          // KM-06 — stagger review dates so some articles are due/overdue for the demo.
+          nextReviewDate:
+            a.kind === 'article' && published
+              ? daysAgo(-15 + i * 20).toISOString().slice(0, 10)
+              : null,
           publishedAt: published ? daysAgo(a.days) : null,
           createdAt: daysAgo(a.days + 2),
           updatedAt: daysAgo(Math.max(0, a.days - 1)),

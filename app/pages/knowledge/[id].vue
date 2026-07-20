@@ -31,6 +31,7 @@ interface Article {
   visibility: KnowledgeVisibility
   allowedRoleIds: string[]
   status: KnowledgeStatus
+  nextReviewDate: string | null
   helpfulCount: number
   notHelpfulCount: number
   viewCount: number
@@ -57,6 +58,7 @@ const meta = reactive({
   contextKeys: [] as string[],
   visibility: 'everyone' as KnowledgeVisibility,
   allowedRoleIds: [] as string[],
+  nextReviewDate: '',
 })
 watchEffect(() => {
   const x = data.value?.article
@@ -66,6 +68,7 @@ watchEffect(() => {
     meta.category = x.category ?? ''
     meta.tags = [...x.tags]
     meta.contextKeys = [...x.contextKeys]
+    meta.nextReviewDate = x.nextReviewDate ?? ''
     meta.visibility = x.visibility
     meta.allowedRoleIds = [...x.allowedRoleIds]
   }
@@ -128,6 +131,7 @@ async function save(status?: KnowledgeStatus) {
         contextKeys: meta.contextKeys,
         visibility: meta.visibility,
         allowedRoleIds: meta.visibility === 'restricted' ? meta.allowedRoleIds : [],
+        nextReviewDate: meta.nextReviewDate || null,
         ...(status ? { status } : {}),
       },
     })
@@ -153,6 +157,50 @@ async function feedback(helpful: boolean) {
 }
 const authorName = () =>
   [a.value.authorFirstName, a.value.authorLastName].filter(Boolean).join(' ') || 'Team'
+
+// KM-01 — uploaded documents attached to this knowledge item.
+interface Doc {
+  id: string
+  fileName: string
+  mimeType: string
+  sizeBytes: number
+  url: string | null
+}
+const { data: docsData, refresh: refreshDocs } = await useFetch<{ items: Doc[] }>(
+  `/api/knowledge/articles/${id}/attachments`,
+  { key: `knowledge-docs-${id}`, default: () => ({ items: [] }) }
+)
+const uploading = ref(false)
+const fileInput = ref<HTMLInputElement>()
+async function onFilePicked(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  uploading.value = true
+  try {
+    const fd = new FormData()
+    fd.append('file', file)
+    await $fetch(`/api/knowledge/articles/${id}/attachments`, { method: 'POST', body: fd })
+    toast.add({ title: 'Document uploaded', color: 'success' })
+    await refreshDocs()
+  } catch (err) {
+    const msg = (err as { data?: { statusMessage?: string } })?.data?.statusMessage ?? 'Failed'
+    toast.add({ title: 'Upload failed', description: msg, color: 'error' })
+  } finally {
+    uploading.value = false
+    if (fileInput.value) fileInput.value.value = ''
+  }
+}
+async function delDoc(d: Doc) {
+  if (!confirm(`Remove "${d.fileName}"?`)) return
+  await $fetch(`/api/knowledge/articles/${id}/attachments/${d.id}`, { method: 'DELETE' })
+  await refreshDocs()
+}
+const fmtSize = (b: number) =>
+  b < 1024
+    ? `${b} B`
+    : b < 1048576
+      ? `${(b / 1024).toFixed(0)} KB`
+      : `${(b / 1048576).toFixed(1)} MB`
 </script>
 
 <template>
@@ -259,6 +307,12 @@ const authorName = () =>
             <UFormField label="Category"
               ><UInput v-model="meta.category" placeholder="e.g. Delivery" class="w-full"
             /></UFormField>
+            <UFormField
+              label="Next review date"
+              hint="Managers are alerted as it approaches (KM-06)"
+            >
+              <UInput v-model="meta.nextReviewDate" type="date" class="w-full" />
+            </UFormField>
             <UFormField label="Tags">
               <div class="flex flex-wrap gap-1">
                 <UBadge
@@ -337,6 +391,61 @@ const authorName = () =>
               :label="t"
             />
           </div>
+        </UCard>
+
+        <!-- KM-01 — uploaded documents -->
+        <UCard v-if="docsData.items.length || canManage">
+          <template #header>
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-semibold text-default">Documents</h3>
+              <UButton
+                v-if="canManage"
+                size="xs"
+                variant="soft"
+                icon="i-lucide-upload"
+                :loading="uploading"
+                label="Upload"
+                @click="fileInput?.click()"
+              />
+            </div>
+          </template>
+          <input
+            ref="fileInput"
+            type="file"
+            class="hidden"
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+            @change="onFilePicked"
+          />
+          <ul v-if="docsData.items.length" class="space-y-1.5">
+            <li
+              v-for="d in docsData.items"
+              :key="d.id"
+              class="flex items-center justify-between gap-2 rounded-lg border border-default p-2 text-sm"
+            >
+              <a
+                :href="d.url ?? '#'"
+                target="_blank"
+                rel="noopener"
+                class="flex min-w-0 items-center gap-2 text-default hover:text-primary"
+              >
+                <UIcon name="i-lucide-file-text" class="size-4 shrink-0 text-muted" />
+                <span class="truncate">{{ d.fileName }}</span>
+                <span class="shrink-0 text-xs text-dimmed">{{ fmtSize(d.sizeBytes) }}</span>
+              </a>
+              <UButton
+                v-if="canManage"
+                size="xs"
+                variant="ghost"
+                color="error"
+                icon="i-lucide-x"
+                aria-label="Remove"
+                @click="delDoc(d)"
+              />
+            </li>
+          </ul>
+          <p v-else class="text-xs text-muted">
+            No documents. Upload PDF, Word, Excel, or PowerPoint files.
+          </p>
         </UCard>
       </div>
     </div>

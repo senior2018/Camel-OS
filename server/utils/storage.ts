@@ -27,6 +27,8 @@ export function useSupabaseStorage(): SupabaseClient {
 }
 
 export const OPPORTUNITY_ATTACHMENTS_BUCKET = 'opportunity-attachments'
+// KM-01 — uploaded knowledge documents. Create this private bucket in Supabase.
+export const KNOWLEDGE_DOCS_BUCKET = 'knowledge-documents'
 
 /** Default download-URL TTL: 5 minutes is enough for a click-to-download flow. */
 export const SIGNED_URL_TTL_SECONDS = 60 * 5

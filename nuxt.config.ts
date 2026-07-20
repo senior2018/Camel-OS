@@ -70,6 +70,8 @@ export default defineNuxtConfig({
         'proposals:deadline-reminders',
         'clients:grants',
         'clients:partnership-renewals',
+        // KM-06 — knowledge articles approaching / past their review date.
+        'knowledge:review-reminders',
       ],
       // Every 5 minutes — client follow-up reminders (CR-05). Reminders carry a
       // time-of-day, so we want the email to arrive close to the set time without

@@ -374,3 +374,28 @@ export async function sendTestEmail(to: string): Promise<string> {
   })
   return (res as { messageId?: string })?.messageId ?? 'sent'
 }
+
+/**
+ * Generic notification email — mirrors an in-app notification to the user's
+ * inbox. Used by createNotifications() when the user's per-category email
+ * preference is on. Best-effort at the call site (never blocks the action).
+ */
+export async function sendNotificationEmail(
+  to: string,
+  options: { title: string; body?: string | null; linkUrl?: string | null }
+): Promise<void> {
+  const base = (useRuntimeConfig().appUrl as string) || ''
+  const link = options.linkUrl ? `${base}${options.linkUrl}` : base || null
+  await getClient().transactionalEmails.sendTransacEmail({
+    sender: { name: 'Camel OS', email: getFromEmail() },
+    to: [{ email: to }],
+    subject: options.title,
+    htmlContent: `
+      <p style="font-size:16px;font-weight:600;margin:0 0 8px">${options.title}</p>
+      ${options.body ? `<p style="color:#444;margin:0 0 12px">${options.body}</p>` : ''}
+      ${link ? `<p><a href="${link}" style="color:#e2571e">Open in Camel OS</a></p>` : ''}
+      <hr style="border:none;border-top:1px solid #eee;margin:16px 0" />
+      <p style="font-size:12px;color:#999">You can adjust which emails you receive under Notifications → Preferences.</p>
+    `,
+  })
+}

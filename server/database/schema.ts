@@ -3356,6 +3356,10 @@ export const knowledgeArticles = pgTable(
     notHelpfulCount: integer('not_helpful_count').notNull().default(0),
     viewCount: integer('view_count').notNull().default(0),
     authorUserId: uuid('author_user_id').references(() => users.id, { onDelete: 'set null' }),
+    // KM-06 — when the article should next be reviewed; a scheduled task alerts
+    // knowledge managers as this date approaches, and again once it passes.
+    nextReviewDate: date('next_review_date'),
+    reviewReminderSentAt: timestamp('review_reminder_sent_at', { withTimezone: true }),
     publishedAt: timestamp('published_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -3364,6 +3368,30 @@ export const knowledgeArticles = pgTable(
     index('knowledge_articles_org_idx').on(table.organizationId),
     index('knowledge_articles_kind_idx').on(table.kind),
   ]
+)
+
+// KM-01 — uploaded documents attached to a knowledge item (the "or upload
+// documents" half of the story). Files live in the knowledge-documents bucket.
+export const knowledgeAttachments = pgTable(
+  'knowledge_attachments',
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    articleId: uuid('article_id')
+      .notNull()
+      .references(() => knowledgeArticles.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    fileName: text('file_name').notNull(),
+    mimeType: text('mime_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    storagePath: text('storage_path').notNull(),
+    uploadedByUserId: uuid('uploaded_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('knowledge_attachments_article_idx').on(table.articleId)]
 )
 
 // KM-05 — per-user feedback so ratings can't be gamed and analytics are real.
@@ -3387,7 +3415,6 @@ export const knowledgeFeedback = pgTable(
   (table) => [unique('knowledge_feedback_article_user_uq').on(table.articleId, table.userId)]
 )
 
-
 // ─── Release notes (S25, HD-04) ──────────────────────────────────────────────
 export const releaseNotes = pgTable(
   'release_notes',
@@ -3409,7 +3436,6 @@ export const releaseNotes = pgTable(
   },
   (table) => [index('release_notes_org_idx').on(table.organizationId)]
 )
-
 
 // ─── Notification preferences + API access (S26, NT-01..04 / UM) ─────────────
 // Per-user channel preferences. In-app is always on; email is opt-in per

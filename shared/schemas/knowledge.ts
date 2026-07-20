@@ -57,6 +57,13 @@ export const updateKnowledgeSchema = z.object({
   visibility: z.enum(KNOWLEDGE_VISIBILITIES).optional(),
   allowedRoleIds: z.array(z.string().uuid()).max(50).optional(),
   status: z.enum(KNOWLEDGE_STATUSES).optional(),
+  // KM-06 — schedule the next review; a task alerts managers as it approaches.
+  nextReviewDate: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullish()
+    .or(z.literal('')),
 })
 
 export const knowledgeFeedbackSchema = z.object({

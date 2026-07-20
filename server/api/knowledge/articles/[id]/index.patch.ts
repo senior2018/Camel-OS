@@ -37,6 +37,8 @@ export default defineEventHandler(async (event) => {
     ] as const) {
       if (b[k] !== undefined) set[k] = b[k]
     }
+    // KM-06 — nextReviewDate ('' clears it); updatedAt bump re-arms the reminder.
+    if (b.nextReviewDate !== undefined) set.nextReviewDate = b.nextReviewDate || null
     if (b.status === 'published' && existing.status !== 'published' && !existing.publishedAt)
       set.publishedAt = new Date()
     await db.update(knowledgeArticles).set(set).where(eq(knowledgeArticles.id, id))

@@ -39,9 +39,18 @@ export default defineEventHandler(async (event) => {
     }
     if (q.category) conds.push(eq(knowledgeArticles.category, q.category as string))
     if (q.q) {
-      const like = `%${(q.q as string).trim()}%`
+      // HD-05 — natural-language search: Postgres full-text over title/excerpt/
+      // body/tags (handles phrases + multiple terms), with an ILIKE fallback so
+      // partial/prefix matches still hit.
+      const term = (q.q as string).trim()
+      const like = `%${term}%`
       conds.push(
         or(
+          sql`to_tsvector('english',
+            coalesce(${knowledgeArticles.title}, '') || ' ' ||
+            coalesce(${knowledgeArticles.excerpt}, '') || ' ' ||
+            coalesce(${knowledgeArticles.body}, '')
+          ) @@ websearch_to_tsquery('english', ${term})`,
           ilike(knowledgeArticles.title, like),
           ilike(knowledgeArticles.excerpt, like),
           ilike(knowledgeArticles.body, like)
